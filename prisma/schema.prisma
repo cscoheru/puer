@@ -1,0 +1,866 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── 用户与认证 ───────────────────────────────
+
+model User {
+  id                 String    @id @default(cuid())
+  uid                Int?      @unique
+  username           String    @unique @db.VarChar(50)
+  nickname           String?   @db.VarChar(50) // 显示昵称，与登录用户名分离
+  email              String    @unique
+  emailVerified      DateTime?
+  passwordHash       String?
+  registrationIp     String?   @db.VarChar(45) // 注册IP
+  registrationRegion String?   @db.VarChar(100) // 注册地（省份）
+  avatar             String?
+  bio                String?   @db.Text
+  teaAge             Int? // 茶龄（年）
+  preferenceTags     String[] // 偏好标签
+  level              Int       @default(0) // 0-4
+  exp                Int       @default(0)
+  karma              Int       @default(0)
+  followerCount      Int       @default(0) // 粉丝数缓存
+  followingCount     Int       @default(0) // 关注数缓存
+  role               String    @default("user") // user | admin
+
+  // 社交状态
+  onlineStatus String @default("offline") // online | offline | busy
+  creditScore  Int    @default(100)
+  noShowCount  Int    @default(0)
+
+  // 封禁
+  banStatus String    @default("active") // active | banned
+  bannedAt  DateTime?
+  banReason String?   @db.Text
+
+  // 禁言与警告
+  muteStatus   String    @default("active") // active | muted
+  mutedUntil   DateTime?
+  muteReason   String?   @db.Text
+  warningCount Int       @default(0)
+
+  // 关联
+  accounts              Account[]
+  sessions              Session[]
+  articles              Article[]
+  comments              Comment[]
+  likes                 Like[]
+  votes                 Vote[]
+  teaReviews            TeaReview[]
+  favorites             Favorite[]
+  notifications         Notification[]
+  actions               UserAction[]
+  followedArticles      FollowedArticle[]
+  boardModerators       BoardModerator[]
+  moderateActions       ModerateAction[]
+  followers             UserFollow[]         @relation("UserFollowers")
+  following             UserFollow[]         @relation("UserFollowing")
+  teaCreated            Tea[]
+  teaSessions           TeaSession[]
+  sessionMessages       TeaSessionMessage[]
+  tastingNotes          TastingNote[]
+  sentInvitations       SessionInvitation[]  @relation("SentInvitations")
+  receivedInvitations   SessionInvitation[]  @relation("ReceivedInvitations")
+  sessionParticipations SessionParticipant[]
+  reports               Report[]             @relation("UserReports")
+  handledReports        Report[]             @relation("HandledReports")
+  announcements         Announcement[]
+  teaInventory          TeaInventoryItem[]
+  teaWishes             TeaWishItem[]
+  sentTradeRequests     TradeRequest[]       @relation("TradeRequester")
+  receivedTradeRequests TradeRequest[]       @relation("TradeResponder")
+  sentMessages          UserMessage[]        @relation("SentMessages")
+  receivedMessages      UserMessage[]        @relation("ReceivedMessages")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([karma])
+  @@index([banStatus])
+  @@index([role])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─── 茶品百科 ─────────────────────────────────
+
+model Tea {
+  id               String   @id @default(cuid())
+  name             String   @db.VarChar(200)
+  brand            String   @db.VarChar(100) // 大益、下关、陈升号...
+  year             Int
+  batch            String?  @db.VarChar(50) // 批次号
+  type             String   @db.VarChar(10) // raw | ripe
+  originRegion     String?  @db.VarChar(100)
+  weightSpec       String?  @db.VarChar(50) // 357g、200g...
+  storageCondition String?  @db.VarChar(100)
+  coverImage       String?
+  gallery          Json? // 图片数组
+  description      String?  @db.Text
+  aliases          String[] // 别名，用于模糊匹配
+
+  tastingNoteCount Int    @default(0) // 缓存品鉴笔记数
+  avgRating        Float? // 综合评分（各维度平均）
+
+  createdBy String
+  user      User   @relation(fields: [createdBy], references: [id])
+
+  articles     Article[]
+  teaSessions  TeaSession[]
+  tastingNotes TastingNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([brand, year])
+  @@index([tastingNoteCount])
+  @@map("teas")
+}
+
+// ─── 品鉴笔记 ─────────────────────────────────
+
+model TastingNote {
+  id      String  @id @default(cuid())
+  title   String  @db.VarChar(200)
+  content String  @db.Text
+  summary String? @db.VarChar(500)
+
+  // 评分（各维度 1-5）
+  appearance Int?
+  color      Int?
+  aroma      Int?
+  taste      Int?
+  aftertaste Int?
+
+  brewMethod String? @db.VarChar(20)
+  waterTemp  Int?
+  teaWeight  String? @db.VarChar(20)
+  steepCount Int?
+
+  images    Json? // ["https://oss.../img1.jpg", ...]
+  videoUrl  String? @db.VarChar(500) // 自动生成的轮播视频 URL
+  source    String  @default("evernote") // evernote | manual | import
+  sourceId  String? // Evernote GUID
+  sourceUrl String? // 原文链接
+
+  teaId String
+  tea   Tea    @relation(fields: [teaId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  comments Comment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teaId, createdAt])
+  @@index([sourceId])
+  @@map("tasting_notes")
+}
+
+// ─── 论坛版块 ─────────────────────────────────
+
+model Board {
+  id          String  @id @default(cuid())
+  name        String  @db.VarChar(50)
+  slug        String  @unique @db.VarChar(50)
+  description String? @db.VarChar(200)
+  icon        String?
+  sortOrder   Int     @default(0)
+
+  minKarma     Int       @default(0) // 发帖所需最低声望
+  postCount    Int       @default(0) // 帖子数（含回帖）
+  threadCount  Int       @default(0) // 主题数
+  lastPostedAt DateTime?
+
+  articles        Article[]
+  moderators      BoardModerator[]
+  moderateActions ModerateAction[]
+
+  createdAt DateTime @default(now())
+
+  @@map("boards")
+}
+
+model BoardModerator {
+  id         String    @id @default(cuid())
+  boardId    String
+  board      Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       String    @default("moderator") @db.VarChar(20) // moderator | deputy
+  status     String    @default("pending") @db.VarChar(20) // pending | approved | rejected
+  appliedAt  DateTime  @default(now())
+  approvedAt DateTime?
+  approvedBy String? // admin ID who approved
+  teaAge     Int? // declared tea experience (years)
+  reason     String?   @db.Text // application statement
+
+  @@unique([boardId, userId])
+  @@index([status])
+  @@map("board_moderators")
+}
+
+model ModerateAction {
+  id          String    @id @default(cuid())
+  boardId     String
+  board       Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  articleId   String
+  article     Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  requestedBy String
+  requester   User      @relation(fields: [requestedBy], references: [id]) // deputy user
+  approvedBy  String? // moderator ID who approved
+  status      String    @default("pending") @db.VarChar(20) // pending | approved | rejected
+  reason      String?   @db.Text
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([status])
+  @@index([boardId, status])
+  @@map("moderate_actions")
+}
+
+// ─── 用户留言 ─────────────────────────────────
+
+model UserMessage {
+  id         String    @id @default(cuid())
+  senderId   String
+  sender     User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId String
+  receiver   User      @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  content    String    @db.VarChar(2000)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([receiverId, readAt])
+  @@index([senderId, createdAt])
+  @@map("user_messages")
+}
+
+// ─── 内容系统 ─────────────────────────────────
+
+model Article {
+  id         String  @id @default(cuid())
+  type       String  @db.VarChar(20) // article | tasting | discussion
+  title      String  @db.VarChar(200)
+  content    String  @db.Text
+  summary    String? @db.VarChar(500)
+  // tea-draft 审校修改率基线：AI/拼装产出的原版（{title,content,summary}），
+  // 草稿创建时写入、adapt 成功后更新为 adapt 输出；人工审校只改 content/summary，
+  // 永不触碰此列 → diff(aiOriginal, 现值) = 纯人类修改。
+  aiOriginal Json?
+
+  // 论坛字段
+  boardId String?
+  board   Board?  @relation(fields: [boardId], references: [id])
+
+  isPinned      Boolean   @default(false)
+  isEssence     Boolean   @default(false)
+  essencedAt    DateTime?
+  replyCount    Int       @default(0)
+  lastRepliedAt DateTime?
+
+  // 品鉴专属字段
+  teaId         String?
+  tea           Tea?    @relation(fields: [teaId], references: [id])
+  tastingScores Json? // { appearance: 4, color: 5, aroma: 4, taste: 5, aftertaste: 4 }
+  brewMethod    String? @db.VarChar(20) // 壶泡 | 盖碗 | 煮茶
+  waterTemp     Int?
+  teaWeight     String? @db.VarChar(20)
+  steepCount    Int? // 耐泡度
+
+  flair       String?   @db.VarChar(30) // 帖子标签
+  tags        String[]
+  status      String    @default("published") // draft | published | archived | pending_review
+  visibility  String    @default("public") // public | private（仅作者/管理员可见）
+  moderation  Json? // 审核结果 {categories,confidence,reason,source};pending_review 时写入
+  moderatedBy String? // 审核管理员 id
+  moderatedAt DateTime? // 人工审核时间
+  viewCount   Int       @default(0)
+  upvotes     Int       @default(0)
+  downvotes   Int       @default(0)
+  videoUrl    String?   @db.VarChar(500) // 视频 URL（≤3分钟）
+  images      String[] // 图片库 URL 列表（按顺序）
+
+  hotOverride  String? @db.VarChar(20) // pinned | demoted | null (热榜手动控制)
+  hotSortOrder Int? // 手动排序权重（仅 pinned 帖使用）
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  moderateActions ModerateAction[]
+  comments        Comment[]
+  likes           Like[]
+  favorites       Favorite[]
+  followedBy      FollowedArticle[]
+  xhsPackages     XhsPackage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type, status, createdAt])
+  @@index([boardId, isPinned, lastRepliedAt])
+  @@index([authorId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("articles")
+}
+
+// ─── 小红书引流发布包 ─────────────────────────────────
+
+model XhsPackage {
+  id        String   @id @default(cuid())
+  articleId String   @unique
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  videoUrl  String   @db.VarChar(500)
+  hookTitle String   @db.VarChar(200)
+  caption   String   @db.Text
+  tags      String[]
+  status    String   @default("pending") // pending | posted
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@map("xhs_packages")
+}
+
+// ─── 互动系统 ─────────────────────────────────
+
+model Comment {
+  id          String    @id @default(cuid())
+  content     String    @db.Text
+  images      String[] // 评论图片 URL 列表
+  status      String    @default("published") // published | pending_review | rejected
+  moderation  Json? // 审核结果(同 Article.moderation);pending_review 时写入
+  moderatedBy String? // 审核管理员 id
+  moderatedAt DateTime? // 人工审核时间
+  parentId    String?
+
+  articleId     String?
+  article       Article?     @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tastingNoteId String?
+  tastingNote   TastingNote? @relation(fields: [tastingNoteId], references: [id], onDelete: Cascade)
+  parent        Comment?     @relation("CommentReplies", fields: [parentId], references: [id])
+  replies       Comment[]    @relation("CommentReplies")
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  likesCount Int @default(0)
+  upvotes    Int @default(0)
+  downvotes  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([articleId, createdAt])
+  @@map("comments")
+}
+
+model Like {
+  id    String @id @default(cuid())
+  type  String @db.VarChar(10) // article | comment
+  refId String // articleId or commentId
+
+  articleId String?
+  article   Article? @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, type, refId])
+  @@map("likes")
+}
+
+model Vote {
+  id        String   @id @default(cuid())
+  userId    String
+  refId     String // article.id or comment.id
+  value     Int // 1 = upvote, -1 = downvote
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, refId])
+  @@index([refId])
+  @@map("votes")
+}
+
+// ─── Follow 系统 ───────────────────────────────
+
+model FollowedArticle {
+  id        String   @id @default(cuid())
+  userId    String
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, articleId])
+  @@map("followed_articles")
+}
+
+model UserFollow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  follower    User     @relation("UserFollowers", fields: [followerId], references: [id])
+  following   User     @relation("UserFollowing", fields: [followingId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@map("user_follows")
+}
+
+model Favorite {
+  id        String  @id @default(cuid())
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, articleId])
+  @@index([articleId])
+  @@map("favorites")
+}
+
+// ─── 经验值系统 ───────────────────────────────
+
+model UserAction {
+  id          String  @id @default(cuid())
+  actionType  String  @db.VarChar(20) // login|post|comment|like|trade|tea_session
+  expGained   Int     @default(0)
+  referenceId String? // 关联的 article/comment/session ID
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("user_actions")
+}
+
+// ─── 通知系统 ───────────────────────────────
+
+model Notification {
+  id      String  @id @default(cuid())
+  type    String  @db.VarChar(30) // reply | upvote | mention | system | essence
+  content String  @db.Text
+  link    String? @db.VarChar(500) // 跳转链接
+  read    Boolean @default(false)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, read, createdAt])
+  @@map("notifications")
+}
+
+// ─── 云喝茶（Phase 2 预留）─────────────────────
+
+model TeaSession {
+  id          String  @id @default(cuid())
+  title       String  @db.VarChar(200)
+  teaName     String  @db.VarChar(200)
+  description String? @db.Text
+  coverImage  String?
+  brewMethod  String? @db.VarChar(20)
+  waterTemp   Int?
+  teaWeight   String? @db.VarChar(20)
+
+  status           String @default("inviting") // inviting | confirmed | live | ended | expired | cancelled
+  viewerCount      Int    @default(0)
+  peakViewers      Int    @default(0)
+  peakParticipants Int    @default(0)
+  teaGiftsCount    Int    @default(0)
+  steepCount       Int    @default(0)
+
+  duration        Int? // 茶会时长（分钟）
+  images          String[] // 图片 URL 数组，第一张为封面
+  maxParticipants Int?
+
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  publishedArticleId String? // 发布到论坛的 Article ID
+
+  teaId String?
+  tea   Tea?    @relation(fields: [teaId], references: [id])
+
+  hostId String
+  host   User   @relation(fields: [hostId], references: [id])
+
+  messages     TeaSessionMessage[]
+  gallery      TeaSessionGallery[]
+  invitations  SessionInvitation[]
+  participants SessionParticipant[]
+
+  createdAt DateTime @default(now())
+
+  @@index([status, scheduledAt])
+  @@map("tea_sessions")
+}
+
+model TeaSessionMessage {
+  id       String  @id @default(cuid())
+  type     String  @db.VarChar(10) // text | image | brew_log | gift | system
+  content  String? @db.Text
+  imageUrl String?
+  brewLog  Json?
+  giftType String?
+
+  sessionId String
+  session   TeaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@map("tea_session_messages")
+}
+
+model TeaSessionGallery {
+  id          String  @id @default(cuid())
+  steepNumber Int
+  imageUrl    String
+  description String?
+
+  sessionId String
+  session   TeaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("tea_session_gallery")
+}
+
+// ─── 云喝茶邀请 ─────────────────────────────
+
+model SessionInvitation {
+  id          String    @id @default(cuid())
+  sessionId   String
+  inviterId   String
+  inviteeId   String
+  status      String    @default("pending") // pending | accepted | declined
+  respondedAt DateTime?
+
+  session TeaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  inviter User       @relation("SentInvitations", fields: [inviterId], references: [id])
+  invitee User       @relation("ReceivedInvitations", fields: [inviteeId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId, inviteeId])
+  @@index([inviteeId, status])
+  @@map("session_invitations")
+}
+
+model SessionParticipant {
+  id        String    @id @default(cuid())
+  sessionId String
+  userId    String
+  enteredAt DateTime  @default(now())
+  leftAt    DateTime?
+
+  session TeaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User       @relation(fields: [userId], references: [id])
+
+  @@unique([sessionId, userId])
+  @@map("session_participants")
+}
+
+// ─── 举报系统 ─────────────────────────────────
+
+model Report {
+  id         String @id @default(cuid())
+  reporterId String
+  reporter   User   @relation("UserReports", fields: [reporterId], references: [id])
+
+  targetType String  @db.VarChar(20) // article | comment | user | session
+  targetId   String
+  reason     String  @db.Text
+  status     String  @default("pending") // pending | dismissed | actioned
+  adminNote  String? @db.Text
+
+  // 处罚信息
+  penalty         String? @db.VarChar(20) // null | warning | mute | ban
+  penaltyDuration Int? // 禁言天数（mute时使用）
+
+  handledBy String?
+  handler   User?     @relation("HandledReports", fields: [handledBy], references: [id])
+  handledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+  @@map("reports")
+}
+
+// ─── 等级配置 ─────────────────────────────────
+
+model LevelConfig {
+  id                    String   @id @default(cuid())
+  level                 Int      @unique
+  name                  String   @db.VarChar(50)
+  expRequired           Int      @default(0)
+  daysRequired          Int      @default(0)
+  postsRequired         Int      @default(0)
+  commentsLikedRequired Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("level_configs")
+}
+
+// ─── 敏感词管理 ─────────────────────────────────
+
+model SensitiveKeyword {
+  id        String   @id @default(cuid())
+  keyword   String   @unique @db.VarChar(100)
+  category  String   @default("general") @db.VarChar(30) // political | adult | gambling | drug | investment | off-topic | general
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("sensitive_keywords")
+}
+
+// ─── 公告系统 ─────────────────────────────────
+
+model Announcement {
+  id       String  @id @default(cuid())
+  title    String  @db.VarChar(200)
+  content  String  @db.Text
+  type     String  @default("info") @db.VarChar(20) // info | warning | maintenance
+  isActive Boolean @default(true)
+
+  createdBy String
+  creator   User   @relation(fields: [createdBy], references: [id])
+
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("announcements")
+}
+
+// ─── 茶品互换系统 ───────────────────────────────
+
+model TeaInventoryItem {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  brand String  @db.VarChar(100)
+  name  String? @db.VarChar(200) // 品名（如：7542、8582）
+  type  String  @default("raw") @db.VarChar(10) // raw | ripe
+  year  Int
+  spec  String  @db.VarChar(50) // 200g | 357g | 400g | 500g | 其他
+
+  remainingWeight Int // 剩余克数（含棉纸）
+  storage         String    @db.VarChar(30) // dry_high_aroma | dry_normal | home_natural | wet
+  purchaseTime    DateTime?
+  source          String    @db.VarChar(30) // factory_direct | merchant_secondary | other
+  openTime        DateTime?
+  description     String?   @db.Text
+  estimatedValue  Decimal?  @db.Decimal(10, 2) // 茶版估价（元）
+  images          String[]
+
+  validityDays Int? // User-defined validity period in days
+  expiresAt    DateTime? // Auto-calculated: createdAt + validityDays
+  hidden       Boolean   @default(false) // Only visible to owner when true
+
+  status        String         @default("active") // active | traded | deleted
+  requestCount  Int            @default(0)
+  tradeRequests TradeRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([status, requestCount])
+  @@index([brand, status])
+  @@index([type, status])
+  @@map("tea_inventory_items")
+}
+
+model TeaWishItem {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  brand String? @db.VarChar(100)
+  type  String? @db.VarChar(10)
+  year  Int?
+  spec  String? @db.VarChar(50)
+
+  acquisitionType String @db.VarChar(10) // swap | purchase
+
+  swapOfferBrand  String? @db.VarChar(100)
+  swapOfferType   String? @db.VarChar(10)
+  swapOfferYear   Int?
+  swapOfferSpec   String? @db.VarChar(50)
+  swapOfferWeight Int?
+  swapOfferDesc   String? @db.Text
+
+  offerPrice Decimal? @db.Decimal(10, 2)
+
+  images      String[] // 图片URL数组
+  description String?  @db.Text
+  status      String   @default("active") // active | fulfilled | deleted
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@map("tea_wish_items")
+}
+
+model TradeRequest {
+  id String @id @default(cuid())
+
+  requesterId String
+  requester   User   @relation("TradeRequester", fields: [requesterId], references: [id])
+  responderId String
+  responder   User   @relation("TradeResponder", fields: [responderId], references: [id])
+
+  inventoryItemId String?
+  inventoryItem   TeaInventoryItem? @relation(fields: [inventoryItemId], references: [id])
+
+  requestType String @db.VarChar(10) // swap | purchase
+
+  offerSwapBrand  String? @db.VarChar(100)
+  offerSwapType   String? @db.VarChar(10)
+  offerSwapYear   Int?
+  offerSwapSpec   String? @db.VarChar(50)
+  offerSwapWeight Int?
+  offerSwapDesc   String? @db.Text
+
+  offerPrice Decimal? @db.Decimal(10, 2)
+
+  message String? @db.Text
+
+  status      String  @default("pending") // pending | accepted | rejected | confirmed | cancelled | superseded
+  tradeMethod String? @db.VarChar(20) // self_delivery | platform_verification
+
+  round                        Int     @default(0) // Counter-offer round 0-2
+  lastReplyBy                  String? @db.VarChar(10) // requester | responder
+  requesterConfirmedDisclaimer Boolean @default(false)
+  responderConfirmedDisclaimer Boolean @default(false)
+
+  replies TradeRequestReply[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([responderId, status])
+  @@index([requesterId, status])
+  @@index([inventoryItemId])
+  @@map("trade_requests")
+}
+
+model TradeRequestReply {
+  id             String       @id @default(cuid())
+  tradeRequestId String
+  tradeRequest   TradeRequest @relation(fields: [tradeRequestId], references: [id], onDelete: Cascade)
+
+  replyBy   String @db.VarChar(10) // requester | responder
+  replyType String @db.VarChar(15) // message | counter_offer
+
+  offerSwapBrand  String? @db.VarChar(100)
+  offerSwapType   String? @db.VarChar(10)
+  offerSwapYear   Int?
+  offerSwapSpec   String? @db.VarChar(50)
+  offerSwapWeight Int?
+  offerSwapDesc   String? @db.Text
+
+  offerPrice Decimal? @db.Decimal(10, 2)
+
+  message   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([tradeRequestId, createdAt])
+  @@map("trade_request_replies")
+}
+
+// 茶图人工鉴定单 — AI 视觉比对置信不足时自动创建,用户也可手动提交;
+// 与 rag-service 的 visual.best 结论联动(见 src/app/api/qa/route.ts)
+model TeaReview {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  question     String    @db.VarChar(500)
+  imageUrls    String[] // /uploads/forum/... 已经过 qa route 白名单校验
+  source       String    @default("manual") // manual | auto(低置信自动送审)
+  aiAnswer     String?   @db.Text
+  aiVerdict    String?   @db.VarChar(40) // same_product | same_series_variant | different_product | uncertain
+  aiConfidence Float?
+  aiSkuName    String?   @db.VarChar(200) // 最佳匹配条目名(展示用)
+  status       String    @default("pending") // pending | reviewed
+  reviewNote   String?   @db.Text // 人工鉴定意见
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@map("tea_reviews")
+}

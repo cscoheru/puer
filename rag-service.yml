@@ -1,0 +1,25 @@
+# rag-service: internal-only RAG Q&A (Python FastAPI). Standalone override —
+# the app/ws deploy flow never touches this service.
+services:
+  rag-service:
+    image: puer-rag-service:current
+    container_name: puer-hub-rag-service
+    restart: unless-stopped
+    environment:
+      RAG_DATA_DIR: /data
+      RAG_SERVICE_TOKEN: ${RAG_SERVICE_TOKEN}
+      RAG_PROVIDER: ${RAG_PROVIDER:-glm}
+      RAG_ANSWER_PROVIDER: ${RAG_ANSWER_PROVIDER:-}
+      RAG_OCR_PROVIDER: ${RAG_OCR_PROVIDER:-glm}
+      RAG_PUBLIC_BASE: http://app:3000
+      RAG_USE_EMBED: "false"
+      ANTHROPIC_TEACHER_TOKEN: ${ANTHROPIC_TEACHER_TOKEN:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - ./rag-data:/data:ro
+      - ./uploads:/host-uploads:ro
+    networks:
+      - puer-net

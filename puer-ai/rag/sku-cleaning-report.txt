@@ -1,0 +1,13 @@
+drop garbage rows: 37
+改制前 intra-sheet exact dups removed: 0
+改制前 dual-sheet: main 489, dup-sheet uniques kept 3, price conflicts (main wins, logged): 2
+TOTAL clean records: 942 (from 1449)
+year range: 1910-2025, missing year: 1
+missing any price: 5
+
+== price conflicts (authoritative sheet first) ==
+  1950大字红印（纯干仓/干仓） 50: 408000 vs 552500
+  百年陈云号白纸蓝标（干仓） 10: 546000 vs 510000
+
+== missing-year names ==
+  20013年甲级紫大益青饼小R ( 版二 )

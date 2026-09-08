@@ -1,0 +1,90 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ws-server build output
+/ws-server/dist/
+/ws-server/.next/
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+/.releases/
+/uploads/
+/.serena/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+/src/generated/prisma
+
+# watermark batch processing
+/scripts/.watermark-done.json
+/backups/
+
+# user-uploaded assets inside public/ (next.js public dir)
+/public/uploads/
+
+# evernote raw export (source material, 3k+ files - processed into public/uploads on server)
+/evernote_export/
+/export_images.log
+
+# promo site build output
+/docs/promo/.next/
+
+# server-side staging scratch (files already merged into src/)
+/w1-staging/
+
+# python artifacts
+__pycache__/
+*.pyc
+
+# rag-src (茶问 RAG backend): precomputed embeddings + server git history bundle
+/rag-src/v20-w1/out/
+/rag-src/.git-history.bundle
+/rag-src/donghe-images
+/rag-src/donghe-skus.jsonl
+
+# puer-ai (茶问 AI 工作区): datasets, model checkpoints, image caches
+/puer-ai/rag/rag-data/
+/puer-ai/rag/donghe-images/
+/puer-ai/rag/extracted-media/
+/puer-ai/rag/ocr-render/
+*.npy
+/puer-ai/m2-artifacts/v*/
+/puer-ai/m2-artifacts/*.safetensors
+/puer-ai/m2-upload.tar.gz
+/puer-ai/data-engine/dataset_v*/
+/puer-ai/data-engine/img-cache/
+/puer-ai/data-engine/*.tar.gz

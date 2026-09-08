@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Backups (manually-timestamped rollback snapshots)
+*.bak-*
+*.bak
+
+# Build/runtime logs
+*.log
+
+# Historical version snapshots (v1..v19 — superseded; only v20-w1-base/ is live)
+v[1-9]/
+v1[0-9]/
+
+# Binary / large asset directories
+donghe-images/
+donghe-img-failed.txt
+donghe-skus.jsonl.bak-*
+
+# Stale top-level copies (pre-W2; live source is v20-w1-base/)
+# Confirmed: Dockerfile in v20-w1-base/service/ COPYs from build context only,
+# these root-level files are NOT used by the live container.
+/visual_match.py
+/rag_pipeline.py
+/teacher_api.py
+/retriever.py
+/rag/
+
+# Build outputs (regenerable; production assets live in /opt/puer-hub/rag-data/)
+/out/
+**/out/

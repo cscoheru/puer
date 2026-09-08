@@ -1,0 +1,15 @@
+node_modules
+.next
+evernote_export
+src/generated
+.git
+ws-server
+*.log
+.env
+.env.local
+.DS_Store
+
+# T8: runtime bind-mount data + backups are NOT build inputs
+uploads
+public/uploads
+backups

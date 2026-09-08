@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+requests
+Pillow
+numpy
+onnxruntime
+# visual comparison stage: onnxruntime CPU + numpy only (~250MB); torch stays
+# out — models/npy are bind-mounted via rag-data (see export_onnx.py)
+# sentence-transformers + torch: still bigram-only for text embed (RAG_USE_EMBED)

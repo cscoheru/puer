@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>象棋 AI - 皮卡鱼引擎</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #1a1a1a;
+    color: #e8e8e8;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 12px; text-align: center; }
+  .subtitle { text-align: center; color: #888; font-size: 13px; margin-bottom: 16px; }
+
+  .game-area {
+    display: grid;
+    grid-template-rows: auto auto;
+    gap: 16px;
+    align-items: start;
+  }
+  .game-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 760px) {
+    .game-top { grid-template-columns: 1fr; gap: 10px; }
+  }
+
+  /* ── Mobile-first touches (≤ 760px) ─────────────────────────────── */
+  @media (max-width: 760px) {
+    body { padding: 8px; font-size: 14px; }
+    .container { max-width: 100%; }
+    h1 { font-size: 18px; margin-bottom: 6px; }
+    .subtitle { font-size: 11px; margin-bottom: 10px; }
+
+    .board-wrap {
+      padding: 6px;
+      max-width: 100%;
+    }
+    .panel { padding: 12px; }
+    .hint { font-size: 11px; padding: 6px 8px; margin-bottom: 8px; }
+    .rank-badge { font-size: 12px; padding: 3px 10px; margin-bottom: 8px; }
+
+    /* Apple HIG: 44px minimum tap target, larger gaps for thumbs */
+    .controls button,
+    .action-row button,
+    .mode-tabs button {
+      padding: 11px 10px;
+      font-size: 13px;
+      min-height: 40px;
+      flex: 1;
+    }
+    .controls { gap: 6px; }
+    .action-row { gap: 6px; }
+
+    /* Side buttons stack nicely on narrow screens */
+    #playControls .slider-row > div { flex-wrap: wrap; }
+    #playControls .slider-row > div button { flex: 1; min-height: 40px; }
+
+    /* Eval bar taller on mobile for visibility */
+    .eval-bar { height: 20px; }
+    .eval-score { font-size: 15px; margin-top: 8px; }
+    .eval-bar-labels { font-size: 12px; }
+
+    /* AI suggestion lines — punchier on small screens */
+    .pv-line { font-size: 11px; padding: 7px 8px; gap: 6px; }
+    .pv-line .move-cn { font-size: 14px; }
+    .pv-line .rank { font-size: 11px; min-width: 50px; }
+    .pv-line .purpose { font-size: 10px; padding: 1px 6px; }
+
+    .deep-header { margin: 10px 0 8px 0; }
+    .deep-move { padding: 8px 10px; font-size: 12px; gap: 8px; }
+    .deep-move .mv-cn { font-size: 14px; }
+    .deep-moves { max-height: 240px; }
+
+    /* Collapsible history bar — easier to thumb-expand */
+    .move-history-bar { padding: 0 12px; }
+    .move-history-toggle { padding: 12px 0; font-size: 13px; }
+    .move-history-bar .move-list { max-height: 100px; font-size: 11px; }
+
+    .history-list { max-height: 140px; }
+    .hist-item { padding: 5px 4px; font-size: 11px; gap: 6px; }
+
+    /* Result overlay — fits small screens */
+    .result-card { padding: 24px 28px; min-width: 240px; }
+    .result-title { font-size: 38px; }
+    .result-actions button { padding: 10px 16px; font-size: 13px; }
+  }
+
+  /* Touch-friendly: kill 300ms tap delay + disable double-tap zoom */
+  @media (hover: none) and (pointer: coarse) {
+    button, canvas, input { touch-action: manipulation; }
+  }
+
+  .analysis-center h2 {
+    text-align: center;
+    color: #fbbf24;
+  }
+  .analysis-deep .deep-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 16px 0 10px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #444;
+  }
+  .analysis-deep .deep-title { color: #fbbf24; font-weight: bold; font-size: 14px; }
+  .analysis-deep .deep-info {
+    background: #1a1a1a;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #aaa;
+    margin-bottom: 8px;
+  }
+  .analysis-deep .deep-info .eval { color: #4ade80; font-weight: bold; }
+  .analysis-deep .deep-moves {
+    background: #1a1a1a;
+    border-radius: 6px;
+    padding: 6px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .deep-move {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-bottom: 1px solid #2a2a2a;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .deep-move:last-child { border-bottom: none; }
+  .deep-move:hover { background: #2a2a2a; }
+  .deep-move.active { background: rgba(217,119,6,0.2); border-left: 3px solid #d97706; padding-left: 7px; }
+  .deep-move .num { color: #888; min-width: 22px; }
+  .deep-move .side-tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; min-width: 28px; text-align: center; }
+  .deep-move .red-tag { background: rgba(248,113,113,0.2); color: #f87171; }
+  .deep-move .black-tag { background: rgba(147,197,253,0.2); color: #93c5fd; }
+  .deep-move .mv-cn { color: #e8e8e8; font-weight: bold; font-family: -apple-system, "PingFang SC", sans-serif; }
+  .deep-move .mv-uci { color: #666; font-size: 10px; margin-left: auto; }
+  .deep-tip { font-size: 11px; color: #666; margin-top: 8px; text-align: center; }
+
+  /* 折叠的走棋记录 */
+  .move-history-bar {
+    background: #252525;
+    border-radius: 8px;
+    padding: 0 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .move-history-toggle {
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: #fbbf24;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 12px 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .move-history-toggle:hover { background: transparent; border: none; }
+  .toggle-arrow { display: inline-block; transition: transform 0.2s; font-size: 10px; color: #888; }
+  .move-history-bar.expanded .toggle-arrow { transform: rotate(90deg); }
+  .move-history-bar .move-list {
+    background: #1a1a1a;
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 12px;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+
+  .board-wrap {
+    background: #f0d9a8;
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    aspect-ratio: 9 / 10;
+    max-width: 640px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+
+  .panel {
+    background: #252525;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .panel h2 { font-size: 15px; margin-bottom: 12px; color: #fbbf24; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  button {
+    background: #3a3a3a;
+    color: #e8e8e8;
+    border: 1px solid #444;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  button:hover { background: #4a4a4a; border-color: #666; }
+  button.primary { background: #d97706; border-color: #f59e0b; }
+  button.primary:hover { background: #f59e0b; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .mode-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .mode-tabs button { flex: 1; }
+  .mode-tabs button.active { background: #d97706; border-color: #f59e0b; }
+
+  .slider-row { margin-bottom: 12px; }
+  .slider-row label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; color: #aaa; }
+  input[type=range] { width: 100%; accent-color: #d97706; }
+
+  .status {
+    background: #1a1a1a;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    min-height: 24px;
+  }
+  .status.thinking { color: #fbbf24; }
+  .status .score { color: #4ade80; font-weight: bold; }
+
+  .move-list {
+    background: #1a1a1a;
+    border-radius: 6px;
+    padding: 10px;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.6;
+  }
+  .move-list .move-num { color: #888; margin-right: 4px; }
+  .move-list .red { color: #f87171; }
+  .move-list .black { color: #93c5fd; }
+
+  .pv-list { margin-top: 8px; }
+  .pv-line {
+    background: #1a1a1a;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+    margin-bottom: 4px;
+    color: #aaa;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .pv-line.repeat { background: #2a1515; border-left: 3px solid #ef4444; }
+  .pv-line .rank { color: #fbbf24; font-weight: bold; min-width: 60px; }
+  .pv-line .eval { color: #4ade80; font-weight: bold; min-width: 50px; }
+  .pv-line .move-cn { color: #e8e8e8; font-weight: bold; font-size: 14px; font-family: -apple-system, "PingFang SC", sans-serif; }
+  .pv-line .move-uci { color: #888; font-size: 10px; }
+  .pv-line .rep-flag { color: #ef4444; font-weight: bold; font-size: 11px; background: rgba(239,68,68,0.15); padding: 2px 6px; border-radius: 3px; }
+  .pv-line .purpose {
+    color: #93c5fd; font-size: 11px; background: rgba(59,130,246,0.15);
+    padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(59,130,246,0.3);
+    font-family: -apple-system, "PingFang SC", sans-serif;
+  }
+  .pv-line .deep-hint {
+    color: #6b7280; font-size: 10px; margin-left: auto;
+    padding: 2px 8px; border: 1px solid #333; border-radius: 8px;
+    transition: all 0.15s;
+  }
+  .pv-line:hover .deep-hint { color: #fbbf24; border-color: #f59e0b; background: rgba(245,158,11,0.1); }
+  .pv-line:hover { background: #303030; }
+
+  /* Evaluation bar — horizontal bar showing red vs black advantage */
+  .eval-bar-wrap { margin-bottom: 12px; }
+  .eval-bar-labels { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; color: #888; }
+  .eval-bar {
+    position: relative; height: 22px; background: #93c5fd; border-radius: 4px;
+    overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .eval-fill {
+    position: absolute; top: 0; left: 0; height: 100%;
+    background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+    transition: width 0.6s ease;
+  }
+  .eval-mid { position: absolute; top: 0; left: 50%; width: 1px; height: 100%; background: rgba(255,255,255,0.5); }
+  .eval-score {
+    text-align: center; font-size: 13px; margin-top: 6px; font-weight: bold;
+    min-height: 18px;
+  }
+  .eval-score .eval-red { color: #f87171; }
+  .eval-score .eval-black { color: #93c5fd; }
+  .eval-score .eval-mate { color: #fbbf24; }
+  .eval-score .eval-even { color: #888; }
+
+  .hint {
+    background: #1f2937;
+    border-left: 3px solid #3b82f6;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #93c5fd;
+    margin-bottom: 12px;
+  }
+
+  .rank-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #d97706, #f59e0b);
+    color: #1a1a1a;
+    font-weight: bold;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+
+  .user-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 8px 0;
+    font-size: 13px;
+  }
+  .user-bar .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #444; overflow: hidden;
+    border: 1px solid #555;
+  }
+  .user-bar .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .user-bar .uname { color: #fbbf24; font-weight: 600; }
+  .user-bar .ulvl { color: #888; font-size: 11px; }
+  .user-bar .login-btn {
+    background: #d97706; color: #1a1a1a; border: none;
+    padding: 6px 14px; border-radius: 6px; font-weight: 600;
+    text-decoration: none; cursor: pointer;
+  }
+  .user-bar .login-btn:hover { background: #f59e0b; }
+
+  /* Lobby */
+  .lobby-status {
+    text-align: center; font-size: 12px; padding: 6px 0;
+    color: #aaa; min-height: 18px;
+  }
+  .lobby-status.waiting { color: #fbbf24; }
+  .lobby-status.error { color: #f87171; }
+  .lobby-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .lobby-actions button { font-size: 12px; padding: 8px; }
+  .lobby-actions button#btnChallengeAny { grid-column: span 2; }
+  .lobby-actions button#btnChallengeCancel { grid-column: span 2; background: #7f1d1d; border-color: #991b1b; }
+  .lobby-list {
+    background: #1a1a1a; border-radius: 6px; padding: 6px;
+    max-height: 240px; overflow-y: auto;
+  }
+  .lobby-empty { color: #666; font-size: 11px; text-align: center; padding: 12px 0; }
+  .lobby-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 6px; border-bottom: 1px solid #2a2a2a; font-size: 12px;
+  }
+  .lobby-row:last-child { border-bottom: none; }
+  .lobby-row .lr-name { flex: 1; color: #e8e8e8; font-weight: 600; }
+  .lobby-row .lr-rank { color: #fbbf24; font-size: 11px; }
+  .lobby-row .lr-side { font-size: 10px; padding: 1px 6px; border-radius: 3px; }
+  .lobby-row .lr-side.red { background: rgba(248,113,113,0.2); color: #f87171; }
+  .lobby-row .lr-side.black { background: rgba(147,197,253,0.2); color: #93c5fd; }
+  .lobby-row .lr-side.any { background: rgba(251,191,36,0.2); color: #fbbf24; }
+  .lobby-row .lr-accept {
+    background: #16a34a; color: #fff; border: none;
+    padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  }
+  .lobby-row.me { background: rgba(217,119,6,0.1); }
+  .opp-info {
+    background: rgba(59,130,246,0.1); border-left: 3px solid #3b82f6;
+    padding: 6px 10px; margin-bottom: 8px; font-size: 12px; color: #93c5fd;
+    border-radius: 4px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .opp-info .opp-label { color: #888; }
+  .opp-info .opp-name { color: #93c5fd; font-weight: 600; }
+  .opp-info .opp-rank { color: #fbbf24; font-size: 11px; }
+  .opp-info .opp-side { color: #fde68a; }
+
+  /* User badge */
+  .user-bar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; padding: 4px 0; font-size: 12px; }
+  .user-bar .user-avatar {
+    width: 24px; height: 24px; border-radius: 50%; overflow: hidden;
+    background: #374151; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #fbbf24; font-weight: 700;
+  }
+  .user-bar .user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .user-bar .user-name { color: #fbbf24; font-weight: 600; }
+  .user-bar .user-rank { color: #888; font-size: 11px; }
+  .user-bar .user-login-link { color: #fbbf24; text-decoration: none; padding: 4px 10px; border: 1px solid #f59e0b; border-radius: 4px; }
+  .user-bar .user-login-link:hover { background: rgba(245, 158, 11, 0.15); }
+  .user-bar .user-loading { color: #888; }
+
+  /* Lobby list rows */
+  .lobby-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-bottom: 1px solid #2a2a2a; font-size: 12px;
+  }
+  .lobby-row .lobby-name { flex: 1; color: #e8e8e8; font-weight: 600; }
+  .lobby-row .lobby-rank { color: #fbbf24; font-size: 11px; }
+  .lobby-row .lobby-side { font-size: 10px; padding: 1px 6px; border-radius: 3px;
+    background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .lobby-row .lobby-accept-btn {
+    padding: 4px 10px; font-size: 11px; background: #15803d; border: 1px solid #16a34a;
+    color: #fff; border-radius: 3px; cursor: pointer;
+  }
+  .lobby-row .lobby-accept-btn:hover { background: #16a34a; }
+  .lobby-empty { color: #666; font-size: 11px; text-align: center; padding: 12px 0; list-style: none; }
+
+  /* Lobby actions (create/wait) */
+  .lobby-actions { margin-bottom: 8px; }
+  .lobby-create {
+    display: flex; gap: 6px; align-items: center; justify-content: center;
+    font-size: 12px; color: #aaa;
+  }
+  .lobby-create .lobby-side-btn {
+    padding: 8px 12px; font-size: 12px; background: #1f2937; border: 1px solid #374151;
+    color: #fde68a; border-radius: 4px; cursor: pointer;
+  }
+  .lobby-create .lobby-side-btn:hover { background: #374151; }
+  .lobby-waiting {
+    display: flex; gap: 10px; align-items: center; justify-content: center;
+    padding: 8px; background: rgba(217,119,6,0.1); border-radius: 4px; font-size: 12px; color: #fbbf24;
+  }
+  .lobby-waiting .lobby-cancel-btn {
+    padding: 4px 10px; font-size: 11px; background: #7f1d1d; border: 1px solid #991b1b;
+    color: #fecaca; border-radius: 3px; cursor: pointer;
+  }
+  .spinner {
+    width: 14px; height: 14px; border: 2px solid #fbbf24; border-top-color: transparent;
+    border-radius: 50%; display: inline-block; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Draw prompt (P2P) */
+  .draw-prompt {
+    display: flex; gap: 6px; align-items: center; padding: 6px 8px; margin-left: 6px;
+    background: rgba(59,130,246,0.15); border-radius: 4px; font-size: 12px; color: #93c5fd;
+  }
+  .draw-prompt .draw-accept { padding: 4px 10px; font-size: 11px; background: #15803d; color: #fff; border: none; border-radius: 3px; cursor: pointer; }
+  .draw-prompt .draw-decline { padding: 4px 10px; font-size: 11px; background: #7f1d1d; color: #fecaca; border: none; border-radius: 3px; cursor: pointer; }
+
+  /* Board shake animation when game ends */
+  @keyframes board-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+  .board-wrap.game-over-shake {
+    animation: board-shake 0.45s ease-in-out;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .action-row button.danger { background: #7f1d1d; border-color: #991b1b; color: #fecaca; }
+  .action-row button.danger:hover { background: #991b1b; }
+  .action-row button.warn { background: #78350f; border-color: #92400e; color: #fde68a; }
+  .action-row button.warn:hover { background: #92400e; }
+
+  .history-list {
+    background: #1a1a1a;
+    border-radius: 6px;
+    padding: 8px;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .hist-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-bottom: 1px solid #2a2a2a;
+    font-size: 12px;
+  }
+  .hist-item:last-child { border-bottom: none; }
+  .hist-res { font-weight: bold; min-width: 16px; }
+  .hist-rank { color: #fbbf24; font-size: 11px; min-width: 40px; }
+  .hist-info { color: #aaa; flex: 1; font-size: 11px; }
+  .hist-time { color: #666; font-size: 10px; }
+
+  /* Result overlay */
+  .result-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+  }
+  .result-overlay.show { display: flex; animation: fadeIn 0.3s; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes popIn {
+    0% { transform: scale(0.5); opacity: 0; }
+    60% { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(1); }
+  }
+  .result-card {
+    background: #252525;
+    border-radius: 12px;
+    padding: 32px 48px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    animation: popIn 0.5s;
+    border-top: 4px solid #444;
+    min-width: 280px;
+  }
+  .result-overlay.win .result-card { border-top-color: #4ade80; }
+  .result-overlay.lose .result-card { border-top-color: #f87171; }
+  .result-overlay.draw .result-card { border-top-color: #fbbf24; }
+  .result-title {
+    font-size: 48px;
+    font-weight: 900;
+    margin-bottom: 8px;
+    letter-spacing: 4px;
+  }
+  .result-overlay.win .result-title { color: #4ade80; text-shadow: 0 0 20px rgba(74,222,128,0.5); }
+  .result-overlay.lose .result-title { color: #f87171; text-shadow: 0 0 20px rgba(248,113,113,0.5); }
+  .result-overlay.draw .result-title { color: #fbbf24; }
+  .result-sub {
+    font-size: 16px;
+    color: #ccc;
+    margin-bottom: 16px;
+  }
+  .result-rank {
+    font-size: 14px;
+    color: #fbbf24;
+    background: rgba(251,191,36,0.1);
+    padding: 6px 14px;
+    border-radius: 16px;
+    display: inline-block;
+    margin-bottom: 20px;
+    font-weight: bold;
+  }
+  .result-actions { margin-top: 16px; }
+  .result-actions button {
+    padding: 10px 20px;
+    margin: 0 6px;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>象棋 AI 推演台</h1>
+  <div class="subtitle">基于皮卡鱼引擎 · UCI 协议 · 棋力远超人类特级大师</div>
+
+  <div class="user-bar" id="userBar">
+    <span class="user-loading">检查登录状态...</span>
+  </div>
+
+  <div class="game-area">
+    <div class="game-top">
+      <div class="board-wrap">
+        <canvas id="board" width="540" height="600"></canvas>
+      </div>
+
+      <div>
+        <div class="panel">
+          <div class="hint">
+            点击棋子选中，再点击目标位置走棋。AI 会自动回应。
+          </div>
+
+          <div class="rank-badge" id="rankBadge">当前段位: 2-2</div>
+
+          <div class="mode-tabs">
+            <button class="active" data-mode="play-ai" onclick="setMode('play-ai')">人机对弈</button>
+            <button data-mode="play-p2p" onclick="setMode('play-p2p')">棋友对局</button>
+            <button data-mode="analyze" onclick="setMode('analyze')">局面分析</button>
+          </div>
+
+          <!-- 棋友对局大厅 -->
+          <div id="lobbyBox" style="display:none">
+            <h2 style="margin:8px 0;color:#fbbf24;text-align:center;font-size:14px">棋友大厅</h2>
+            <div id="lobbyStatus" class="lobby-status"></div>
+            <div id="lobbyActions" class="lobby-actions"></div>
+            <h3 style="margin:12px 0 6px;font-size:12px;color:#aaa">在线挑战</h3>
+            <div class="lobby-list">
+              <ul id="lobbyList" style="list-style:none;padding:0;margin:0">
+                <li class="lobby-empty">暂无挑战，点击上方按钮发起</li>
+              </ul>
+            </div>
+          </div>
+
+          <div id="oppInfo" class="opp-info" style="display:none"></div>
+
+          <div class="slider-row">
+            <label>AI 思考深度 <span id="depthVal">8</span> <span style="color:#666;font-size:11px">(数值越低越弱，6=入门 12=中级 18+ =高手)</span></label>
+            <input type="range" id="depth" min="6" max="24" value="8" oninput="document.getElementById('depthVal').textContent=this.value">
+          </div>
+
+          <div id="playControls">
+            <div class="slider-row">
+              <label>执棋方</label>
+              <div style="display:flex;gap:4px">
+                <button class="primary" id="sideRed" onclick="setSide('red')">红方（先手）</button>
+                <button id="sideBlack" onclick="setSide('black')">黑方</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="status" id="status">轮到红方走棋</div>
+
+          <div class="eval-bar-wrap">
+            <div class="eval-bar-labels">
+              <span style="color:#f87171">红方</span>
+              <span style="color:#93c5fd">黑方</span>
+            </div>
+            <div class="eval-bar">
+              <div class="eval-fill" id="evalFill" style="width:50%"></div>
+              <div class="eval-mid"></div>
+            </div>
+            <div class="eval-score" id="evalScore"><span class="eval-even">均势</span></div>
+          </div>
+
+          <!-- AI 推演（紧贴评估条下方，居中显示）-->
+          <div id="analysisBox" class="analysis-center" style="display:none">
+            <h2 style="margin-top:12px;text-align:center" id="analysisTitle">AI 推演 · 点击展开深度推演</h2>
+            <div class="pv-list" id="pvList"></div>
+          </div>
+
+          <!-- 深度推演模式 -->
+          <div id="analysisDeep" class="analysis-deep" style="display:none">
+            <div class="deep-header">
+              <button onclick="exitDeepAnalysis()">← 返回</button>
+              <span class="deep-title">深度推演</span>
+              <button class="primary" onclick="continueAnalysis()">继续推演</button>
+            </div>
+            <div class="deep-info" id="deepInfo"></div>
+            <div class="deep-moves" id="deepMoves"></div>
+            <div class="deep-tip">点击任一步查看该步盘面 · 当前显示为推演第 <span id="deepStep">0</span> 步</div>
+          </div>
+
+          <div class="controls">
+            <button onclick="undo()">悔棋</button>
+            <button onclick="hintMove()">提示走法</button>
+            <button onclick="resetGame()">重新开始</button>
+            <button onclick="flipBoard()" id="flipBtn">翻转棋盘</button>
+            <button onclick="toggleSound()" id="soundBtn">声音: 开</button>
+          </div>
+
+          <div class="action-row">
+            <button class="warn" onclick="offerDraw()">提和</button>
+            <button class="danger" onclick="resign()">认输</button>
+            <button class="danger" onclick="flee()">逃跑</button>
+          </div>
+
+          <h2 style="margin-top:16px">下棋历史</h2>
+          <div class="history-list" id="historyList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 走棋记录（可折叠，全宽）-->
+    <div class="move-history-bar" id="moveHistoryBar">
+      <button class="move-history-toggle" onclick="toggleMoveHistory()">
+        <span class="toggle-arrow" id="moveHistoryArrow">▶</span>
+        走棋记录 · <span id="moveCount">0</span> 手
+      </button>
+      <div class="move-list" id="moveList" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<div class="result-overlay" id="resultOverlay">
+  <div class="result-card">
+    <div class="result-title">胜</div>
+    <div class="result-sub"></div>
+    <div class="result-rank"></div>
+    <div class="result-actions">
+      <button class="primary" onclick="resetGame()">再来一局</button>
+      <button onclick="hideResultOverlay()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="/pikafish/game.js?v=20260614v17"></script>
+</body>
+</html>

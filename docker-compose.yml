@@ -1,0 +1,158 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: puer-hub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: puerhub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-TeaHub2026Secure}
+      POSTGRES_DB: puerhub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - puer-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U puerhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: puer-hub-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-puerhub}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-MinioHub2026Secure}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9005:9000"
+      - "9006:9001"
+    networks:
+      - puer-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot bucket setup
+  minio-setup:
+    image: minio/mc:latest
+    container_name: puer-hub-minio-setup
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-puerhub} ${MINIO_ROOT_PASSWORD:-MinioHub2026Secure}; do sleep 1; done &&
+      mc mb local/puer-hub --ignore-existing &&
+      mc anonymous set download local/puer-hub &&
+      echo 'Bucket ready'
+      "
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - puer-net
+
+  app:
+    build: .
+    container_name: puer-hub-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://puerhub:${DB_PASSWORD:-TeaHub2026Secure}@postgres:5432/puerhub
+      AUTH_SECRET: ${AUTH_SECRET:-puer-hub-prod-change-me}
+      AUTH_URL: https://puer.im
+      NEXT_PUBLIC_APP_URL: https://puer.im
+      NEXT_PUBLIC_APP_NAME: 普洱茶社
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: puer-hub
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-puerhub}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-MinioHub2026Secure}
+      NEXT_PUBLIC_MINIO_URL: https://puer.im/minio
+      NEXT_PUBLIC_WS_URL: wss://puer.im
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      RAG_SERVICE_URL: http://rag-service:8000
+      RAG_SERVICE_TOKEN: ${RAG_SERVICE_TOKEN:-}
+    volumes:
+      - ./uploads/forum:/app/public/uploads/forum
+      - ./uploads/videos:/app/public/uploads/videos
+      - ./uploads/sessions:/app/public/uploads/sessions
+      - ./uploads/inventory:/app/public/uploads/inventory
+      - ./uploads/collected:/app/public/uploads/collected
+      - ./evernote_export/images:/app/public/uploads/evernote:ro
+      - ./scripts/auto-post.mjs:/app/scripts/auto-post.mjs:ro
+      - ./src/lib/tea-drafts:/app/src/lib/tea-drafts:ro
+      - ./scripts/auto-reply.mjs:/app/scripts/auto-reply.mjs:ro
+      - ./scripts/auto-vote.mjs:/app/scripts/auto-vote.mjs:ro
+    ports:
+      - "3002:3000"
+    networks:
+      - puer-net
+
+  # Internal-only RAG Q&A service (Python FastAPI; image managed by
+  # puer-ai/rag/deploy-rag.sh — not part of deploy.sh app/ws flow).
+  # Data assets bind-mount from ./rag-data (see puer-ai rag/service docs).
+  rag-service:
+    image: puer-rag-service:${RAG_TAG:-latest}
+    container_name: puer-hub-rag-service
+    restart: unless-stopped
+    environment:
+      RAG_DATA_DIR: /data
+      RAG_SERVICE_TOKEN: ${RAG_SERVICE_TOKEN:-dev-secret}
+      RAG_PROVIDER: ${RAG_PROVIDER:-glm}
+      RAG_ANSWER_PROVIDER: ${RAG_ANSWER_PROVIDER:-}
+      RAG_OCR_PROVIDER: ${RAG_OCR_PROVIDER:-glm}
+      RAG_PUBLIC_BASE: http://app:3000
+      RAG_USE_EMBED: "false"
+      ANTHROPIC_TEACHER_TOKEN: ${ANTHROPIC_TEACHER_TOKEN:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - ./rag-data:/data:ro
+      - ./uploads:/host-uploads:ro
+    networks:
+      - puer-net
+    # no ports: reachable only on puer-net by the app container
+
+  ws-server:
+    build: ./ws-server
+    container_name: puer-hub-ws
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://puerhub:${DB_PASSWORD:-TeaHub2026Secure}@postgres:5432/puerhub
+      AUTH_SECRET: ${AUTH_SECRET:-puer-hub-prod-change-me}
+      WS_PORT: "3011"
+      CORS_ORIGIN: https://puer.im
+      NEXT_PUBLIC_GOOGLE_VERIFICATION: ${GOOGLE_VERIFICATION:-}
+    ports:
+      - "3011:3011"
+    volumes:
+      - ./scripts/auto-vote.mjs:/app/scripts/auto-vote.mjs:ro
+      - ./scripts/auto-essence.mjs:/app/scripts/auto-essence.mjs:ro
+    networks:
+      - puer-net
+
+volumes:
+  pgdata:
+  forum-uploads:
+  video-uploads:
+  session-uploads:
+  inventory-uploads:
+  minio-data:
+
+networks:
+  puer-net:
+    driver: bridge

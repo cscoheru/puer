@@ -1,0 +1,24 @@
+{
+  "source": "tieba",
+  "collected_at": "2026-06-02T22:44:31.485767",
+  "total_articles": 1,
+  "articles": [
+    {
+      "source_url": "https://tieba.baidu.com/p/10660525526",
+      "source_id": "10660525526",
+      "title": "帖子 10660525526",
+      "author": "",
+      "content_html": "",
+      "images": [],
+      "comments": [],
+      "published_at": "",
+      "tags": [],
+      "view_count": 0,
+      "reply_count": 0,
+      "is_essence": true,
+      "extra": {
+        "tieba_name": "普洱茶"
+      }
+    }
+  ]
+}

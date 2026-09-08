@@ -1,0 +1,29 @@
+{
+  "boardSlug": "tieba-essence",
+  "boardName": "贴吧精华",
+  "importAuthor": "内容搬运工",
+  "total": 1,
+  "articles": [
+    {
+      "title": "帖子 10660525526",
+      "content": "<hr style=\"border:none;border-top:1px solid #e5e7eb;margin:24px 0\" /><div style=\"color:#999;font-size:12px;line-height:1.8;padding:12px 16px;background:#fafafa;border-radius:6px\"><strong>📌 来源：</strong>百度贴吧 · 普洱茶<br><strong>原文作者：</strong>贴吧用户<br><strong>原文链接：</strong><a href=\"https://tieba.baidu.com/p/10660525526\" target=\"_blank\" rel=\"noopener\">查看原帖</a><br><strong>导入时间：</strong>2026年06月02日<br><span style=\"font-size:11px\">本文由系统自动导入，版权归原作者所有。如有异议请联系管理员。</span></div>",
+      "summary": "",
+      "tags": [
+        "贴吧精华",
+        "搬运内容"
+      ],
+      "images": [],
+      "originalAuthor": "贴吧用户",
+      "sourceUrl": "https://tieba.baidu.com/p/10660525526",
+      "sourcePlatform": "tieba",
+      "publishedAt": "",
+      "viewCount": 0,
+      "replyCount": 0,
+      "isEssence": true,
+      "comments": [],
+      "extra": {
+        "tieba_name": "普洱茶"
+      }
+    }
+  ]
+}

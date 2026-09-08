@@ -1,0 +1,14 @@
+# keep the build context tiny; only code ships in the image
+*
+!service/
+!rag_pipeline.py
+!retriever.py
+!teacher_api.py
+!image_ocr.py
+!visual_match.py
+!service/requirements.txt
+!service/Dockerfile
+!service/server.py
+!service/__init__.py
+**/__pycache__/
+**/.venv/
