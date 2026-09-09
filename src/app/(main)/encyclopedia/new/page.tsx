@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -8,6 +8,14 @@ import Link from "next/link";
 export default function NewTeaPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  // P2-R6「发布新经典」：/encyclopedia/new?classic=1 进入时预勾选。
+  // 用 window 读取而非 useSearchParams，避免客户端组件 prerender 需求 Suspense 包裹
+  const [isClassic, setIsClassic] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("classic") === "1") {
+      setIsClassic(true);
+    }
+  }, []);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -47,6 +55,7 @@ export default function NewTeaPage() {
       storageCondition: el("storageCondition").value.trim() || undefined,
       coverImage: el("coverImage").value.trim() || undefined,
       description: (form.elements.namedItem("description") as unknown as HTMLTextAreaElement).value.trim() || undefined,
+      isClassic: isClassic || undefined, // P2-R6 发布新经典
     };
 
     try {
@@ -79,6 +88,19 @@ export default function NewTeaPage() {
       <h1 className="text-2xl md:text-3xl font-serif font-bold text-stone-800 mb-6">新增茶品</h1>
 
       <form onSubmit={handleSubmit} className="space-y-5">
+        {/* P2-R6 发布新经典：?classic=1 深链预勾选 */}
+        <label className="flex items-center gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isClassic}
+            onChange={(e) => setIsClassic(e.target.checked)}
+            className="w-4 h-4 accent-amber-700"
+          />
+          <span className="text-sm text-stone-700">
+            🏵️ 入选<strong className="text-amber-800">经典普洱吧</strong>
+            <span className="text-xs text-stone-400 ml-1.5">创建后茶品将出现在经典普洱品牌吧，茶友可在档案页跟进</span>
+          </span>
+        </label>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">茶品名称 *</label>

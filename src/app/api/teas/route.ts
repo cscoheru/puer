@@ -15,6 +15,8 @@ const teaSchema = z.object({
   coverImage: z.string().optional(),
   gallery: z.array(z.string()).optional(),
   description: z.string().optional(),
+  // P2-R6「发布新经典」：Lv.2+ 创建茶品时可同时入选经典普洱吧
+  isClassic: z.boolean().optional(),
 });
 
 export async function GET(req: NextRequest) {

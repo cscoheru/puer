@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import Link from "next/link";
 import type { Metadata } from "next";
 import ForumSidebar from "@/components/forum-sidebar";
@@ -49,12 +50,37 @@ const teaSelect = {
   batch: true,
   type: true,
   coverImage: true,
+  gallery: true, // P2-R6：列表缩略图 fallback 到图库第一张
   avgRating: true,
   tastingNoteCount: true,
   marketInfo: true,
   updatedAt: true,
   _count: { select: { articles: true } },
+  // P2-R6：封面/图库皆空时，fallback 到最近品鉴笔记的图片（Evernote 导入茶记是主要图源）
+  tastingNotes: {
+    select: { images: true },
+    orderBy: { createdAt: "desc" as const },
+    take: 3,
+  },
 } as const;
+
+/** P2-R6 图片预览三级链：正面封面 → 图库第一张 → 最近品鉴笔记第一图，无图 🍵 */
+function firstTeaImage(tea: {
+  coverImage: string | null;
+  gallery: unknown;
+  tastingNotes?: { images: unknown }[];
+}): string | null {
+  if (tea.coverImage) return tea.coverImage;
+  const gallery = Array.isArray(tea.gallery) ? (tea.gallery as unknown[]) : [];
+  const galImg = gallery.find((u) => typeof u === "string" && u.length > 0);
+  if (galImg) return galImg as string;
+  for (const n of tea.tastingNotes ?? []) {
+    const imgs = Array.isArray(n.images) ? (n.images as unknown[]) : [];
+    const first = imgs.find((u) => typeof u === "string" && u.length > 0);
+    if (first) return first as string;
+  }
+  return null;
+}
 
 export default async function ClassicsPage({
   searchParams,
@@ -62,6 +88,7 @@ export default async function ClassicsPage({
   searchParams: Promise<{ bar?: string; type?: string; q?: string }>;
 }) {
   const params = await searchParams;
+  const session = await auth(); // P2-R6：发布新经典按钮仅 Lv.2+（与创建茶品 API 同权限）
   const barKey = params.bar || "all";
   const type = params.type || "";
   const search = params.q || "";
@@ -116,12 +143,16 @@ export default async function ClassicsPage({
           <div className="flex items-center gap-2.5 mb-1.5 flex-wrap">
             <span className="text-2xl">🏵️</span>
             <h1 className="text-xl md:text-2xl font-serif font-bold text-amber-900">经典普洱 · 品牌吧</h1>
-            <Link
-              href="/forum/new?board=classics"
-              className="ml-auto px-3 py-1.5 text-xs md:text-sm rounded-lg bg-amber-800 text-white hover:bg-amber-900 transition font-medium"
-            >
-              ✏️ 发布跟进帖
-            </Link>
+            {/* P2-R6：「发布新经典」= 创建茶品档案并入选经典普洱吧（Lv.2+）；
+                跟进帖入口在每个茶品档案页内（所有登录用户可发） */}
+            {(session?.user?.level ?? 0) >= 2 && (
+              <Link
+                href="/encyclopedia/new?classic=1"
+                className="ml-auto px-3 py-1.5 text-xs md:text-sm rounded-lg bg-amber-800 text-white hover:bg-amber-900 transition font-medium"
+              >
+                ✨ 发布新经典
+              </Link>
+            )}
           </div>
           <p className="text-xs md:text-sm text-stone-600 leading-relaxed">
             按品牌分吧的经典茶品档案与转化跟进（共 {totalClassic} 款）：品种档案、历年品鉴转化档案、东和行情快照与茶友跟进讨论。进入茶品页即可发布跟进帖更新近况。
@@ -165,6 +196,7 @@ export default async function ClassicsPage({
                     href={`/tea/${t.id}`}
                     className="snap-start shrink-0 w-32 bg-white border border-stone-200 rounded-xl p-2.5 hover:border-amber-300 transition"
                   >
+                    <TeaThumb tea={t} className="w-full h-20 mb-2" icon="text-3xl" rounded="rounded-lg" />
                     <div className="flex items-center gap-1.5">
                       <span className={`text-[10px] font-bold tabular-nums ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>{i + 1}</span>
                       <p className="text-xs text-stone-700 font-medium leading-tight line-clamp-2 min-h-[2em]">
@@ -239,6 +271,8 @@ type ClassicTeaRow = {
   batch: string | null;
   type: string;
   coverImage: string | null;
+  gallery: unknown; // P2-R6：Json 图片数组，缩略图 fallback
+  tastingNotes: { images: unknown }[]; // P2-R6：最近 3 篇品鉴（图源 fallback）
   avgRating: number | null;
   tastingNoteCount: number;
   marketInfo: unknown;
@@ -266,6 +300,7 @@ function HotTeasWidget({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: 
                   <span className={`w-5 text-center text-xs font-bold tabular-nums ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>
                     {i + 1}
                   </span>
+                  <TeaThumb tea={t} className="w-8 h-8" icon="text-base" />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-stone-700 truncate group-hover:text-amber-800 transition">
                       {recentIds.has(t.id) && (
@@ -292,6 +327,30 @@ function HotTeasWidget({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: 
   );
 }
 
+/** P2-R6 统一缩略图：正面封面优先，缺省图库第一张，无图 🍵 占位 */
+function TeaThumb({
+  tea,
+  className = "w-14 h-14",
+  icon = "text-2xl",
+  rounded = "rounded-lg",
+}: {
+  tea: Pick<ClassicTeaRow, "coverImage" | "gallery" | "tastingNotes" | "name">;
+  className?: string;
+  icon?: string;
+  rounded?: string;
+}) {
+  const img = firstTeaImage(tea);
+  return (
+    <div className={`${className} ${rounded} overflow-hidden bg-gradient-to-br from-amber-50 to-stone-100 shrink-0`}>
+      {img ? (
+        <img src={img} alt={tea.name} loading="lazy" className="w-full h-full object-cover" />
+      ) : (
+        <div className={`w-full h-full flex items-center justify-center ${icon}`}>🍵</div>
+      )}
+    </div>
+  );
+}
+
 /** 吧内茶品列表行：封面缩略 + 档案信息 + 行情价，热度已排序 */
 function TeaList({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: Set<string> }) {
   return (
@@ -304,13 +363,7 @@ function TeaList({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: Set<st
             href={`/tea/${tea.id}`}
             className="flex items-center gap-3 p-3 bg-white rounded-xl border border-stone-200 hover:border-amber-300 hover:shadow-sm transition group"
           >
-            <div className="w-14 h-14 rounded-lg overflow-hidden bg-gradient-to-br from-amber-50 to-stone-100 shrink-0">
-              {tea.coverImage ? (
-                <img src={tea.coverImage} alt={tea.name} loading="lazy" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-2xl">🍵</div>
-              )}
-            </div>
+            <TeaThumb tea={tea} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-medium text-stone-800 text-sm truncate group-hover:text-amber-800 transition">

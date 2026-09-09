@@ -223,9 +223,19 @@ export default async function TeaDetailPage({ params }: PageProps) {
           <p className="text-stone-600 text-sm md:text-base mt-4 leading-relaxed">{tea.description}</p>
         )}
 
-        {tea.coverImage && (
-          <img src={tea.coverImage} alt={tea.name} className="w-full max-h-96 object-cover rounded-lg mt-4" />
-        )}
+        {(() => {
+          // P2-R6 图片三级链：正面封面 → 图库第一张 → 最近品鉴笔记第一图
+          const galleryFirst = Array.isArray(tea.gallery)
+            ? (tea.gallery as unknown[]).find((u) => typeof u === "string" && u.length > 0)
+            : undefined;
+          const noteImg = tastingNotes
+            .flatMap((n) => (Array.isArray(n.images) ? (n.images as unknown[]) : []))
+            .find((u) => typeof u === "string" && u.length > 0);
+          const img = tea.coverImage || galleryFirst || noteImg;
+          return img ? (
+            <img src={img as string} alt={tea.name} className="w-full max-h-96 object-cover rounded-lg mt-4" />
+          ) : null;
+        })()}
 
         <div className="text-xs text-stone-400 mt-4">
           创建者: {tea.user.username} · {new Date(tea.createdAt).toLocaleDateString("zh-CN")}
