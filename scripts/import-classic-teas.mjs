@@ -28,30 +28,38 @@ const flag = (name, dflt) => {
   return hit ? hit.split("=").slice(1).join("=") : dflt;
 };
 const DRY = args.includes("--dry");
-const MIN_NOTES = parseInt(flag("min-notes", "3"), 10);
+const MIN_NOTES = parseInt(flag("min-notes", "4"), 10);
 const SKU_FILE = flag("sku-file", "/opt/puer-hub/rag-data/sku-clean.jsonl");
+const MAX_THREADS = parseInt(flag("max-threads", "40"), 10);
 
-// 公认经典品种关键词（name/aliases 正则，大小写不敏感）
+// 经典品种关键词（name/aliases 正则，大小写不敏感）。
+// 只收"品种级"经典：唛号标杆 + 超级 IP + 号级/印级；
+// 山头名（老班章/冰岛…）是产区不是品种，量大会稀释策展，不收。
 const CLASSIC_REGEX = [
-  "7542", "7572", "8582", "8592", "8653", "8892", "7742",
+  "7542", "7572", "8582", "8592", "8653", "8892", "7742", "8853", "7532",
   "88青", "大白菜", "紫大益", "玫瑰大益", "绿大树", "金大益", "乌金号",
-  "勐海孔雀", "金色韵象", "洞天福地", "英雄骏马", "易昌",
-  "老班章", "冰岛", "昔归", "薄荷塘", "弯弓", "天门山",
+  "勐海孔雀", "金色韵象", "洞天福地", "英雄骏马", "99易昌",
   "红印", "蓝印", "黄印", "水蓝印", "宋聘", "同庆", "福元昌", "车顺",
 ].join("|");
 
 // ── Step 1: mark classic teas ───────────────────────────────────────
 async function markClassics() {
+  // 只标规范命名的茶（"YYYY-品牌品名"格式），排除茶记标题式脏数据
+  // （"（资料）…"、"转发|…"、"再品…" 等笔记标题残留）
+  const nameFilter = `name ~ '^[12][0-9]{3}-' AND length(name) <= 60`;
   const q = `
     UPDATE teas SET "isClassic" = true
-    WHERE "tastingNoteCount" >= ${MIN_NOTES}
-       OR name ~* '(${CLASSIC_REGEX})'
-       OR EXISTS (
-         SELECT 1 FROM unnest(COALESCE(aliases, ARRAY[]::text[])) a
-         WHERE a ~* '(${CLASSIC_REGEX})'
-       )
+    WHERE (${nameFilter})
+      AND (
+           "tastingNoteCount" >= ${MIN_NOTES}
+        OR name ~* '(${CLASSIC_REGEX})'
+        OR EXISTS (
+          SELECT 1 FROM unnest(COALESCE(aliases, ARRAY[]::text[])) a
+          WHERE a ~* '(${CLASSIC_REGEX})'
+        )
+      )
     RETURNING id`;
-  const rows = DRY ? await sqlSingle(`SELECT id FROM teas WHERE "tastingNoteCount" >= ${MIN_NOTES} OR name ~* '(${CLASSIC_REGEX})'`) : (await sql(q)).rows;
+  const rows = DRY ? await sqlSingle(`SELECT id FROM teas WHERE (${nameFilter}) AND ("tastingNoteCount" >= ${MIN_NOTES} OR name ~* '(${CLASSIC_REGEX})')`) : (await sql(q)).rows;
   log(`[1/4] isClassic 标记：${rows.length} 款${DRY ? "（dry，未写入）" : ""}`);
   return rows.map((r) => r.id);
 }
@@ -87,7 +95,10 @@ async function createFollowThreads(classicIds, boardId) {
 
   const teas = await sqlSingle(`
     SELECT id, name, brand, year, type, description, "tastingNoteCount"
-    FROM teas WHERE "isClassic" = true ORDER BY "tastingNoteCount" DESC`);
+    FROM teas WHERE "isClassic" = true
+    ORDER BY "tastingNoteCount" DESC, year ASC
+    LIMIT ${MAX_THREADS}`);
+  log(`[3/4] 跟进帖候选：top ${teas.length}（上限 --max-threads=${MAX_THREADS}，品鉴数优先）`);
   let created = 0, skipped = 0;
   for (const t of teas) {
     const exists = await sqlSingle(`
@@ -98,7 +109,11 @@ async function createFollowThreads(classicIds, boardId) {
     if (DRY) { created++; continue; }
 
     const typeLabel = t.type === "ripe" ? "熟茶" : "生茶";
-    const title = `【经典普洱】${t.year || ""} ${escapeSql(t.brand)} ${escapeSql(t.name)} 跟进讨论帖`;
+    // name 形如"2009-大益901-7542"自带年份与品牌，避免标题重复
+    const hasYearPrefix = /^[12]\d{3}-/.test(t.name);
+    const title = hasYearPrefix
+      ? `【经典普洱】${escapeSql(t.name)} 跟进讨论帖`
+      : `【经典普洱】${t.year || ""} ${escapeSql(t.brand)} ${escapeSql(t.name)} 跟进讨论帖`;
     const intro = (t.description || `${t.brand} ${t.name}，${t.year || ""}年${typeLabel}。`)
       .replace(/<[^>]*>/g, "").slice(0, 300);
     const content = [
@@ -125,13 +140,20 @@ async function createFollowThreads(classicIds, boardId) {
 }
 
 // ── Step 4: Donghe market snapshot (best-effort) ────────────────────
-function pickPrice(row) {
-  // sku-clean.jsonl 字段防御性解析：价格可能出现在多个位置
-  const candidates = [row.price, row.marketPrice, row.latestPrice, row.quote?.price, row.market?.price];
-  for (const c of candidates) {
-    if (typeof c === "number") return `${c.toLocaleString("zh-CN")} 元/${row.unit || "件"}`;
-    if (typeof c === "string" && /[\d]/.test(c)) return `${c}${row.unit ? ` /${row.unit}` : ""}`;
+// sku-clean.jsonl 字段：{name, year, form, spec_g, market_price_per_jian,
+//   buyback_price, price_per_g, has_price, snapshot_date, search_text}
+function formatPrice(perJian) {
+  if (perJian >= 10000) {
+    const w = (perJian / 10000).toFixed(2).replace(/\.?0+$/, "");
+    return `${w} 万/件`;
   }
+  return `${perJian.toLocaleString("zh-CN")} 元/件`;
+}
+
+function pickPrice(row) {
+  const p = row.market_price_per_jian ?? row.marketPrice ?? row.price;
+  if (typeof p === "number" && p > 0) return formatPrice(p);
+  if (typeof p === "string" && /[\d]/.test(p)) return p;
   return null;
 }
 
@@ -140,29 +162,43 @@ async function applyMarket() {
   try { lines = readFileSync(SKU_FILE, "utf-8").split("\n").filter(Boolean); }
   catch { log(`[4/4] SKU 文件不存在（${SKU_FILE}），跳过行情`); return; }
 
-  const teas = await sqlSingle(`SELECT id, name, brand FROM teas WHERE "isClassic" = true`);
-  let matched = 0;
+  const teas = await sqlSingle(`SELECT id, name, year FROM teas WHERE "isClassic" = true`);
+  // 匹配策略：茶名与 SKU 名共享经典关键词（唛号/IP，如 7542、紫大益）
+  // 且年份一致 → 命中。名称写法差异（"2004年401批次紫大益8052青饼" vs
+  // "2004-大益401-紫大益8052"）用关键词交集绕开；SKU 长名优先（更具体）。
+  const norm = (s) => String(s).replace(/[\s\-—_/|｜（）()\\[\\]【】·.,，。？?]/g, "");
+  const KEYWORDS = CLASSIC_REGEX.split("|").map((k) => ({ raw: k, norm: norm(k) })).filter((k) => k.norm);
+  const skus = [];
   for (const line of lines) {
     let row; try { row = JSON.parse(line); } catch { continue; }
     const skuName = row.name || row.skuName || row.productName || row.title;
     if (!skuName || typeof skuName !== "string" || skuName.length < 3) continue;
     const price = pickPrice(row);
     if (!price) continue;
-    // 匹配：SKU 名与茶名互相包含（品牌+品名优先）
-    const hit = teas.find(
-      (t) =>
-        (t.name.length >= 3 && skuName.includes(t.name)) ||
-        (skuName.length >= 4 && t.name.includes(skuName)) ||
-        (t.brand && skuName.includes(t.brand) && t.name.length >= 2 && skuName.includes(t.name.slice(-4))),
-    );
+    const sNorm = norm(skuName);
+    const skuKws = KEYWORDS.filter((k) => sNorm.includes(k.norm)).map((k) => k.raw);
+    if (skuKws.length === 0) continue;
+    skus.push({ row, sName: skuName, sNorm, price, skuKws });
+  }
+  skus.sort((a, b) => b.sNorm.length - a.sNorm.length);
+
+  let matched = 0;
+  for (const { row, sName, sNorm, price, skuKws } of skus) {
+    const hit = teas.find((t) => {
+      const tNorm = norm(t.name);
+      const overlap = KEYWORDS.some((k) => skuKws.includes(k.raw) && tNorm.includes(k.norm));
+      if (!overlap) return false;
+      if (row.year && t.year > 0 && row.year !== t.year) return false;
+      return true;
+    });
     if (!hit) continue;
     const info = {
       skuId: row.skuId || row.id || null,
-      name: skuName.slice(0, 120),
+      name: `${sName}${row.year ? ` ${row.year}` : ""}`.slice(0, 120),
       price,
-      changePct: typeof row.changePct === "number" ? row.changePct : (typeof row.change === "number" ? row.change : undefined),
-      updatedAt: row.updatedAt || row.updateTime || new Date().toISOString().slice(0, 10),
-      source: "东和",
+      changePct: typeof row.changePct === "number" ? row.changePct : undefined,
+      updatedAt: row.snapshot_date || row.updatedAt || undefined,
+      source: "东和茶库",
     };
     if (DRY) { matched++; continue; }
     await sql(`UPDATE teas SET "marketInfo" = '${escapeSql(JSON.stringify(info))}'::jsonb WHERE id = '${hit.id}'`);
