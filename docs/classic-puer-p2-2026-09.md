@@ -219,5 +219,37 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 # 注意：回滚 R5 无需回滚 DB——旧代码不认识 promotedHomeAt 列，加列对旧镜像前向安全
 ```
 
+## R6 · 发布新经典入口 + 茶品图片预览 + 三吧补茶（2026-09-09 已上线，release 20260909T225255Z-fe0ccd3）
+
+### R6 需求与实现
+
+1. **「发布跟进帖」→「发布新经典」（Lv.2+）**：classics 页头部按钮改为「✨ 发布新经典」→ `/encyclopedia/new?classic=1`（创建茶品档案并入选经典普洱吧）。仅 `session.user.level >= 2` 显示，与 `POST /api/teas` 的建档权限一致。表单顶部新增「🏵️ 入选经典普洱吧」勾选框（`?classic=1` 深链自动预勾选；用 `window.location.search` 读取避免 useSearchParams 的 Suspense 包裹需求）。zod schema 新增 `isClassic`。
+2. **权限分层**：发布新经典（建茶品档案）= Lv.2+；跟进帖 = 各茶品档案页「✏️ 发布跟进帖」，**所有登录用户**可发（现状即满足，未改动）。
+3. **茶品图片预览三级 fallback**：`coverImage`（正面封面）→ `gallery[0]`（图库第一张）→ 最近 3 篇品鉴笔记第一图。背景：全库 312 款经典茶仅 7 款有封面/图库，但 1587 条茶记带图（Evernote 导入是主要图源）。落地位置：classics 吧列表行（`TeaThumb` 14×14）、移动横滑卡（新增 h-20 顶部大图）、桌面 HotTeasWidget（新增 8×8 缩略）、茶品详情页封面（原先无封面则无图，现三级链兜底）。查询侧 `teaSelect` 增加 `gallery` + `tastingNotes(take 3, images only)`。
+4. **今大福/黎明/兴海吧补茶**（生产 SQL `/tmp/puer-r6-classics.sql`，已执行）：
+   - 今大福 5 款（brand 本就正确）：大国韵茶王(3篇)、金九茶王(2篇)、山野(2篇)、大国韵茶王青饼(1篇)、班章宫廷熟(1篇)
+   - 黎明 4 款（brand「未知」→「黎明」归一）：2001-黎明7540(2篇)、2008-黎明雅韵(2篇)、2005-黎明乔木王(1篇)、2004-黎明巴达山老树圆茶(1篇)
+   - 兴海 4 款（brand 归一：未知/班章→「兴海」）：2004-兴海大曼吕(4篇)、2003-兴海302景迈(3篇)、2020-兴海班章三星(1篇)、兴海-2010班章贡饼(1篇)
+   - 数据发现：teas 表 28 个品牌中黎明/兴海的茶记关联档案 brand 全标「未知」（Evernote 导入未归一），靠名称/茶记内容 LIKE 找回。
+
+### R6 验证与部署（2026-09-09）
+
+- 本地：tsc clean（仅预存 tests/adapter-pg 错误）；`next build` exit 0（58s）。
+- **数据先行**（UPDATE 前向安全，旧镜像可渲染）：scp SQL → `docker exec -i puer-hub-postgres psql -v ON_ERROR_STOP=1`，事务提交，三吧计数 5/4/4。
+- **部署**：commit `fe0ccd3` → context 2.6MB/307 文件 rsync → 服务器 docker build ≈2min → activate.sh（R5 简化版改 rid）一次成功。image `0e9e062b62de`；PREVIOUS `a2f2a98998eb`（R5）已打 `rollback-20260909T225255Z-fe0ccd3`。
+- **生产验证**：`/forum/classics`（含 ?bar=jindafu/liming/xinghai）、`/encyclopedia/new?classic=1`、`/tea/11652958…`（兴海大曼吕）全 200；黎明吧 4 款、今大福吧 5 款茶名全在 HTML 且 TeaList `<img>` 带图（茶记图 `/uploads/evernote/…`）；兴海大曼吕详情页出现封面 img（此前无封面）；未登录 classics 页「发布新经典」0 次（权限渲染正确）；容器全部健康。
+
+回滚命令：
+
+```bash
+cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  -f rag-service.yml -f releases/20260909T225255Z-fe0ccd3/app.rollback.override.yml \
+  up -d --no-deps --no-build app
+# rollback.override.yml 指向 puer-hub-app:rollback-20260909T225255Z-fe0ccd3（需先创建该文件）
+# 数据回滚（可选，仅当需撤销三吧补茶/品牌归一时）：
+#   UPDATE teas SET "isClassic"=false WHERE id IN (<R6 13 款 id>);
+#   UPDATE teas SET brand='未知' WHERE id IN (黎明 4 款 ∪ 兴海大曼吕、302景迈); UPDATE teas SET brand='班章' WHERE id IN (c0b91521…,d30b131b…);
+```
+
 
 
