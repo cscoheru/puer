@@ -49,3 +49,20 @@ docker start puer-hub-rag-service
 线上默认配置下唯一行为变化 = B2 生效（同款判定遇时间/变体线索时降级并降置信度）。
 B3/F1/F1b/E2 保持关闭，待离线评估（run_f1/f3/e12 + analyze_v5）达标后再按
 `SIBLING_INJECT=1` / `E2_SIBLING_BIAS=1` 开启。
+
+---
+
+## 附：2026-09-09 线上 502 故障与修复（Incident）
+
+- **现象**：https://puer.im/forum 全站 502，起始 09-09 09:55 UTC。
+- **排查**：nginx 报 `recv() failed (104)`（上游 127.0.0.1:3002 被重置）；宿主 curl
+  3002 得 000；但容器内 curl 127.0.0.1:3000 → 200，进程/内存/OOM 正常。
+- **根因**：Docker host→container 端口转发层损坏（localhost:3002 用户态
+  docker-proxy 路径失效），app 进程本身健康。
+- **修复**：`docker restart puer-hub-app` 重建端口映射，外部 /forum /ask 恢复 200，
+  app→rag 链路复验正常。与 09-08 rag 部署相隔约 29h，无操作交集，判定为独立故障。
+- **遗留风险**：① 磁盘 95%（4.9G 剩余），建议清理悬空镜像/构建缓存；
+  ② `harness-edge-worker` 容器（fish-harness 项目）无限重启循环，长期给 docker
+  daemon 施压，建议处理；③ 建议对 https://puer.im 增加外部可用性监控（本次故障
+  约 1 小时后才被发现）。
+
