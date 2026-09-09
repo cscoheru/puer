@@ -152,6 +152,41 @@ export default async function ClassicsPage({
           })}
         </div>
 
+        {/* 移动端热门茶品横滑条（P2-R5：替代桌面侧栏 widget 的移动可达性） */}
+        {hotTeas.length > 0 && (
+          <div className="lg:hidden mb-4">
+            <h3 className="text-xs font-semibold text-stone-500 mb-2 px-0.5">🔥 热门茶品 · 最近更新</h3>
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
+              {hotTeas.map((t, i) => {
+                const market = parseMarket(t.marketInfo);
+                return (
+                  <Link
+                    key={t.id}
+                    href={`/tea/${t.id}`}
+                    className="snap-start shrink-0 w-32 bg-white border border-stone-200 rounded-xl p-2.5 hover:border-amber-300 transition"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] font-bold tabular-nums ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>{i + 1}</span>
+                      <p className="text-xs text-stone-700 font-medium leading-tight line-clamp-2 min-h-[2em]">
+                        {recentIds.has(t.id) && (
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-0.5 align-middle" title="近30天有新品鉴" />
+                        )}
+                        {t.name}
+                      </p>
+                    </div>
+                    <p className="text-[10px] text-stone-400 mt-1.5 leading-snug">
+                      {t.tastingNoteCount > 0 ? `${t.tastingNoteCount} 篇品鉴` : "建档中"}
+                    </p>
+                    {market?.price && (
+                      <p className="text-[11px] font-semibold text-amber-800 mt-0.5">{market.price}</p>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-4">
           {/* 左侧：热门茶品 widget（桌面显示；≤10 款，最近更新打绿点） */}
           <HotTeasWidget teas={hotTeas} recentIds={recentIds} />
@@ -163,14 +198,14 @@ export default async function ClassicsPage({
                 <h2 className="text-lg font-serif font-bold text-stone-800">{barLabel}</h2>
                 <p className="text-xs text-stone-400 mt-0.5">{barDesc} · 共 {totalCount} 款{totalCount > 120 ? "（显示前 120）" : ""}</p>
               </div>
-              <form method="GET" className="flex gap-2">
+              <form method="GET" className="flex flex-wrap gap-2">
                 {barKey !== "all" && <input type="hidden" name="bar" value={barKey} />}
                 <select name="type" defaultValue={type} className="px-2.5 py-1.5 border border-stone-300 rounded-lg text-xs bg-white">
                   <option value="">生熟不限</option>
                   <option value="raw">生茶</option>
                   <option value="ripe">熟茶</option>
                 </select>
-                <input name="q" type="text" placeholder="搜索茶品..." defaultValue={search} className="w-32 md:w-44 px-2.5 py-1.5 border border-stone-300 rounded-lg text-xs" />
+                <input name="q" type="text" placeholder="搜索茶品..." defaultValue={search} className="flex-1 min-w-0 sm:w-44 sm:flex-none px-2.5 py-1.5 border border-stone-300 rounded-lg text-xs" />
                 <button type="submit" className="px-3 py-1.5 bg-amber-800 text-white rounded-lg text-xs font-medium hover:bg-amber-900 transition">筛选</button>
               </form>
             </div>
@@ -298,6 +333,7 @@ function TeaList({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: Set<st
                 {tea.tastingNoteCount > 0 ? `${tea.tastingNoteCount} 篇品鉴` : "建档中"}
                 {tea.avgRating != null && ` · ★${tea.avgRating.toFixed(1)}`}
                 {tea._count.articles > 0 && ` · ${tea._count.articles} 条跟进`}
+                {market?.price && ` · ${market.price}`}
               </p>
             </div>
             <div className="shrink-0 text-right hidden sm:block">

@@ -91,6 +91,15 @@ export default function Header() {
             </div>
           ) : (
             <>
+              {/* P2-R5：经典普洱入口（仅移动端常显，点击进品牌吧） */}
+              <Link
+                href="/forum/classics"
+                className="flex items-center gap-1 px-2.5 py-1.5 ml-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800 text-xs font-medium hover:bg-amber-100 hover:border-amber-300 transition"
+                aria-label={_("经典普洱")}
+              >
+                <span aria-hidden>🏵️</span>
+                <span>{_("经典")}</span>
+              </Link>
               <button onClick={() => { setMobileSearchOpen(true); setTimeout(() => mobileInputRef.current?.focus(), 100); }}
                 className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 hover:text-amber-700 transition"
                 aria-label="搜索">
@@ -127,6 +136,7 @@ export default function Header() {
           </div>
           <nav className="px-4 py-3 space-y-1">
             <Link href="/forum" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🏠 {_("首页")}</Link>
+            <Link href="/forum/classics" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🏵️ {_("经典普洱")}</Link>
             <Link href="/exchange" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🤝 {_("互换大厅")}</Link>
             <Link href="/sessions" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🍵 {_("云喝茶")}</Link>
             <Link href="/ask" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🫖 {_("茶问")}</Link>

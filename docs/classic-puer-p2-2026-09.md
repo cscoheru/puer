@@ -170,4 +170,36 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 # rollback.override.yml 指向 puer-hub-app:rollback-20260909T144914Z-b55b043（需先创建该文件）
 ```
 
+## R5 · 经典普洱退出首页 + 手机端入口与升级机制（2026-09-09 已实现，待部署）
+
+### 背景
+用户反馈：手机端首页被大量经典普洱跟进帖占据——跟进帖无视频/轮播图、内容为多篇茶记聚合，与普通帖风格差异大，体验差。决策：经典普洱内容退出首页信息流（跟进帖 + 穿插茶品卡片均移除），改为专区入口 + 人工升级机制。
+
+### R5-1 跟进帖不进主 feed，升级后才进入
+- `Article` 新增 `promotedHomeAt DateTime?`（NULL = 仅存在于茶品档案/classics 区；非空 = 已升级，进入主 feed）。生产 migration：
+  `ALTER TABLE articles ADD COLUMN IF NOT EXISTS "promotedHomeAt" TIMESTAMP(3);`
+- `fetchForumFeed`（`src/lib/forum-feed-server.ts`）where 增加排除条件：`OR: [teaId null, board.slug <> 'classics', promotedHomeAt != null]`，覆盖 week/latest/essence/归档续读全部分支。注意：归档查询原有的 AND（hotOverride NULL-safe）与新增 AND 必须合并进同一数组，spread 后直接写 AND 键会覆盖丢失。
+- 同步排除：`LatestPosts`（右侧栏最新）、首页 `/` recentArticles、`forum/page.tsx` 不再查询 classicTeas。
+
+### R5-2 帖子详情页「升级到首页」按钮
+- 新组件 `src/components/promote-home-button.tsx` + 新 API `POST /api/boards/[slug]/promote`（toggle promotedHomeAt，返回 isPromoted）。
+- 权限：帖子作者、admin、Lv.3+（比 pin/essence 的 admin/Lv3 宽一档，作者可自行升级自己的跟进帖；UI 与 API 同口径校验）。
+- 渲染条件：thread 页文章 meta 操作行，仅 `board.slug==='classics' && teaId` 的跟进帖。
+
+### R5-3 手机端右上角「经典普洱」入口
+- `header.tsx` 移动区（搜索图标左侧）常显 amber pill「🏵️ 经典」→ `/forum/classics`；slide-down 菜单在「首页」后加「🏵️ 经典普洱」项。桌面端不加（有导航/侧栏）。
+- i18n 词条：经典普洱→經典普洱、经典→經典。
+
+### R5-4 classics 页移动端适配
+- 新增移动端热门茶品横滑条（lg:hidden，pills 下方）：top10 小卡（序号/绿点/品鉴数/行情）。
+- 茶品行 meta 行追加行情价（原先 hidden sm:block 仅桌面可见，移动端现在也能看到）。
+- 筛选表单 flex-wrap + 搜索框移动端 flex-1 自适应。
+
+### 验证（本地冒烟，pg@54329 容器）
+- seed：a1=已升级跟进帖、a2=未升级跟进帖、a3=普通帖。feed week/latest 均返回 [a1,a3]、排除 a2；SQL 置 NULL 后 a1 从 feed 消失（toggle 语义）。
+- `/forum` HTML 无【跟进】标题；`/forum/classics?bar=dayi` 含横滑条 + 13万/件价格。
+- header 含 `/forum/classics` 链接；promote API 未登录 401。
+- tsc clean；build exit 0；eslint 无新增问题（剩余均为 HEAD 基线同类）。
+
+
 

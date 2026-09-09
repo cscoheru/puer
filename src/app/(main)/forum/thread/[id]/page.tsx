@@ -16,6 +16,7 @@ import ModerateButton from "@/components/moderate-button";
 import ForumContent from "@/components/forum-content";
 import VideoPlayer from "@/components/video-player";
 import DeleteThreadButton from "@/components/delete-thread-button";
+import PromoteHomeButton from "@/components/promote-home-button";
 import FollowThreadButton from "@/components/follow-thread-button";
 import ReportButton from "@/components/report-button";
 import MessageButton from "@/components/message-button";
@@ -281,6 +282,15 @@ export default async function ThreadPage({ params }: PageProps) {
                     <DeleteThreadButton articleId={article.id} boardSlug={article.board.slug} />
                   )}
                 </>
+              )}
+              {/* P2-R5：经典普洱跟进帖「升级到首页」——升级后进入主 feed（作者/管理员/Lv.3+ 可见可操作，API 同校验） */}
+              {article.board?.slug === "classics" && article.teaId && session?.user &&
+                (session.user.id === article.author.id || session.user.role === "admin" || session.user.level >= 3) && (
+                <PromoteHomeButton
+                  boardSlug={article.board.slug}
+                  articleId={article.id}
+                  initialPromoted={!!article.promotedHomeAt}
+                />
               )}
             </div>
           </div>

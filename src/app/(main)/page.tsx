@@ -23,7 +23,19 @@ export default async function HomePage() {
   ]);
 
   const recentArticles = await prisma.article.findMany({
-    where: { ...visibleArticleWhere(session?.user?.id) },
+    // P2-R5：排除未升级的经典普洱跟进帖（与主 feed 一致，见 forum-feed-server.ts）
+    where: {
+      ...visibleArticleWhere(session?.user?.id),
+      AND: [
+        {
+          OR: [
+            { teaId: null },
+            { board: { slug: { not: "classics" } } },
+            { promotedHomeAt: { not: null } },
+          ],
+        },
+      ],
+    },
     select: {
       id: true, title: true, createdAt: true,
       author: { select: { username: true } },

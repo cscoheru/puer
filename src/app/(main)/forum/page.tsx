@@ -35,27 +35,9 @@ export default async function ForumPage(props: {
     orderBy: { sortOrder: "asc" },
   });
 
-  // P2-R2/R3 经典普洱卡片：移动端推荐流穿插 + 经典普洱模块数据源
-  const classicTeas = await prisma.tea
-    .findMany({
-      where: { isClassic: true },
-      orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }],
-      take: 20,
-      select: {
-        id: true,
-        name: true,
-        brand: true,
-        year: true,
-        type: true,
-        coverImage: true,
-        avgRating: true,
-        tastingNoteCount: true,
-      },
-    })
-    .catch(() => []);
-
   // 首屏数据：与移动端懒加载（/api/forum/feed）共用 fetchForumFeed，
   // 保证 SSR 首屏与后续分页排序一致（v4 热榜窗口算法见 lib 内注释）。
+  // P2-R5：经典普洱跟进帖已在数据层排除（升级后进入），页面不再单独查询。
   const { articles: feedArticles } = await fetchForumFeed({
     tab,
     userId: session?.user?.id,
@@ -70,7 +52,6 @@ export default async function ForumPage(props: {
           boards={boards.map((b) => ({ id: b.id, name: b.name, slug: b.slug, icon: b.icon }))}
           currentUserId={session?.user?.id}
           tab={tab}
-          classics={classicTeas}
         />
       </div>
       <LatestPosts />

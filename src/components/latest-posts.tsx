@@ -20,7 +20,20 @@ export default async function LatestPosts() {
   let posts: any[] = [];
   try {
     posts = await prisma.article.findMany({
-    where: { ...visibleArticleWhere(session?.user?.id), boardId: { not: null } },
+    // P2-R5：排除未升级的经典普洱跟进帖（与主 feed 一致，见 forum-feed-server.ts）
+    where: {
+      ...visibleArticleWhere(session?.user?.id),
+      boardId: { not: null },
+      AND: [
+        {
+          OR: [
+            { teaId: null },
+            { board: { slug: { not: "classics" } } },
+            { promotedHomeAt: { not: null } },
+          ],
+        },
+      ],
+    },
     orderBy: { createdAt: "desc" },
     take: 20,
     select: {

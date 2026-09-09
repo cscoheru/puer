@@ -337,6 +337,11 @@ model Article {
   hotOverride  String? @db.VarChar(20) // pinned | demoted | null (热榜手动控制)
   hotSortOrder Int? // 手动排序权重（仅 pinned 帖使用）
 
+  // P2-R5 经典普洱跟进帖"升级为正式帖"时间：非空 = 进入主 feed（首页），
+  // NULL = 仅存在于茶品档案/经典普洱区，不进主 feed（跟进帖内容格式与
+  // 普通帖差异大，避免占据首页信息流）
+  promotedHomeAt DateTime?
+
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
 

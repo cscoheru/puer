@@ -61,7 +61,6 @@ interface ForumFeedProps {
   boards: Board[];
   currentUserId?: string;
   tab: string;
-  classics?: ClassicTeaCard[];
 }
 
 function timeAgo(dateStr: string) {
@@ -85,20 +84,8 @@ const TABS = [
 ];
 
 // ── 经典普洱卡片（P2-R2 / P2-R3）───────────────────────────────
-interface ClassicTeaCard {
-  id: string;
-  name: string;
-  brand: string;
-  year: number;
-  type: string;
-  coverImage: string | null;
-  avgRating: number | null;
-  tastingNoteCount: number;
-}
-
-type FeedItem =
-  | { kind: "article"; data: FeedArticle }
-  | { kind: "classic"; data: ClassicTeaCard };
+// P2-R5：穿插卡片已移除（经典普洱退出首页信息流），入口改由移动端 header
+// 「经典普洱」+ classics 页承担。
 
 /** 帖子文字内容：默认折叠 3 行，可展开/收起（P2-R1：文字置于媒体之前） */
 function CollapsibleText({ text }: { text: string }) {
@@ -135,39 +122,7 @@ function CollapsibleText({ text }: { text: string }) {
   );
 }
 
-/** 经典茶品卡片：穿插在移动端推荐流中，点击进入茶品档案页 */
-function ClassicCard({ tea }: { tea: ClassicTeaCard }) {
-  return (
-    <Link
-      href={`/tea/${tea.id}`}
-      className="block bg-gradient-to-br from-amber-50 to-white border border-amber-200 rounded-lg p-3 hover:border-amber-400 transition"
-    >
-      <div className="flex items-center gap-3">
-        <div className="w-14 h-14 rounded-lg overflow-hidden bg-amber-100 shrink-0">
-          {tea.coverImage ? (
-            <img src={tea.coverImage} alt={tea.name} loading="lazy" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-xl">🍵</div>
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <span className="text-[10px] px-1.5 py-0.5 bg-amber-800 text-white rounded font-medium">经典普洱</span>
-          <p className="text-sm font-semibold text-stone-800 truncate mt-1">
-            {tea.brand} · {tea.name}
-          </p>
-          <p className="text-xs text-stone-400 mt-0.5 truncate">
-            {tea.year} · {tea.type === "raw" ? "生茶" : "熟茶"}
-            {tea.tastingNoteCount > 0 && ` · ${tea.tastingNoteCount} 篇品鉴`}
-            {tea.avgRating != null && ` · ★${tea.avgRating.toFixed(1)}`}
-          </p>
-        </div>
-        <span className="text-amber-700 text-lg shrink-0">›</span>
-      </div>
-    </Link>
-  );
-}
-
-export default function ForumFeed({ articles, boards, currentUserId, tab, classics }: ForumFeedProps) {
+export default function ForumFeed({ articles, boards, currentUserId, tab }: ForumFeedProps) {
   const [mounted, setMounted] = useState(false);
   // Read tracking: reorder to prioritize unseen posts
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
@@ -209,16 +164,13 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
     return () => mq.removeEventListener("change", update);
   }, []);
 
-  // P2-R3 综合加权：热度位次 × 0.5 + 新鲜度 × 0.3 + 互动率 × 0.2，
-  // 经典普洱卡片每 8 帖穿插 1 张；桌面端维持服务端 tab 排序不变。
+  // P2-R3 综合加权：热度位次 × 0.5 + 新鲜度 × 0.3 + 互动率 × 0.2；
+  // 桌面端维持服务端 tab 排序不变。
   // 首屏（orderedBase）参与加权排序；懒加载追加页按服务端顺序接在后面。
-  const orderedArticles = useMemo(
-    () => (isMobile ? [...orderedBase, ...extraArticles] : orderedBase),
-    [isMobile, orderedBase, extraArticles],
-  );
-
-  const items = useMemo<FeedItem[]>(() => {
-    if (!isMobile) return orderedBase.map((a) => ({ kind: "article" as const, data: a }));
+  // P2-R5：经典普洱不再穿插移动端信息流（跟进帖与茶品卡片均移除，
+  // 入口改由 header「经典普洱」承担），feed 只渲染帖子。
+  const items = useMemo<FeedArticle[]>(() => {
+    if (!isMobile) return orderedBase;
     const now = Date.now();
     const scored = orderedBase.map((a, rank) => {
       const posScore = 1 - rank / Math.max(1, orderedBase.length); // 服务端热榜位次
@@ -226,21 +178,11 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
       const fresh = Math.exp(-ageH / 72); // ~3 天量级的新鲜度衰减
       const engageRaw = a.upvotes + 2 * a.replyCount + 1;
       const engage = engageRaw / (engageRaw + 8); // 平滑互动率 0..1
-      return { kind: "article" as const, data: a, s: 0.5 * posScore + 0.3 * fresh + 0.2 * engage };
+      return { data: a, s: 0.5 * posScore + 0.3 * fresh + 0.2 * engage };
     });
     scored.sort((x, y) => y.s - x.s);
-    const seq: FeedArticle[] = [...scored.map((e) => e.data), ...extraArticles];
-    const classicsList = classics || [];
-    const out: FeedItem[] = [];
-    let ci = 0;
-    seq.forEach((a, i) => {
-      out.push({ kind: "article" as const, data: a });
-      if (classicsList.length > 0 && (i + 1) % 8 === 0) {
-        out.push({ kind: "classic", data: classicsList[ci++ % classicsList.length] });
-      }
-    });
-    return out;
-  }, [orderedBase, extraArticles, isMobile, classics]);
+    return [...scored.map((e) => e.data), ...extraArticles];
+  }, [orderedBase, extraArticles, isMobile]);
 
   // Track seen items via intersection observer
   const seenTrackerRef = useRef<IntersectionObserver | null>(null);
@@ -325,7 +267,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
       </div>
 
       {/* Article feed */}
-      {orderedArticles.length === 0 ? (
+      {items.length === 0 ? (
         <div className="text-center py-16 border border-dashed border-stone-200 rounded-lg bg-white">
           <p className="text-stone-300 text-lg mb-1">
             {tab === "essence" ? "💎" : "📭"}
@@ -342,21 +284,17 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
         </div>
       ) : (
         <div className="space-y-1">
-          {items.map((item) =>
-            item.kind === "classic" ? (
-              <ClassicCard key={`classic-${item.data.id}`} tea={item.data} />
-            ) : (
-              <div key={item.data.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
-                <ArticleCard
-                  article={item.data}
-                  currentUserId={currentUserId}
-                  isNew={mounted && !seen.has(item.data.id) && Date.now() - new Date(item.data.createdAt).getTime() < NEW_POST_MS}
-                />
-              </div>
-            )
-          )}
+          {items.map((article) => (
+            <div key={article.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
+              <ArticleCard
+                article={article}
+                currentUserId={currentUserId}
+                isNew={mounted && !seen.has(article.id) && Date.now() - new Date(article.createdAt).getTime() < NEW_POST_MS}
+              />
+            </div>
+          ))}
           {/* 移动端懒加载哨兵：进入视口即拉取下一页 */}
-          {isMobile && orderedArticles.length > 0 && (
+          {isMobile && items.length > 0 && (
             <div ref={sentinelRef} className="py-6 text-center text-xs text-stone-400">
               {loadingMore ? "正在加载更多…" : hasMore ? "上滑加载更多 ↓" : "— 到底了，去经典普洱茶吧逛逛 —"}
             </div>

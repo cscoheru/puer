@@ -110,7 +110,23 @@ export async function fetchForumFeed(opts: {
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const limit = Math.max(1, Math.min(300, Math.floor(opts.limit ?? 60)));
 
-  const wherePublished = { ...visibleArticleWhere(opts.userId ?? undefined), boardId: { not: null } };
+  // P2-R5：经典普洱跟进帖（classics 吧 + 关联茶品）不进主 feed——内容为
+  // 多篇茶记聚合、无视频/轮播，与普通帖风格差异大；仅在茶品档案/经典普洱
+  // 区内浏览。升级为正式帖（promotedHomeAt 非空）后才进入首页 feed。
+  // 注：visibleArticleWhere 返回值自带 OR 键，嵌套条件必须走 AND 合并。
+  const wherePublished = {
+    ...visibleArticleWhere(opts.userId ?? undefined),
+    boardId: { not: null },
+    AND: [
+      {
+        OR: [
+          { teaId: null },
+          { board: { slug: { not: "classics" } } },
+          { promotedHomeAt: { not: null } },
+        ],
+      },
+    ],
+  };
 
   let rows: ArticleRow[];
   let hasMore = false;
@@ -278,12 +294,16 @@ async function hotRankAndPage(opts: {
   }
   // 归档续读：窗口耗尽后按 createdAt 倒序返回更早帖子（排除置顶避免与
   // 首屏重复；hotOverride 多为 NULL，须显式包含，`<> 'pinned'` 会滤掉 NULL；
-  // 跨请求 id 重复由客户端去重兜底）
+  // 跨请求 id 重复由客户端去重兜底）。注意 wherePublished 自带 AND（跟进帖
+  // 排除），此处必须合并进同一数组，直接写 AND 键会覆盖丢失。
   const skip = offset - combined.length;
   const archive = await prisma.article.findMany({
     where: {
       ...wherePublished,
-      AND: [{ OR: [{ hotOverride: null }, { hotOverride: { not: "pinned" } }] }],
+      AND: [
+        ...((wherePublished.AND as object[]) || []),
+        { OR: [{ hotOverride: null }, { hotOverride: { not: "pinned" } }] },
+      ],
     },
     orderBy: { createdAt: "desc" },
     skip,
