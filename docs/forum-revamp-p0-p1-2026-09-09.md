@@ -31,6 +31,32 @@ auto-reply 依赖恢复（当日轮空属正常，每天 20 次）。
 本地验证：tsc 仅 2 个预存在错误（与本次无关）；next build 通过
 （0 错误，69/69 静态页）。
 
+### 部署记录（release 20260909T130320Z-fc9d479）
+
+- 本地 Mac 为 arm64、服务器 x86_64 → 不能本地 docker build；按 deploy.sh
+  语义手动执行：git worktree 基线(1098d09) + APP_CONTEXT 组装 context
+  （排除 src/generated、public/uploads）+ overlay 2 个前端文件 →
+  rsync 服务器 release 目录 → 服务器 docker build
+- 顺手补齐 9-8 同步遗漏的 `prisma.config.ts`（生产有但本地仓库无）；
+  其 `datasource.url` 在 prisma 6.19.3 类型下需 `?? ""` 兜底，否则
+  镜像内 next build 类型检查失败（首次构建因此失败，修复后通过）
+- 激活：旧镜像打 `rollback-20260909T130320Z-fc9d479` tag +
+  `app.active.override.yml` + `docker compose -f docker-compose.yml -f <override>
+  up -d --no-deps --no-build app`
+- 验证：容器 Up 运行新镜像；外部 `/forum`、`?tab=day/week/month/hot` 全 200；
+  页面含新 tab 栏；day/week/month 内容分化（2/2/5 threads，月榜已换血；
+  今日/本周帖少是当前数据现状，随 P0 管道恢复与 P2 内容供给会充实）
+
+### 回滚
+
+```bash
+cd /opt/puer-hub && docker compose -f docker-compose.yml \
+  -f releases/20260909T130320Z-fc9d479/app.rollback.override.yml \
+  up -d --no-deps --no-build app
+# rollback.override.yml 指向 puer-hub-app:rollback-20260909T130320Z-fc9d479（需先创建该文件）
+```
+
+
 ## 环境备忘
 
 - 本地 build 需先 `npx prisma generate`（同步来的 src/generated 曾被新版 prisma
