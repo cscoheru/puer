@@ -23,7 +23,12 @@ export default async function ForumPage(props: {
   searchParams: Promise<{ tab?: string }>;
 }) {
   const searchParams = await props.searchParams;
-  const tab = searchParams.tab || "hot";
+  // v4 hot ranking: windowed tabs (day/week/month) + latest/essence.
+  // Legacy ?tab=hot maps to week (the new default).
+  const VALID_TABS = ["day", "week", "month", "latest", "essence"] as const;
+  let tab = searchParams.tab || "week";
+  if (tab === "hot") tab = "week";
+  if (!(VALID_TABS as readonly string[]).includes(tab)) tab = "week";
   const session = await auth();
 
   const boards = await prisma.board.findMany({
@@ -71,15 +76,43 @@ export default async function ForumPage(props: {
       select: articleSelect,
     });
   } else {
-    const raw = await prisma.article.findMany({
-      where: wherePublished,
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: articleSelect,
-    });
+    // ── v4 windowed hot ranking ────────────────────────────────────
+    // day (24h, auto-expands to 48h/72h when too few) / week (7d,
+    // posts with fresh replies are revived) / month (30d).
+    // Scoring keeps the v3.0 quality-first formula; the time window
+    // itself is what makes the list change every day.
+    const windowTab = tab === "day" ? "day" : tab === "month" ? "month" : "week";
+    const WINDOW_HOURS: Record<string, number> = { day: 24, week: 168, month: 720 };
 
-    if (tab === "hot") {
-      // Fetch pinned posts separately (may be outside the recent 100)
+    const fetchWindow = (hours: number, withRevival: boolean) =>
+      prisma.article.findMany({
+        where: {
+          ...wherePublished,
+          ...(withRevival
+            ? {
+                OR: [
+                  { createdAt: { gte: new Date(Date.now() - hours * 3600_000) } },
+                  { lastRepliedAt: { gte: new Date(Date.now() - hours * 3600_000) } },
+                ],
+              }
+            : { createdAt: { gte: new Date(Date.now() - hours * 3600_000) } }),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 300,
+        select: articleSelect,
+      });
+
+    let raw = await fetchWindow(WINDOW_HOURS[windowTab], windowTab === "week");
+    if (windowTab === "day") {
+      // Auto-expand the "today" window so the tab never looks empty
+      for (const h of [48, 72]) {
+        if (raw.filter((a) => !a.hotOverride).length >= 8) break;
+        raw = await fetchWindow(h, false);
+      }
+    }
+
+    {
+      // Pinned posts first on every tab (may be outside the window)
       const pinnedRows = await prisma.article.findMany({
         where: { ...wherePublished, hotOverride: "pinned" },
         select: articleSelect,
@@ -93,16 +126,15 @@ export default async function ForumPage(props: {
 
       const now = Date.now();
       const totalPosts = eligible.length;
-      // Adaptive threshold: fewer posts = lower bar, more posts = higher bar
-      const minScore = Math.max(0, Math.round(totalPosts / 30));
 
       const enriched = eligible.map((a) => ({
         ...a,
         _coverImage: a.content.match(/<img[^>]+src="([^">]+)"/)?.[1] || null,
       }));
 
-      // Quality floor: basic engagement filter
-      const minEngage = Math.max(2, Math.round(totalPosts / 20));
+      // Quality floor: basic engagement filter. Relaxed on the day tab —
+      // freshness is the point there, not accumulated engagement.
+      const minEngage = windowTab === "day" ? 1 : Math.max(2, Math.round(totalPosts / 20));
       const filtered = enriched.filter((a) => {
         const netScore = Math.max(0, (a.upvotes || 0) - (a.downvotes || 0));
         const totalEngage = netScore + (a.replyCount || 0);
@@ -191,8 +223,6 @@ export default async function ForumPage(props: {
         _jitter: 1,
       }));
       articles = [...pinnedWithScores, ...ranked];
-    } else {
-      articles = raw;
     }
   }
 

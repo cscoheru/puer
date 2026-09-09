@@ -75,7 +75,9 @@ function timeAgo(dateStr: string) {
 }
 
 const TABS = [
-  { key: "hot", label: "🔥 热榜" },
+  { key: "day", label: "🔥 今日" },
+  { key: "week", label: "📅 本周" },
+  { key: "month", label: "🏆 月榜" },
   { key: "latest", label: "⏰ 最新" },
   { key: "essence", label: "💎 精华" },
 ];
@@ -153,7 +155,13 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
             {tab === "essence" ? "💎" : "📭"}
           </p>
           <p className="text-stone-500 text-sm">
-            {tab === "essence" ? "还没有精华帖" : tab === "latest" ? "暂无最新帖子" : "暂无帖子"}
+            {tab === "essence"
+              ? "还没有精华帖"
+              : tab === "latest"
+                ? "暂无最新帖子"
+                : tab === "day"
+                  ? "今天还没有帖子，看看本周热榜吧"
+                  : "暂无帖子"}
           </p>
         </div>
       ) : (
