@@ -322,9 +322,24 @@ export default async function TeaDetailPage({ params }: PageProps) {
 
       {/* Forum Articles */}
       <div>
-        <h2 className="text-lg md:text-2xl font-serif font-bold text-stone-800 mb-4">
-          关联帖子 ({articles.length})
-        </h2>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+          <h2 className="text-lg md:text-2xl font-serif font-bold text-stone-800">
+            关联帖子 ({articles.length})
+          </h2>
+          {/* P2-R2 跟进发帖：档案创建者与茶友均可为该茶发布跟进帖（转化观察/行情/开汤） */}
+          {session?.user ? (
+            <Link
+              href={`/forum/new?board=classics&tea=${tea.id}&teaName=${encodeURIComponent(tea.name)}&teaBrand=${encodeURIComponent(tea.brand)}&teaYear=${tea.year}&title=${encodeURIComponent(`【跟进】${tea.name}`)}`}
+              className="px-3 py-1.5 text-xs md:text-sm rounded-lg bg-amber-800 text-white hover:bg-amber-900 transition font-medium"
+            >
+              ✏️ 发布跟进帖
+            </Link>
+          ) : (
+            <Link href="/login" className="text-xs md:text-sm text-amber-800 hover:text-amber-900 font-medium">
+              登录后可发布跟进帖 →
+            </Link>
+          )}
+        </div>
         {articles.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-5">
             {articles.map((article: ArticleWithRelations) => (
@@ -332,9 +347,17 @@ export default async function TeaDetailPage({ params }: PageProps) {
             ))}
           </div>
         ) : (
-          <p className="text-center text-stone-400 py-8 bg-white rounded-xl border border-dashed border-stone-200 text-sm">
-            暂无关联帖子
-          </p>
+          <div className="text-center py-8 bg-white rounded-xl border border-dashed border-stone-200">
+            <p className="text-stone-400 text-sm mb-3">暂无关联帖子</p>
+            {session?.user && (
+              <Link
+                href={`/forum/new?board=classics&tea=${tea.id}&teaName=${encodeURIComponent(tea.name)}&teaBrand=${encodeURIComponent(tea.brand)}&teaYear=${tea.year}&title=${encodeURIComponent(`【跟进】${tea.name}`)}`}
+                className="text-sm text-amber-800 hover:text-amber-900 font-medium"
+              >
+                发布第一篇跟进帖 →
+              </Link>
+            )}
+          </div>
         )}
       </div>
     </div>

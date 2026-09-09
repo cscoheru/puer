@@ -44,12 +44,35 @@ export default function NewThreadPage() {
   const [teaSearchOpen, setTeaSearchOpen] = useState(false);
   const teaSearchRef = useRef<HTMLDivElement>(null);
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  // P2-R2 深链预填状态（/forum/new?board=...&tea=...&title=...）
+  const [boardSlug, setBoardSlug] = useState("");
+  const [title, setTitle] = useState("");
 
   useEffect(() => {
     fetch("/api/boards")
       .then((res) => res.json())
       .then(setBoards)
       .catch(() => {});
+  }, []);
+
+  // P2-R2 深链预填：从茶品档案页"发布跟进帖"进入时，自动选中版块、
+  // 关联茶品并预填标题。茶品信息由跳转方通过查询参数携带，避免额外请求。
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const b = sp.get("board");
+    const teaId = sp.get("tea");
+    const teaName = sp.get("teaName");
+    if (b) setBoardSlug(b);
+    if (teaId && teaName) {
+      setSelectedTea({
+        id: teaId,
+        name: teaName,
+        brand: sp.get("teaBrand") || "",
+        year: sp.get("teaYear") ? parseInt(sp.get("teaYear")!, 10) || 0 : 0,
+      });
+    }
+    const t = sp.get("title");
+    if (t) setTitle(t.slice(0, 200));
   }, []);
 
   // Cleanup object URLs
@@ -297,7 +320,13 @@ export default function NewThreadPage() {
 
         <div>
           <label className="block text-sm font-medium text-stone-700 mb-1">选择版块 *</label>
-          <select name="board" required defaultValue="" className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500">
+          <select
+            name="board"
+            required
+            value={boards.some((b) => b.slug === boardSlug) ? boardSlug : ""}
+            onChange={(e) => setBoardSlug(e.target.value)}
+            className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
+          >
             <option value="" disabled>请选择版块</option>
             {boards.map((b) => (
               <option key={b.id} value={b.slug}>
@@ -309,8 +338,15 @@ export default function NewThreadPage() {
 
         <div>
           <label className="block text-sm font-medium text-stone-700 mb-1">标题 *</label>
-          <input name="title" required maxLength={200} placeholder="..."
-            className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500" />
+          <input
+            name="title"
+            required
+            maxLength={200}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="一句话说清主题（品牌 · 年份 · 话题）"
+            className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
+          />
         </div>
 
         {postType === "text" ? (

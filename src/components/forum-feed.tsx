@@ -10,6 +10,7 @@ import { getFlair } from "@/lib/forum-constants";
 
 // ── Read tracking ──────────────────────────────────────────────
 const STORAGE_KEY = "puer_seen_posts";
+const NEW_POST_MS = 48 * 3600_000; // "新"徽标：仅最近 48 小时内发布且用户未看过
 
 function getSeenPosts(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -170,7 +171,16 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
   const [mounted, setMounted] = useState(false);
   // Read tracking: reorder to prioritize unseen posts
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
-  const [orderedArticles, setOrderedArticles] = useState(articles);
+  const [orderedBase, setOrderedBase] = useState(articles);
+  // P2-R3 移动端懒加载：追加页数据。append-only——新页不与首屏重排，
+  // 避免用户正在阅读的卡片因新数据到达而跳动。
+  const [extraArticles, setExtraArticles] = useState<FeedArticle[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadGuardRef = useRef(false);
+  // 服务端游标：SSR 首屏已消费 articles.length 条，从其后继续
+  const loadedCountRef = useRef(articles.length);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -186,7 +196,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
       if (aSeen !== bSeen) return aSeen ? 1 : -1;
       return 0; // preserve original order within each group
     });
-    setOrderedArticles(sorted);
+    setOrderedBase(sorted);
   }, [articles]);
 
   // P2-R3 移动端检测：桌面（lg+）保持三栏 + 五 tab；移动端切单一加权推荐流
@@ -201,11 +211,17 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
 
   // P2-R3 综合加权：热度位次 × 0.5 + 新鲜度 × 0.3 + 互动率 × 0.2，
   // 经典普洱卡片每 8 帖穿插 1 张；桌面端维持服务端 tab 排序不变。
+  // 首屏（orderedBase）参与加权排序；懒加载追加页按服务端顺序接在后面。
+  const orderedArticles = useMemo(
+    () => (isMobile ? [...orderedBase, ...extraArticles] : orderedBase),
+    [isMobile, orderedBase, extraArticles],
+  );
+
   const items = useMemo<FeedItem[]>(() => {
-    if (!isMobile) return orderedArticles.map((a) => ({ kind: "article" as const, data: a }));
+    if (!isMobile) return orderedBase.map((a) => ({ kind: "article" as const, data: a }));
     const now = Date.now();
-    const scored = orderedArticles.map((a, rank) => {
-      const posScore = 1 - rank / Math.max(1, orderedArticles.length); // 服务端热榜位次
+    const scored = orderedBase.map((a, rank) => {
+      const posScore = 1 - rank / Math.max(1, orderedBase.length); // 服务端热榜位次
       const ageH = (now - new Date(a.createdAt).getTime()) / 3600_000;
       const fresh = Math.exp(-ageH / 72); // ~3 天量级的新鲜度衰减
       const engageRaw = a.upvotes + 2 * a.replyCount + 1;
@@ -213,17 +229,18 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
       return { kind: "article" as const, data: a, s: 0.5 * posScore + 0.3 * fresh + 0.2 * engage };
     });
     scored.sort((x, y) => y.s - x.s);
+    const seq: FeedArticle[] = [...scored.map((e) => e.data), ...extraArticles];
     const classicsList = classics || [];
     const out: FeedItem[] = [];
     let ci = 0;
-    scored.forEach((entry, i) => {
-      out.push(entry);
+    seq.forEach((a, i) => {
+      out.push({ kind: "article" as const, data: a });
       if (classicsList.length > 0 && (i + 1) % 8 === 0) {
         out.push({ kind: "classic", data: classicsList[ci++ % classicsList.length] });
       }
     });
     return out;
-  }, [orderedArticles, isMobile, classics]);
+  }, [orderedBase, extraArticles, isMobile, classics]);
 
   // Track seen items via intersection observer
   const seenTrackerRef = useRef<IntersectionObserver | null>(null);
@@ -249,18 +266,48 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
     return () => seenTrackerRef.current?.disconnect();
   }, [seen]);
 
+  // P2-R3 懒加载：滚动接近底部时拉取下一页（仅移动端）。热榜窗口耗尽后
+  // 服务端自动续读更早的归档帖，保证一直有内容可刷。
+  const loadMore = useCallback(async () => {
+    if (loadGuardRef.current || !hasMore) return;
+    loadGuardRef.current = true;
+    setLoadingMore(true);
+    try {
+      const offset = loadedCountRef.current;
+      const res = await fetch(`/api/forum/feed?tab=${encodeURIComponent(tab)}&offset=${offset}&limit=10`);
+      if (!res.ok) throw new Error("feed fetch failed");
+      const d = (await res.json()) as { articles?: FeedArticle[]; hasMore?: boolean };
+      const incoming = d.articles || [];
+      // 服务端游标按服务端返回条数推进（含客户端去重掉的重复项）
+      loadedCountRef.current = offset + incoming.length;
+      const existing = new Set([...orderedBase, ...extraArticles].map((a) => a.id));
+      const fresh = incoming.filter((a) => !existing.has(a.id));
+      if (fresh.length > 0) setExtraArticles((prev) => [...prev, ...fresh]);
+      if (!d.hasMore || incoming.length === 0) setHasMore(false);
+    } catch {
+      setHasMore(false);
+    } finally {
+      loadGuardRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [tab, hasMore, orderedBase, extraArticles]);
+
+  useEffect(() => {
+    if (!isMobile || !hasMore || !mounted) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) void loadMore(); },
+      { rootMargin: "600px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [isMobile, hasMore, mounted, loadMore]);
+
   return (
     <>
-      {/* 移动端：单一"为你推荐"头部（桌面端隐藏，改用下方 tab 栏） */}
-      <div className="lg:hidden mb-3">
-        <div className="bg-gradient-to-r from-amber-50 to-stone-50 border border-amber-200 rounded-lg px-4 py-2.5 flex items-center gap-2">
-          <span className="text-base">✨</span>
-          <span className="text-sm font-semibold text-amber-900">为你推荐</span>
-          <span className="text-xs text-stone-400">热榜 × 新帖 · 综合加权</span>
-        </div>
-      </div>
-
-      {/* Tab bar（仅桌面 lg+；移动端由"为你推荐"混合流取代热榜/新帖分栏） */}
+      {/* Tab bar（桌面 lg+ 五 tab；移动端为无头部的混合推荐流，
+          滚动到底部自动懒加载更多） */}
       <div className="hidden lg:flex items-center gap-1 border-b border-stone-200 mb-3">
         {TABS.map((t) => (
           <Link
@@ -300,9 +347,19 @@ export default function ForumFeed({ articles, boards, currentUserId, tab, classi
               <ClassicCard key={`classic-${item.data.id}`} tea={item.data} />
             ) : (
               <div key={item.data.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
-                <ArticleCard article={item.data} currentUserId={currentUserId} isNew={mounted && !seen.has(item.data.id)} />
+                <ArticleCard
+                  article={item.data}
+                  currentUserId={currentUserId}
+                  isNew={mounted && !seen.has(item.data.id) && Date.now() - new Date(item.data.createdAt).getTime() < NEW_POST_MS}
+                />
               </div>
             )
+          )}
+          {/* 移动端懒加载哨兵：进入视口即拉取下一页 */}
+          {isMobile && orderedArticles.length > 0 && (
+            <div ref={sentinelRef} className="py-6 text-center text-xs text-stone-400">
+              {loadingMore ? "正在加载更多…" : hasMore ? "上滑加载更多 ↓" : "— 到底了，去经典普洱茶吧逛逛 —"}
+            </div>
           )}
         </div>
       )}

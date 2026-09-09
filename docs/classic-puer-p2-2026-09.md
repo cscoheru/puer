@@ -98,3 +98,49 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 # DB 变更（isClassic/marketInfo/跟进帖）为增量数据，回滚镜像不影响；如需清理：
 #   UPDATE teas SET "isClassic"=false, "marketInfo"=NULL; DELETE FROM articles WHERE title LIKE '【经典普洱】%';
 ```
+
+## R4 · 品牌吧 + 移动端懒加载（2026-09-10 本地实现，待部署）
+
+用户反馈三项改进，实现如下：
+
+### R4-1 桌面端 classics 左侧热门茶品（≤10 款）
+
+`/forum/classics` 主区左侧新增 `HotTeasWidget`（lg+ 显示）：
+- 热度 = `tastingNoteCount×10 + avgRating×2 + (有行情快照?3:0) + 关联跟进帖数`，取前 10
+- 近 30 天有新品鉴（TastingNote distinct teaId 倒序）的茶名前打绿点，兼顾"最近更新"信号
+- 每项显示 品鉴数 + 行情价，点击进 `/tea/[id]`
+
+### R4-2 经典普洱改品牌吧（贴吧式）
+
+- 顶部横向 pills：全部 / 大益吧 / 下关吧 / 福今吧 / 今大福吧 / 黎明吧 / 兴海吧 / 其他吧
+  （其他吧 = brand NOT IN 六厂牌；pill 带各吧茶品数，groupBy brand 统计）
+- 吧内茶品列表（TeaList 行式卡片，热度排序）：缩略图 + 年份/批次/生熟徽标 +
+  品鉴数/评分/跟进数 + 右侧行情价；保留 生熟/关键词 筛选（hidden bar 字段透传）
+- 跟进发帖闭环：茶品详情页"关联帖子"标题行新增「✏️ 发布跟进帖」按钮（未登录显示
+  登录引导），深链 `/forum/new?board=classics&tea=<id>&teaName=…&teaBrand=…&teaYear=…&title=【跟进】…`；
+  `/forum/new` 挂载时读 URL 查询参数预填版块/关联茶品/标题（POST /api/boards/[slug] 原生支持 teaId）
+
+### R4-3 移动端：懒加载 + 去 banner + "新"徽标重设计
+
+- **懒加载**：新增 `src/lib/forum-feed-server.ts`（fetchForumFeed：从 forum/page.tsx 抽取的
+  v4 热榜窗口算法 + offset/limit 分页）与 `GET /api/forum/feed?tab=&offset=&limit=`。
+  移动端 feed 底部哨兵（rootMargin 600px）触发拉取，append-only 追加（不与首屏重排，
+  避免阅读中卡片跳动），客户端按 id 去重。**热榜窗口耗尽后服务端自动"归档续读"**
+  （createdAt 倒序、排除置顶）——解决"week 窗口只有 5 帖刷不动"的问题。
+  `forum/page.tsx` SSR 首屏也改走 fetchForumFeed（单一数据源，排序与分页一致）。
+- **去 banner**：删除移动端"为你推荐"头部。
+- **"新"徽标**：`isNew = 未读(localStorage puer_seen_posts) && createdAt 距今 < 48h`
+  （此前所有未读帖都挂"新"，现仅最近两天且没看过的才显示；滚动进入视口即标记已读、徽标消失）。
+
+### 验证
+
+- `npx tsc --noEmit` 通过（唯一报错为 tests/ 目录预存 `@prisma/adapter-pg` 缺失，与本次无关）
+- eslint：修复新增的 prefer-const/未转义引号/未用变量；剩余 set-state-in-effect /
+  purity 报错与 HEAD 基线同类同量（非门禁规则）
+- 生产构建 `npm run build` 见构建日志
+
+### 回滚
+
+纯前端 + API 增量（无 DB 迁移）：回滚镜像即可；`/api/forum/feed` 为新增路由，
+旧镜像无此路由不影响回滚后页面（移动端退回无懒加载的 SSR 全量列表）。
+
