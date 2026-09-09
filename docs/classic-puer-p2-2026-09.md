@@ -99,7 +99,7 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 #   UPDATE teas SET "isClassic"=false, "marketInfo"=NULL; DELETE FROM articles WHERE title LIKE '【经典普洱】%';
 ```
 
-## R4 · 品牌吧 + 移动端懒加载（2026-09-10 本地实现，待部署）
+## R4 · 品牌吧 + 移动端懒加载（2026-09-10 已上线，release 20260909T144914Z-b55b043）
 
 用户反馈三项改进，实现如下：
 
@@ -143,4 +143,31 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 纯前端 + API 增量（无 DB 迁移）：回滚镜像即可；`/api/forum/feed` 为新增路由，
 旧镜像无此路由不影响回滚后页面（移动端退回无懒加载的 SSR 全量列表）。
+
+### 部署记录（2026-09-10，release 20260909T144914Z-b55b043）
+
+无 DB 变更，纯镜像发布，流程与上次相同（工作树组装 context → rsync → 服务器 build）：
+
+1. **镜像**：本地 `.releases/20260909T144914Z-b55b043/context/`（APP_CONTEXT 307 文件 ≈2MB，
+   排除 uploads/generated）→ rsync `/opt/puer-hub/releases/<id>/context/` → 服务器
+   `docker build` ≈4 分钟 → `puer-hub-app:20260909T144914Z-b55b043`（b42f8eca0a9d）
+2. **切换**：旧镜像（f8231c6，a916a21d…）打 `rollback-20260909T144914Z-b55b043` →
+   `app.active.override.yml` → compose up（nohup 后台跑激活脚本，防 SSH 中断留半 recreate 状态；
+   脚本内建失败自动回滚 + 30×2s 健康轮询）→ `/forum` 200，一次成功
+3. **验证**：`/forum`、`/forum/classics`、`?bar=dayi`、`/tea/[id]`、`/forum/new?board=classics…` 全 200；
+   classics 页含品牌吧 pills + 热门茶品 widget；`/api/forum/feed` 分页正常（week offset=15
+   返回跟进帖 + hasMore）；dayi 吧列表 DB 硬过滤 brand=大益（页面出现的福今茶名来自
+   HotTeasWidget 全局热门，符合设计）；移动端「为你推荐」banner 已无；懒加载
+   IntersectionObserver 代码在 JS chunk 中确认
+4. **注意**：dayi/all 页 tea 链接 127/120 差异 = 列表 take:120 截断 + widget 10 条去重，正常
+
+回滚命令：
+
+```bash
+cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  -f rag-service.yml -f releases/20260909T144914Z-b55b043/app.rollback.override.yml \
+  up -d --no-deps --no-build app
+# rollback.override.yml 指向 puer-hub-app:rollback-20260909T144914Z-b55b043（需先创建该文件）
+```
+
 
