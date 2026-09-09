@@ -61,8 +61,19 @@ B3/F1/F1b/E2 保持关闭，待离线评估（run_f1/f3/e12 + analyze_v5）达�
   docker-proxy 路径失效），app 进程本身健康。
 - **修复**：`docker restart puer-hub-app` 重建端口映射，外部 /forum /ask 恢复 200，
   app→rag 链路复验正常。与 09-08 rag 部署相隔约 29h，无操作交集，判定为独立故障。
-- **遗留风险**：① 磁盘 95%（4.9G 剩余），建议清理悬空镜像/构建缓存；
-  ② `harness-edge-worker` 容器（fish-harness 项目）无限重启循环，长期给 docker
-  daemon 施压，建议处理；③ 建议对 https://puer.im 增加外部可用性监控（本次故障
-  约 1 小时后才被发现）。
+
+## 附：2026-09-09 磁盘清理与监控部署
+
+- **磁盘清理**（用户授权）：`docker builder prune -a -f`（38GB 构建缓存 199 条）
+  + `docker image prune -f`（dangling 0）。**磁盘 95% → 56%（4.9G → 39G 可用）**。
+  刻意未跑 `container prune`（保留 rag w4-backup 回滚容器）与 `image prune -a`
+  （保留带 tag 的历史镜像）。
+- **Uptime Kuma 监控**（用户授权）：容器 `uptime-kuma`，镜像 `louislam/uptime-kuma:1`，
+  绑定 `127.0.0.1:3001`（不暴露公网），volume `uptime-kuma`，unless-stopped，
+  `--add-host=host.docker.internal:host-gateway`。
+  - UI 访问：`ssh -L 3001:127.0.0.1:3001 puer-hk` 后浏览 `http://localhost:3001`
+  - 建议监控项：`https://puer.im/forum`（HTTP 200）、`https://puer.im/ask`、
+    `http://host.docker.internal:8000/healthz`（rag）
+  - 通知渠道（Telegram/邮件/webhook）需在 UI 初始化时配置
+
 
