@@ -146,6 +146,10 @@ model Tea {
   description      String?  @db.Text
   aliases          String[] // 别名，用于模糊匹配
 
+  // ── 经典普洱策展（P2-R2）──
+  isClassic  Boolean @default(false) // 入选"经典普洱"模块
+  marketInfo Json?   // 东和行情快照 {skuId, name, price, unit, changePct, updatedAt}
+
   tastingNoteCount Int    @default(0) // 缓存品鉴笔记数
   avgRating        Float? // 综合评分（各维度平均）
 

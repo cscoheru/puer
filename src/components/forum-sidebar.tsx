@@ -47,6 +47,23 @@ export default async function ForumSidebar() {
           )}
         </nav>
 
+        {/* 经典普洱 — 经典品种档案与转化跟进（位于"发布新帖"与"社区"之间） */}
+        <Link
+          href="/forum/classics"
+          className="block bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg p-3 hover:border-amber-400 hover:shadow-sm transition group"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl shrink-0">🏵️</span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-amber-900 group-hover:text-amber-800 transition">
+                经典普洱
+              </div>
+              <div className="text-[11px] text-stone-500 truncate">经典品种档案 · 转化跟进</div>
+            </div>
+            <span className="ml-auto text-stone-300 group-hover:text-amber-600 transition text-lg">›</span>
+          </div>
+        </Link>
+
         {/* 社区 — 版块列表 */}
         <div className="bg-white border border-stone-200 rounded-lg p-3">
           <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 px-1">

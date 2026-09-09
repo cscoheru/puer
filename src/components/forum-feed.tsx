@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import VoteButton from "@/components/vote-button";
 import VideoPlayer from "@/components/video-player";
@@ -60,6 +60,7 @@ interface ForumFeedProps {
   boards: Board[];
   currentUserId?: string;
   tab: string;
+  classics?: ClassicTeaCard[];
 }
 
 function timeAgo(dateStr: string) {
@@ -82,7 +83,90 @@ const TABS = [
   { key: "essence", label: "💎 精华" },
 ];
 
-export default function ForumFeed({ articles, boards, currentUserId, tab }: ForumFeedProps) {
+// ── 经典普洱卡片（P2-R2 / P2-R3）───────────────────────────────
+interface ClassicTeaCard {
+  id: string;
+  name: string;
+  brand: string;
+  year: number;
+  type: string;
+  coverImage: string | null;
+  avgRating: number | null;
+  tastingNoteCount: number;
+}
+
+type FeedItem =
+  | { kind: "article"; data: FeedArticle }
+  | { kind: "classic"; data: ClassicTeaCard };
+
+/** 帖子文字内容：默认折叠 3 行，可展开/收起（P2-R1：文字置于媒体之前） */
+function CollapsibleText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  const ref = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    setClamped(!!el && el.scrollHeight > el.clientHeight + 4);
+  }, [text]);
+
+  return (
+    <div>
+      <p
+        ref={ref}
+        className={`text-xs md:text-sm text-stone-600 leading-relaxed whitespace-pre-line ${expanded ? "" : "line-clamp-3"}`}
+      >
+        {text}
+      </p>
+      {clamped && (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          className="text-xs text-amber-800 hover:text-amber-900 font-medium mt-0.5"
+        >
+          {expanded ? "收起 ▲" : "展开全文 ▼"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 经典茶品卡片：穿插在移动端推荐流中，点击进入茶品档案页 */
+function ClassicCard({ tea }: { tea: ClassicTeaCard }) {
+  return (
+    <Link
+      href={`/tea/${tea.id}`}
+      className="block bg-gradient-to-br from-amber-50 to-white border border-amber-200 rounded-lg p-3 hover:border-amber-400 transition"
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-14 h-14 rounded-lg overflow-hidden bg-amber-100 shrink-0">
+          {tea.coverImage ? (
+            <img src={tea.coverImage} alt={tea.name} loading="lazy" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-xl">🍵</div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="text-[10px] px-1.5 py-0.5 bg-amber-800 text-white rounded font-medium">经典普洱</span>
+          <p className="text-sm font-semibold text-stone-800 truncate mt-1">
+            {tea.brand} · {tea.name}
+          </p>
+          <p className="text-xs text-stone-400 mt-0.5 truncate">
+            {tea.year} · {tea.type === "raw" ? "生茶" : "熟茶"}
+            {tea.tastingNoteCount > 0 && ` · ${tea.tastingNoteCount} 篇品鉴`}
+            {tea.avgRating != null && ` · ★${tea.avgRating.toFixed(1)}`}
+          </p>
+        </div>
+        <span className="text-amber-700 text-lg shrink-0">›</span>
+      </div>
+    </Link>
+  );
+}
+
+export default function ForumFeed({ articles, boards, currentUserId, tab, classics }: ForumFeedProps) {
   const [mounted, setMounted] = useState(false);
   // Read tracking: reorder to prioritize unseen posts
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
@@ -104,6 +188,42 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
     });
     setOrderedArticles(sorted);
   }, [articles]);
+
+  // P2-R3 移动端检测：桌面（lg+）保持三栏 + 五 tab；移动端切单一加权推荐流
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // P2-R3 综合加权：热度位次 × 0.5 + 新鲜度 × 0.3 + 互动率 × 0.2，
+  // 经典普洱卡片每 8 帖穿插 1 张；桌面端维持服务端 tab 排序不变。
+  const items = useMemo<FeedItem[]>(() => {
+    if (!isMobile) return orderedArticles.map((a) => ({ kind: "article" as const, data: a }));
+    const now = Date.now();
+    const scored = orderedArticles.map((a, rank) => {
+      const posScore = 1 - rank / Math.max(1, orderedArticles.length); // 服务端热榜位次
+      const ageH = (now - new Date(a.createdAt).getTime()) / 3600_000;
+      const fresh = Math.exp(-ageH / 72); // ~3 天量级的新鲜度衰减
+      const engageRaw = a.upvotes + 2 * a.replyCount + 1;
+      const engage = engageRaw / (engageRaw + 8); // 平滑互动率 0..1
+      return { kind: "article" as const, data: a, s: 0.5 * posScore + 0.3 * fresh + 0.2 * engage };
+    });
+    scored.sort((x, y) => y.s - x.s);
+    const classicsList = classics || [];
+    const out: FeedItem[] = [];
+    let ci = 0;
+    scored.forEach((entry, i) => {
+      out.push(entry);
+      if (classicsList.length > 0 && (i + 1) % 8 === 0) {
+        out.push({ kind: "classic", data: classicsList[ci++ % classicsList.length] });
+      }
+    });
+    return out;
+  }, [orderedArticles, isMobile, classics]);
 
   // Track seen items via intersection observer
   const seenTrackerRef = useRef<IntersectionObserver | null>(null);
@@ -131,8 +251,17 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
 
   return (
     <>
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-stone-200 mb-3">
+      {/* 移动端：单一"为你推荐"头部（桌面端隐藏，改用下方 tab 栏） */}
+      <div className="lg:hidden mb-3">
+        <div className="bg-gradient-to-r from-amber-50 to-stone-50 border border-amber-200 rounded-lg px-4 py-2.5 flex items-center gap-2">
+          <span className="text-base">✨</span>
+          <span className="text-sm font-semibold text-amber-900">为你推荐</span>
+          <span className="text-xs text-stone-400">热榜 × 新帖 · 综合加权</span>
+        </div>
+      </div>
+
+      {/* Tab bar（仅桌面 lg+；移动端由"为你推荐"混合流取代热榜/新帖分栏） */}
+      <div className="hidden lg:flex items-center gap-1 border-b border-stone-200 mb-3">
         {TABS.map((t) => (
           <Link
             key={t.key}
@@ -166,11 +295,15 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
         </div>
       ) : (
         <div className="space-y-1">
-          {orderedArticles.map((article) => (
-            <div key={article.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
-              <ArticleCard article={article} currentUserId={currentUserId} isNew={mounted && !seen.has(article.id)} />
-            </div>
-          ))}
+          {items.map((item) =>
+            item.kind === "classic" ? (
+              <ClassicCard key={`classic-${item.data.id}`} tea={item.data} />
+            ) : (
+              <div key={item.data.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
+                <ArticleCard article={item.data} currentUserId={currentUserId} isNew={mounted && !seen.has(item.data.id)} />
+              </div>
+            )
+          )}
         </div>
       )}
     </>
@@ -180,7 +313,6 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
 function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; currentUserId?: string; isNew?: boolean }) {
   const [videoFailed, setVideoFailed] = useState(false);
   const effectiveVideoUrl = videoFailed ? null : article.videoUrl;
-  const hasMedia = !!(effectiveVideoUrl || article.images?.length || article.coverImage);
   const flairDef = getFlair(article.flair);
 
   return (
@@ -265,6 +397,13 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
         </div>
       </div>
 
+      {/* P2-R1 帖子文字内容：置于媒体之前，默认折叠 3 行可展开 */}
+      {article.content && (
+        <div className="px-3 pb-2.5 md:px-4 md:pb-3">
+          <CollapsibleText text={article.content} />
+        </div>
+      )}
+
       {/* Media preview — 4:3 aspect ratio */}
       {effectiveVideoUrl && (
         <div className="border-t border-stone-100 bg-black aspect-[4/3]">
@@ -282,12 +421,6 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
         </Link>
       )}
 
-      {/* Text preview (only when no media) */}
-      {!hasMedia && article.content && (
-        <div className="px-3 pb-2.5 md:px-4 md:pb-3">
-          <p className="text-xs text-stone-500 leading-relaxed line-clamp-2">{article.content}</p>
-        </div>
-      )}
     </div>
   );
 }

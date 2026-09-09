@@ -9,6 +9,7 @@ import PromoteButton from "@/components/tea/promote-button";
 import type { Prisma } from "@/generated/prisma/client";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
+import { parseMarket } from "@/lib/market-info";
 
 export const dynamic = "force-dynamic";
 
@@ -86,20 +87,39 @@ export default async function TeaDetailPage({ params }: PageProps) {
     }).catch(() => [] as ArticleWithRelations[]),
   ]);
 
-  // Tasting notes are admin-only; hide entirely from non-admins
+  // P2-R2 经典普洱：品鉴全文仍 admin-only（私人笔记），
+  // 但对所有人公开"转化档案"摘要时间线（标题 + summary + 评分 + 首图）。
   const visibleNotes = isAdmin ? tastingNotes : [];
 
-  // Collect all images from tasting notes
-  const allImages = visibleNotes.flatMap((n) =>
+  // Public conversion timeline (curated summary only), oldest → newest
+  const publicTimeline = tastingNotes
+    .map((n) => ({
+      id: n.id,
+      title: n.title,
+      summary: n.summary,
+      createdAt: n.createdAt,
+      cover:
+        Array.isArray(n.images)
+          ? ((n.images as unknown[]).find((i): i is string => typeof i === "string") ?? null)
+          : null,
+      scores: [n.appearance, n.color, n.aroma, n.taste, n.aftertaste].filter(
+        (s): s is number => s !== null,
+      ),
+    }))
+    .reverse();
+
+  // Collect all images from tasting notes (evernote 图床 URL 本就公开)
+  const allImages = tastingNotes.flatMap((n) =>
     Array.isArray(n.images)
       ? (n.images as unknown[]).filter((i): i is string => typeof i === "string")
       : [],
   );
 
   const typeLabel = tea.type === "raw" ? "生茶" : "熟茶";
+  const market = parseMarket(tea.marketInfo);
 
   // Aggregate scores
-  const allScores = visibleNotes.flatMap((n) =>
+  const allScores = tastingNotes.flatMap((n) =>
     [n.appearance, n.color, n.aroma, n.taste, n.aftertaste].filter((s): s is number => s !== null),
   );
   const avgScore = allScores.length > 0
@@ -126,6 +146,12 @@ export default async function TeaDetailPage({ params }: PageProps) {
       <nav className="text-xs md:text-sm text-stone-400 mb-4">
         <Link href="/forum" className="hover:text-amber-700 transition">品茶论坛</Link>
         <span className="mx-2">/</span>
+        {tea.isClassic && (
+          <>
+            <Link href="/forum/classics" className="hover:text-amber-700 transition">经典普洱</Link>
+            <span className="mx-2">/</span>
+          </>
+        )}
         <Link href="/tea" className="hover:text-amber-700 transition">茶品库</Link>
         <span className="mx-2">/</span>
         <span className="text-stone-600">{tea.name}</span>
@@ -149,6 +175,11 @@ export default async function TeaDetailPage({ params }: PageProps) {
               第{tea.batch}批
             </span>
           )}
+          {tea.isClassic && (
+            <span className="px-2.5 py-0.5 bg-amber-800 text-white rounded text-xs font-medium">
+              🏵️ 经典普洱
+            </span>
+          )}
         </div>
 
         {canEdit && (
@@ -161,7 +192,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6 text-center">
           {[
-            { label: "品鉴笔记", value: isAdmin ? tea._count.tastingNotes : 0 },
+            { label: "品鉴笔记", value: tea._count.tastingNotes },
             { label: "论坛帖子", value: tea._count.articles },
             { label: "综合评分", value: avgScore ? `★ ${avgScore}` : "暂无" },
             { label: "规格", value: tea.weightSpec || "未知" },
@@ -173,6 +204,20 @@ export default async function TeaDetailPage({ params }: PageProps) {
             </div>
           ))}
         </div>
+
+        {market && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm">
+            <span className="text-stone-500 text-xs">行情快照</span>
+            <span className="font-semibold text-stone-800">{market.price}</span>
+            {typeof market.changePct === "number" && (
+              <span className={`font-medium ${market.changePct >= 0 ? "text-red-600" : "text-green-600"}`}>
+                {market.changePct >= 0 ? "▲" : "▼"} {Math.abs(market.changePct).toFixed(1)}%
+              </span>
+            )}
+            {market.updatedAt && <span className="text-xs text-stone-400">{market.updatedAt}</span>}
+            {market.source && <span className="ml-auto text-xs text-stone-400">来源：{market.source}</span>}
+          </div>
+        )}
 
         {tea.description && (
           <p className="text-stone-600 text-sm md:text-base mt-4 leading-relaxed">{tea.description}</p>
@@ -212,6 +257,49 @@ export default async function TeaDetailPage({ params }: PageProps) {
           </p>
         )}
       </div>
+      )}
+
+      {/* P2-R2 转化档案 — 历年品鉴公开摘要时间线（非 admin 可见） */}
+      {!isAdmin && publicTimeline.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-lg md:text-2xl font-serif font-bold text-stone-800 mb-1">
+            转化档案 · 历年品鉴 ({publicTimeline.length})
+          </h2>
+          <p className="text-xs text-stone-400 mb-4">从第一次开汤到最近的品鉴摘要，跟踪这款茶的状态变化</p>
+          <div className="relative border-l-2 border-amber-200 ml-2 space-y-4">
+            {publicTimeline.map((n) => {
+              const avg =
+                n.scores.length > 0
+                  ? (n.scores.reduce((a, b) => a + b, 0) / n.scores.length).toFixed(1)
+                  : null;
+              return (
+                <div key={n.id} className="relative pl-6">
+                  <span className="absolute -left-[9px] top-2 w-4 h-4 rounded-full bg-amber-700 border-2 border-white" />
+                  <div className="bg-white border border-stone-200 rounded-lg p-3 flex gap-3">
+                    {n.cover && (
+                      <img src={n.cover} alt="" loading="lazy" className="w-16 h-16 object-cover rounded-lg shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-amber-800">
+                          {new Date(n.createdAt).getFullYear()} 年
+                        </span>
+                        <span className="text-xs text-stone-400">
+                          {new Date(n.createdAt).toLocaleDateString("zh-CN")}
+                        </span>
+                        {avg && <span className="text-xs text-amber-700">★ {avg}</span>}
+                      </div>
+                      <p className="text-sm font-medium text-stone-800 mt-0.5 truncate">{n.title}</p>
+                      {n.summary && (
+                        <p className="text-xs text-stone-500 mt-1 leading-relaxed line-clamp-3">{n.summary}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* Image Wall */}

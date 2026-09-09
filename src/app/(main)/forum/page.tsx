@@ -35,6 +35,25 @@ export default async function ForumPage(props: {
     orderBy: { sortOrder: "asc" },
   });
 
+  // P2-R2/R3 经典普洱卡片：移动端推荐流穿插 + 经典普洱模块数据源
+  const classicTeas = await prisma.tea
+    .findMany({
+      where: { isClassic: true },
+      orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }],
+      take: 20,
+      select: {
+        id: true,
+        name: true,
+        brand: true,
+        year: true,
+        type: true,
+        coverImage: true,
+        avgRating: true,
+        tastingNoteCount: true,
+      },
+    })
+    .catch(() => []);
+
   const wherePublished = { ...visibleArticleWhere(session?.user?.id), boardId: { not: null } };
 
   const articleSelect = {
@@ -247,7 +266,7 @@ export default async function ForumPage(props: {
     createdAt: a.createdAt.toISOString(),
     isEssence: a.isEssence,
     isPinned: a.isPinned,
-    content: a.content.replace(/<[^>]*>/g, "").slice(0, 200),
+    content: a.content.replace(/<[^>]*>/g, " ").replace(/\s+\n/g, "\n").slice(0, 500),
     coverImage: a.content.match(/<img[^>]+src="([^">]+)"/)?.[1] || null,
     images: Array.from(a.content.matchAll(/<img[^>]+src="([^">]+)"/g)).map((m) => m[1]),
     videoUrl: a.videoUrl,
@@ -266,6 +285,7 @@ export default async function ForumPage(props: {
           boards={boards.map((b) => ({ id: b.id, name: b.name, slug: b.slug, icon: b.icon }))}
           currentUserId={session?.user?.id}
           tab={tab}
+          classics={classicTeas}
         />
       </div>
       <LatestPosts />
