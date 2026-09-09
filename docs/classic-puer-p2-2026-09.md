@@ -170,7 +170,7 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 # rollback.override.yml 指向 puer-hub-app:rollback-20260909T144914Z-b55b043（需先创建该文件）
 ```
 
-## R5 · 经典普洱退出首页 + 手机端入口与升级机制（2026-09-09 已实现，待部署）
+## R5 · 经典普洱退出首页 + 手机端入口与升级机制（2026-09-09 已上线，release 20260909T152646Z-7d1c19a）
 
 ### 背景
 用户反馈：手机端首页被大量经典普洱跟进帖占据——跟进帖无视频/轮播图、内容为多篇茶记聚合，与普通帖风格差异大，体验差。决策：经典普洱内容退出首页信息流（跟进帖 + 穿插茶品卡片均移除），改为专区入口 + 人工升级机制。
@@ -200,6 +200,24 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 - `/forum` HTML 无【跟进】标题；`/forum/classics?bar=dayi` 含横滑条 + 13万/件价格。
 - header 含 `/forum/classics` 链接；promote API 未登录 401。
 - tsc clean；build exit 0；eslint 无新增问题（剩余均为 HEAD 基线同类）。
+
+### R5 部署记录（2026-09-09，release 20260909T152646Z-7d1c19a）
+1. **migration 先行**（加列对旧镜像前向安全）：宿主机写 SQL 文件 → `docker exec -i puer-hub-postgres psql -U puerhub -d puerhub < file`。
+   `ALTER TABLE articles ADD COLUMN IF NOT EXISTS "promotedHomeAt" TIMESTAMP(3);` → 列确认存在，生产跟进帖 40 条。
+2. **context 组装**：clean working tree rsync APP_CONTEXT（排除 `src/generated`、`uploads`——本地 public/uploads 有 91MB 开发残留，首次未排除致 93MB/852 文件，排除后 2.6MB/309 文件与 R4 一致）→ rsync -az 到 `/opt/puer-hub/releases/<rid>/`。
+3. **build**：服务器 `nohup docker build -t puer-hub-app:<rid> . > build.log` ≈2min → image `a2f2a98998eb`。
+4. **激活**：简化 activate.sh（跳过 image.tar 校验，镜像已在本地；保留 rollback tag + ERR 自动回滚 + 30×2s 健康轮询）nohup 后台执行 → 一次成功。PREVIOUS=b42f8eca0a9d（R4）已打 `rollback-20260909T152646Z-7d1c19a`。
+5. **生产验证**：`/forum`、`/forum/classics`、`/` 全 200；首屏【跟进】标题 0；feed week 窗口 2 帖（无跟进，质量门槛正常）；归档续读 offset=60 返回 30 帖、classics 板块 0（AND 合并正确）；classics 页横滑条 + header 经典入口在 HTML 中；promote API 未登录 401；postgres/minio/rag/ws 容器全部健康。
+
+回滚命令：
+
+```bash
+cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  -f rag-service.yml -f releases/20260909T152646Z-7d1c19a/app.rollback.override.yml \
+  up -d --no-deps --no-build app
+# rollback.override.yml 指向 puer-hub-app:rollback-20260909T152646Z-7d1c19a（需先创建该文件）
+# 注意：回滚 R5 无需回滚 DB——旧代码不认识 promotedHomeAt 列，加列对旧镜像前向安全
+```
 
 
 
