@@ -24,8 +24,9 @@ function markSeen(id: string) {
   try {
     const seen = getSeenPosts();
     seen.add(id);
-    // Keep only last 200 to prevent localStorage from growing too large
-    const arr = Array.from(seen).slice(-200);
+    // Keep only last 400 to prevent localStorage from growing too large
+    // （P2-R12：200→400，配合移动端已读降权拉长"不重复推荐"窗口）
+    const arr = Array.from(seen).slice(-400);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
   } catch {}
 }
@@ -133,6 +134,8 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadGuardRef = useRef(false);
+  // P2-R12 已读快照（进入页面时），供移动端加权降权
+  const seenSnapshotRef = useRef<Set<string>>(new Set());
   // 服务端游标：SSR 首屏已消费 articles.length 条，从其后继续
   const loadedCountRef = useRef(articles.length);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -142,12 +145,15 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
   }, []);
 
   useEffect(() => {
-    const s = getSeenPosts();
-    setSeen(s);
+    const seen = getSeenPosts();
+    setSeen(seen);
+    // P2-R12：已读快照供移动端加权降权使用（固定为进入页面时的状态，
+    // 阅读过程中新标记的已读不当场重排，避免正在看的卡片跳动）
+    seenSnapshotRef.current = seen;
     // Reorder: unseen first (within each score tier), then seen
     const sorted = [...articles].sort((a, b) => {
-      const aSeen = s.has(a.id);
-      const bSeen = s.has(b.id);
+      const aSeen = seen.has(a.id);
+      const bSeen = seen.has(b.id);
       if (aSeen !== bSeen) return aSeen ? 1 : -1;
       return 0; // preserve original order within each group
     });
@@ -180,7 +186,11 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
       const fresh = Math.exp(-ageH / 72); // ~3 天量级的新鲜度衰减
       const engageRaw = a.upvotes + 2 * a.replyCount + 1;
       const engage = engageRaw / (engageRaw + 8); // 平滑互动率 0..1
-      return { data: a, s: 0.5 * posScore + 0.3 * fresh + 0.2 * engage };
+      let s = 0.5 * posScore + 0.3 * fresh + 0.2 * engage;
+      // P2-R12 已读降权：看过的帖子分数 ×0.35 沉底（不剔除，用户仍可找回）；
+      // 记忆仅 localStorage 最近 400 条，超出自然遗忘≈降权时间窗
+      if (seenSnapshotRef.current.has(a.id)) s *= 0.35;
+      return { data: a, s };
     });
     scored.sort((x, y) => y.s - x.s);
     return [...scored.map((e) => e.data), ...extraArticles];
