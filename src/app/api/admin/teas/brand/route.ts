@@ -17,6 +17,12 @@ export async function POST(req: NextRequest) {
   }
   const newBrand = brand.trim().slice(0, 100);
 
+  // P2-R14：品牌是实体——划入新品牌名时自动补建品牌行（幂等）
+  const existing = await prisma.brand.findUnique({ where: { name: newBrand } });
+  if (!existing) {
+    await prisma.brand.create({ data: { name: newBrand } }).catch(() => {});
+  }
+
   const result = await prisma.tea.updateMany({
     where: { id: { in: teaIds } },
     data: { brand: newBrand },

@@ -165,19 +165,24 @@ export default function AdminClassicsPage() {
     }
   }
 
-  // ── P2-R13 品牌吧管理 ──────────────────────────────────────────
+  // ── P2-R14 品牌吧管理：品牌必须从现有品牌中勾选 ──────────────────
   interface Bar { id: string; key: string; label: string; icon: string | null; brands: string[]; sortOrder: number }
   const [showBars, setShowBars] = useState(false);
   const [bars, setBars] = useState<Bar[]>([]);
+  const [brandList, setBrandList] = useState<{ id: string; name: string; teaCount: number }[]>([]);
   const [newBarLabel, setNewBarLabel] = useState("");
 
   async function loadBars() {
-    const res = await fetch("/api/admin/brand-bars");
-    const data = await res.json().catch(() => ({ bars: [] }));
-    setBars(data.bars || []);
+    const [barsRes, brandsRes] = await Promise.all([
+      fetch("/api/admin/brand-bars").then((r) => r.json()).catch(() => ({ bars: [] })),
+      fetch("/api/admin/brands").then((r) => r.json()).catch(() => ({ brands: [] })),
+    ]);
+    setBars(barsRes.bars || []);
+    setBrandList(brandsRes.brands || []);
   }
 
   async function saveBar(bar: Bar, isNew = false) {
+    if (bar.brands.length === 0) { setMessage("请先勾选至少一个品牌（品牌吧必须从现有品牌中创建）"); return; }
     const res = await fetch("/api/admin/brand-bars", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -255,34 +260,55 @@ export default function AdminClassicsPage() {
         </button>
       </div>
 
-      {/* P2-R13 品牌吧管理面板 */}
+      {/* P2-R14 品牌吧管理面板：品牌从现有品牌勾选 */}
       {showBars && (
-        <div className="mb-4 border border-amber-200 rounded-xl p-3 bg-amber-50/50 space-y-2">
+        <div className="mb-4 border border-amber-200 rounded-xl p-3 bg-amber-50/50 space-y-3">
           <p className="text-xs text-stone-500">
-            品牌吧决定经典普洱页的分吧；未归入任何吧的品牌自动进「其他吧」。品牌列表用逗号分隔（例：大益，勐海茶厂）。
+            品牌吧必须从现有品牌中勾选创建（品牌本身在「品牌管理」维护）；未归入任何吧的品牌自动进「其他吧」。
           </p>
           {bars.map((b, i) => (
-            <div key={b.id} className="flex flex-wrap items-center gap-1.5">
-              <input
-                value={b.icon || ""}
-                onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, icon: e.target.value } : x)))}
-                className="w-12 px-2 py-1 text-xs border border-stone-200 rounded text-center"
-                placeholder="图标"
-              />
-              <input
-                value={b.label}
-                onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
-                className="w-28 px-2 py-1 text-xs border border-stone-200 rounded"
-                placeholder="吧名"
-              />
-              <input
-                value={b.brands.join("，")}
-                onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, brands: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) } : x)))}
-                className="flex-1 min-w-48 px-2 py-1 text-xs border border-stone-200 rounded"
-                placeholder="品牌列表（逗号分隔）"
-              />
-              <button onClick={() => saveBar(b)} className="px-2 py-1 text-xs bg-amber-800 text-white rounded hover:bg-amber-900 transition">保存</button>
-              <button onClick={() => deleteBar(b)} className="px-2 py-1 text-xs border border-stone-300 text-stone-500 rounded hover:bg-stone-100 transition">删除</button>
+            <div key={i} className="border border-stone-200 rounded-lg p-2 bg-white space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input
+                  value={b.icon || ""}
+                  onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, icon: e.target.value } : x)))}
+                  className="w-12 px-2 py-1 text-xs border border-stone-200 rounded text-center"
+                  placeholder="图标"
+                />
+                <input
+                  value={b.label}
+                  onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                  className="w-28 px-2 py-1 text-xs border border-stone-200 rounded"
+                  placeholder="吧名"
+                />
+                <span className="text-xs text-stone-400">已选 {b.brands.length} 品牌</span>
+                <div className="flex-1" />
+                {!b.id && <span className="text-[0.65rem] text-amber-700">新吧（勾选品牌后保存）</span>}
+                <button onClick={() => saveBar(b, !b.id)} className="px-2 py-1 text-xs bg-amber-800 text-white rounded hover:bg-amber-900 transition">保存</button>
+                <button onClick={() => deleteBar(b)} disabled={!b.id} className="px-2 py-1 text-xs border border-stone-300 text-stone-500 rounded hover:bg-stone-100 transition disabled:opacity-40">删除</button>
+              </div>
+              <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                {brandList.map((br) => {
+                  const on = b.brands.includes(br.name);
+                  return (
+                    <button
+                      key={br.id}
+                      onClick={() =>
+                        setBars((prev) =>
+                          prev.map((x, j) =>
+                            j === i
+                              ? { ...x, brands: on ? x.brands.filter((y) => y !== br.name) : [...x.brands, br.name] }
+                              : x,
+                          ),
+                        )
+                      }
+                      className={`px-2 py-0.5 text-xs rounded-full border transition ${on ? "bg-amber-800 text-white border-amber-800" : "bg-stone-50 text-stone-600 border-stone-200 hover:border-amber-400"}`}
+                    >
+                      {br.name}（{br.teaCount}）
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ))}
           <div className="flex items-center gap-1.5 pt-1 border-t border-amber-200">
@@ -293,15 +319,15 @@ export default function AdminClassicsPage() {
               className="px-2 py-1 text-xs border border-stone-200 rounded w-44"
             />
             <button
-              onClick={async () => {
+              onClick={() => {
                 const label = newBarLabel.trim();
                 if (!label) return;
-                await saveBar({ id: "", key: label, label, icon: "", brands: [label.replace(/吧$/, "")], sortOrder: 99 }, true);
+                setBars((prev) => [...prev, { id: "", key: label, label, icon: "", brands: [], sortOrder: 99 }]);
                 setNewBarLabel("");
               }}
               className="px-2 py-1 text-xs bg-stone-700 text-white rounded hover:bg-stone-800 transition"
             >
-              + 新增吧
+              + 新增吧（先加再勾品牌）
             </button>
           </div>
         </div>

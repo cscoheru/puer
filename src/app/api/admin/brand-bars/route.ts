@@ -38,6 +38,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "至少需要一个品牌" }, { status: 400 });
   }
 
+  // P2-R14：品牌吧必须从现有品牌中选择，不能随意输入
+  const knownBrands = await prisma.brand.findMany({ where: { name: { in: cleanBrands } }, select: { name: true } });
+  const knownSet = new Set(knownBrands.map((b) => b.name));
+  const invalid = cleanBrands.filter((b) => !knownSet.has(b));
+  if (invalid.length > 0) {
+    return NextResponse.json(
+      { error: `以下品牌不存在，请先在「品牌管理」中创建：${invalid.join("、")}` },
+      { status: 400 },
+    );
+  }
+
   try {
     const bar = id
       ? await prisma.brandBar.update({

@@ -248,6 +248,20 @@ model BrandBar {
   @@map("brand_bars")
 }
 
+// ── 品牌主数据（P2-R14）：品牌实体，茶品通过 teas.brand 字符串唯一关联 ──
+// 改名时事务同步 teas.brand 与 brand_bars.brands，保证一处改名全局生效。
+model Brand {
+  id          String  @id @default(cuid())
+  name        String  @unique @db.VarChar(100)
+  description String? @db.VarChar(500)
+  icon        String? @db.VarChar(10)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("brands")
+}
+
 model BoardModerator {
   id         String    @id @default(cuid())
   boardId    String

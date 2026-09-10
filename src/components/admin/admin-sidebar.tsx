@@ -18,6 +18,7 @@ const NAV_ITEMS = [
 
 const TOOL_ITEMS = [
   { href: "/admin/classics", label: "经典审核", icon: "🏵️" },
+  { href: "/admin/brands", label: "品牌管理", icon: "🏷️" },
   { href: "/admin/teas", label: "茶品合并", icon: "🔄" },
   { href: "/admin/drafts", label: "草稿管理", icon: "📋" },
   { href: "/admin/import", label: "笔记导入", icon: "📥" },
