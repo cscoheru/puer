@@ -270,5 +270,19 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 回滚：同前，指向 `rollback-20260910T015538Z-04bc968`（纯前端改动，无 DB 变更）。
 
+## R9 · 帖子卡片重构为 Reddit/X 式布局（2026-09-10 已上线，release 20260910T023053Z-893c91b）
+
+1. **问题**：移动端卡片左列投票（↑N↓ 约 70px 宽）压缩标题为窄多行；元信息行 flex-wrap + 关注按钮 min-h 换行导致标题下方大片空白。
+2. **新结构**（`forum-feed.tsx` ArticleCard，移动/桌面统一）：
+   - 行1：32px 头像（链接用户页，无图首字母圆）+ 作者（AuthorHover）· 时间 · 版块；徽标（新/flair/⭐/📌）右移行尾
+   - 行2：标题独占整行宽度
+   - 行3：正文折叠预览（不变）；行4：媒体 4:3（不变）
+   - 行5（底部操作行，border-t + mt-auto 贴底）：横排投票 + 💬 评论数按钮（0 时显示"评论"）+ 右侧关注按钮
+3. **评估依据**：Reddit mobile / X 的信息层级——身份先行、标题阅读优先、操作触达在拇指热区（底部）；消除 wrap 留白。桌面统一该结构（维护单套代码）。
+4. **部署小插曲**：首次 activate 在 docker build 导层未完成时启动 → `No such image` 触发自动回滚（旧镜像持续服务，无中断）；确认 image 后重跑 activate 一次成功。教训：启动 activate 前必须看到 build.log `#26 DONE`。
+5. **验证**：`/forum` 200；HTML 含新头像标记（`w-8 h-8 rounded-full` ×4）。
+
+回滚：指向 `rollback-20260910T023053Z-893c91b`（纯前端改动，无 DB 变更）。
+
 
 
