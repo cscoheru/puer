@@ -259,5 +259,16 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 回滚：同 R6 方式，指向 `rollback-20260910T014427Z-fd6ceb7`；或仅回滚字号（`globals.css` 单文件改动，revert 该 commit 的 CSS 部分即可）。
 
+## R8 · 电脑端左侧经典普洱热点茶品榜（2026-09-10 已上线，release 20260910T015538Z-04bc968）
+
+1. **需求**：电脑端左侧栏「🏵️ 经典普洱」入口展示热点茶品，动态更新，点击进入经典普洱区。
+2. **实现**（`src/components/forum-sidebar.tsx`，全站 4 处使用该侧栏的页面同步生效）：
+   - 入口卡片升级为模块：标题行「🏵️ 经典普洱 / 热点茶品 · 动态更新 + 更多›」→ `/forum/classics`；下方 top5 茶品行（序号 + 28px 缩略图 + 名称 + 品鉴数）→ `/tea/[id]` 档案页。
+   - **动态排序**：两个 `groupBy`（tastingNotes / articles 各取每茶 `_max createdAt` top12）合并为「最近活动时间」降序取 5；不足按 `tastingNoteCount` 热度补足（无活动记录排后）。发布新茶记/跟进帖后侧栏即时变化（页面 force-dynamic）。
+   - 缩略图三级链复用（封面→图库→茶记图）；全部查询 `.catch()` 降级，DB 异常时模块回退为纯入口卡片不阻塞侧栏。
+3. **部署**：commit `04bc968` → 服务器 build 95s → activate 一次成功；PREVIOUS（R7 `fd6ceb7` 镜像）已打 rollback tag。生产验证：`/forum` HTML 含模块标题与 5 个 `/tea/<id>` 行链接，`/forum`、`/forum/classics` 200。
+
+回滚：同前，指向 `rollback-20260910T015538Z-04bc968`（纯前端改动，无 DB 变更）。
+
 
 
