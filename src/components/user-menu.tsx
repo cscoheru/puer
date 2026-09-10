@@ -77,7 +77,7 @@ export default function UserMenu() {
             <path d="M13.73 21a2 2 0 01-3.46 0" />
           </svg>
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[0.625rem] font-bold rounded-full flex items-center justify-center">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
@@ -99,7 +99,7 @@ export default function UserMenu() {
                   onClick={() => setNotifOpen(false)}
                 >
                   <p className="text-xs text-stone-700 line-clamp-2">{n.content}</p>
-                  <p className="text-[10px] text-stone-400 mt-0.5">
+                  <p className="text-[0.625rem] text-stone-400 mt-0.5">
                     {new Date(n.createdAt).toLocaleDateString("zh-CN")}
                   </p>
                 </Link>

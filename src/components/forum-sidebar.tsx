@@ -58,7 +58,7 @@ export default async function ForumSidebar() {
               <div className="text-sm font-semibold text-amber-900 group-hover:text-amber-800 transition">
                 经典普洱
               </div>
-              <div className="text-[11px] text-stone-500 truncate">经典品种档案 · 转化跟进</div>
+              <div className="text-[0.6875rem] text-stone-500 truncate">经典品种档案 · 转化跟进</div>
             </div>
             <span className="ml-auto text-stone-300 group-hover:text-amber-600 transition text-lg">›</span>
           </div>
@@ -79,7 +79,7 @@ export default async function ForumSidebar() {
                 <span className="text-base shrink-0">{board.icon || "📄"}</span>
                 <span className="truncate">{board.name}</span>
                 {board.threadCount > 0 && (
-                  <span className="ml-auto text-[10px] text-stone-400">{board.threadCount}</span>
+                  <span className="ml-auto text-[0.625rem] text-stone-400">{board.threadCount}</span>
                 )}
               </Link>
             ))}

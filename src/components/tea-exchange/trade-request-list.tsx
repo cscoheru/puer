@@ -408,7 +408,7 @@ export default function TradeRequestList({ userId }: Props) {
                               {replyAuthor.username}
                             </span>
                             <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] ${
+                              className={`px-1.5 py-0.5 rounded text-[0.625rem] ${
                                 isCounter
                                   ? "bg-amber-100 text-amber-700"
                                   : "bg-stone-100 text-stone-500"
@@ -712,7 +712,7 @@ export default function TradeRequestList({ userId }: Props) {
                         className="px-3 py-1.5 bg-stone-200 text-stone-400 text-xs rounded cursor-not-allowed relative group"
                       >
                         平台验货（开发中）
-                        <span className="absolute -top-7 left-1/2 -translate-x-1/2 bg-stone-700 text-white text-[10px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
+                        <span className="absolute -top-7 left-1/2 -translate-x-1/2 bg-stone-700 text-white text-[0.625rem] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
                           开发中
                         </span>
                       </button>

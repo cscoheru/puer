@@ -87,7 +87,7 @@ export default async function TastingNotePage({ params }: PageProps) {
             {scores.map((s) => (
               <div key={s.label} className="px-3 py-1.5 bg-stone-50 rounded-lg text-center min-w-[60px]">
                 <div className="text-lg font-bold text-amber-800">{s.value}</div>
-                <div className="text-[10px] text-stone-400">{s.label}</div>
+                <div className="text-[0.625rem] text-stone-400">{s.label}</div>
               </div>
             ))}
           </div>

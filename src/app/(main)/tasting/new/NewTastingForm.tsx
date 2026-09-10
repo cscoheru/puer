@@ -268,7 +268,7 @@ export default function NewTastingForm() {
               {mediaItems.map((item, idx) => (
                 <div key={item.id} className="relative group w-[calc(33.333%-6px)] md:w-[calc(25%-8px)] aspect-square bg-stone-100 rounded-lg overflow-hidden">
                   <img src={item.preview} alt="" className="w-full h-full object-cover" />
-                  <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">{idx + 1}</div>
+                  <div className="absolute top-1 left-1 bg-black/60 text-white text-[0.625rem] px-1.5 py-0.5 rounded font-mono">{idx + 1}</div>
                   <div className="absolute inset-x-0 bottom-0 flex justify-center gap-0 bg-gradient-to-t from-black/50 to-transparent pt-5 pb-1 opacity-0 group-hover:opacity-100 transition">
                     {idx > 0 && <button type="button" onClick={() => moveMediaItem(item.id, -1)} className="w-7 h-7 bg-white/90 text-stone-700 rounded-full text-xs hover:bg-white hover:text-amber-700 transition shadow-sm" aria-label="左移">◀</button>}
                     {idx < mediaItems.length - 1 && <button type="button" onClick={() => moveMediaItem(item.id, 1)} className="w-7 h-7 bg-white/90 text-stone-700 rounded-full text-xs hover:bg-white hover:text-amber-700 transition shadow-sm" aria-label="右移">▶</button>}
@@ -282,15 +282,15 @@ export default function NewTastingForm() {
                     <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-1.5">
                       {item.uploadError ? (
                         <>
-                          <span className="text-red-300 text-[10px] text-center px-1 leading-tight">{item.uploadError}</span>
-                          <button type="button" onClick={() => retryUpload(item.id)} className="text-[10px] text-white underline">重试</button>
+                          <span className="text-red-300 text-[0.625rem] text-center px-1 leading-tight">{item.uploadError}</span>
+                          <button type="button" onClick={() => retryUpload(item.id)} className="text-[0.625rem] text-white underline">重试</button>
                         </>
                       ) : (
                         <>
                           <div className="w-3/4 h-1.5 bg-black/30 rounded-full overflow-hidden">
                             <div className="h-full bg-amber-400 rounded-full transition-all duration-300" style={{ width: `${item.uploadProgress}%` }} />
                           </div>
-                          <span className="text-white text-[10px]">{item.uploadProgress > 0 ? `${item.uploadProgress}%` : "准备上传..."}</span>
+                          <span className="text-white text-[0.625rem]">{item.uploadProgress > 0 ? `${item.uploadProgress}%` : "准备上传..."}</span>
                         </>
                       )}
                     </div>

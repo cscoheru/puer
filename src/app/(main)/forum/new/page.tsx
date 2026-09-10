@@ -398,7 +398,7 @@ export default function NewThreadPage() {
                     )}
 
                     {/* Order badge */}
-                    <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded font-mono min-w-[20px] text-center">
+                    <div className="absolute top-1 left-1 bg-black/60 text-white text-[0.625rem] px-1.5 py-0.5 rounded font-mono min-w-[20px] text-center">
                       {idx + 1}
                     </div>
 
@@ -460,7 +460,7 @@ export default function NewThreadPage() {
                     </button>
 
                     {item.type === "video" && (
-                      <span className="absolute bottom-7 left-1 text-[10px] bg-black/60 text-white px-1 py-0.5 rounded">
+                      <span className="absolute bottom-7 left-1 text-[0.625rem] bg-black/60 text-white px-1 py-0.5 rounded">
                         视频
                       </span>
                     )}
@@ -470,17 +470,17 @@ export default function NewThreadPage() {
                       <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-1.5">
                         {item.uploadError ? (
                           <>
-                            <span className="text-red-300 text-[10px] text-center px-1 leading-tight">{item.uploadError}</span>
+                            <span className="text-red-300 text-[0.625rem] text-center px-1 leading-tight">{item.uploadError}</span>
                             {item.uploadError === "上传已取消" ? (
                               <button
                                 type="button"
                                 onClick={() => retryUpload(item.id)}
-                                className="text-[10px] text-white underline"
+                                className="text-[0.625rem] text-white underline"
                               >
                                 重试
                               </button>
                             ) : (
-                              <span className="text-amber-300 text-[10px]">正在自动重试...</span>
+                              <span className="text-amber-300 text-[0.625rem]">正在自动重试...</span>
                             )}
                           </>
                         ) : (
@@ -491,7 +491,7 @@ export default function NewThreadPage() {
                                 style={{ width: `${item.uploadProgress}%` }}
                               />
                             </div>
-                            <span className="text-white text-[10px]">
+                            <span className="text-white text-[0.625rem]">
                               {item.uploadProgress > 0 ? `${item.uploadProgress}%` : "准备上传..."}
                             </span>
                           </>

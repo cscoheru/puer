@@ -87,7 +87,7 @@ export default function BoardModerator({ boardSlug }: { boardSlug: string }) {
                 </span>
               )}
               <span>{m.user.nickname || m.user.username}</span>
-              <span className="text-[10px]">{m.role === "deputy" ? "🛡️副" : "🛡️"}</span>
+              <span className="text-[0.625rem]">{m.role === "deputy" ? "🛡️副" : "🛡️"}</span>
             </Link>
           ))}
         </div>

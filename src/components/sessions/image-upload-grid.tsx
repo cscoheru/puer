@@ -52,24 +52,24 @@ export default function ImageUploadGrid({ value, onChange, maxImages = 9 }: Prop
           <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-amber-200 bg-amber-50 group">
             <img src={url} alt="" className="w-full h-full object-cover" />
             {i === 0 && (
-              <span className="absolute top-1 left-1 text-[10px] bg-amber-600 text-white px-1.5 py-0.5 rounded font-medium">
+              <span className="absolute top-1 left-1 text-[0.625rem] bg-amber-600 text-white px-1.5 py-0.5 rounded font-medium">
                 封面
               </span>
             )}
             <button
               type="button"
               onClick={() => remove(i)}
-              className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 flex items-center justify-center"
+              className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-[0.625rem] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 flex items-center justify-center"
             >
               ✕
             </button>
             {value.length > 1 && (
               <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 {i > 0 && (
-                  <button type="button" onClick={() => move(i, -1)} className="w-5 h-5 bg-white/80 rounded text-[10px] hover:bg-white flex items-center justify-center">▲</button>
+                  <button type="button" onClick={() => move(i, -1)} className="w-5 h-5 bg-white/80 rounded text-[0.625rem] hover:bg-white flex items-center justify-center">▲</button>
                 )}
                 {i < value.length - 1 && (
-                  <button type="button" onClick={() => move(i, 1)} className="w-5 h-5 bg-white/80 rounded text-[10px] hover:bg-white flex items-center justify-center">▼</button>
+                  <button type="button" onClick={() => move(i, 1)} className="w-5 h-5 bg-white/80 rounded text-[0.625rem] hover:bg-white flex items-center justify-center">▼</button>
                 )}
               </div>
             )}

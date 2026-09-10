@@ -243,7 +243,7 @@ export default function ModeratorsPage() {
                         : "border-stone-200 text-stone-600 hover:bg-stone-50"
                     }`}>
                     {ROLE_MAP[r].label}
-                    <p className="text-[10px] mt-0.5 opacity-70">
+                    <p className="text-[0.625rem] mt-0.5 opacity-70">
                       {r === "moderator" ? "可置顶/精华/删帖" : "可置顶/精华，删帖需审批"}
                     </p>
                   </button>

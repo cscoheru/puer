@@ -116,7 +116,7 @@ export default function ShareButton({ title, url }: ShareButtonProps) {
               {copied ? "已复制!" : "复制链接"}
             </button>
             <div className="border-t border-stone-100 my-1" />
-            <div className="px-3 py-1 text-[10px] text-stone-400 uppercase tracking-wider">国内平台</div>
+            <div className="px-3 py-1 text-[0.625rem] text-stone-400 uppercase tracking-wider">国内平台</div>
             <button onClick={() => openShare(`https://service.weibo.com/share/share.php?url=${encodedUrl}&title=${encodedTitle}`)} className={itemCls}>
               <WeiboIcon />
               微博
@@ -138,7 +138,7 @@ export default function ShareButton({ title, url }: ShareButtonProps) {
               豆瓣
             </button>
             <div className="border-t border-stone-100 my-1" />
-            <div className="px-3 py-1 text-[10px] text-stone-400 uppercase tracking-wider">国际平台</div>
+            <div className="px-3 py-1 text-[0.625rem] text-stone-400 uppercase tracking-wider">国际平台</div>
             <button onClick={() => openShare(`https://www.reddit.com/submit?url=${encodedUrl}&title=${encodedTitle}`)} className={itemCls}>
               <RedditIcon />
               Reddit

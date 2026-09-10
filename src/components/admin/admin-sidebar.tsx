@@ -54,7 +54,7 @@ export default function AdminSidebar() {
         ))}
 
         <div className="pt-3 pb-1 px-3">
-          <span className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider">工具</span>
+          <span className="text-[0.625rem] font-semibold text-stone-400 uppercase tracking-wider">工具</span>
         </div>
         {TOOL_ITEMS.map((item) => (
           <Link

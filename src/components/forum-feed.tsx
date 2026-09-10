@@ -337,10 +337,10 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
               {article.title}
             </Link>
             {isNew && (
-              <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium mt-[3px]">新</span>
+              <span className="shrink-0 text-[0.625rem] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium mt-[3px]">新</span>
             )}
             {flairDef && (
-              <span className={`shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] leading-none font-medium rounded-full mt-[3px] ${flairDef.color}`}>
+              <span className={`shrink-0 inline-flex items-center px-1.5 py-0.5 text-[0.625rem] leading-none font-medium rounded-full mt-[3px] ${flairDef.color}`}>
                 {flairDef.label}
               </span>
             )}
@@ -483,7 +483,7 @@ function ImageCarousel({ images, articleId }: { images: string[]; articleId: str
             <button key={i} onClick={(e) => goTo(e, i)}
               className={`rounded-full transition-all ${i === idx ? "w-3 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/40"}`} />
           ))}
-          <span className="text-[10px] text-white/70 ml-1 tabular-nums">{idx + 1}/{images.length}</span>
+          <span className="text-[0.625rem] text-white/70 ml-1 tabular-nums">{idx + 1}/{images.length}</span>
         </div>
       )}
     </Link>

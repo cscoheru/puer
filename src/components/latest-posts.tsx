@@ -93,12 +93,12 @@ export default async function LatestPosts() {
                   <p className="text-xs text-stone-700 group-hover:text-amber-800 leading-snug line-clamp-2 font-medium">
                     {post.title}
                   </p>
-                  <div className="flex items-center gap-1 mt-1 text-[10px] text-stone-400">
+                  <div className="flex items-center gap-1 mt-1 text-[0.625rem] text-stone-400">
                     <span>{post.author.username}</span>
                     <span>·</span>
                     <span suppressHydrationWarning>{timeAgo(post.createdAt)}</span>
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5 text-[10px] text-stone-400">
+                  <div className="flex items-center gap-2 mt-0.5 text-[0.625rem] text-stone-400">
                     <span>👍 {post.upvotes}</span>
                     <span>💬 {post.replyCount}</span>
                     {post.board && (

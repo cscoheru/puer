@@ -46,8 +46,8 @@ export default function TeaInventoryCard({ item, isOwner, onEdit, onDelete, onHi
         {/* Badges */}
         {(isExpired || item.hidden) && (
           <div className="flex gap-1 px-3 pt-2">
-            {isExpired && <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-200 text-stone-500">已过期</span>}
-            {item.hidden && <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-200 text-stone-500">已隐藏</span>}
+            {isExpired && <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-stone-200 text-stone-500">已过期</span>}
+            {item.hidden && <span className="text-[0.625rem] px-1.5 py-0.5 rounded bg-stone-200 text-stone-500">已隐藏</span>}
           </div>
         )}
 
@@ -97,7 +97,7 @@ export default function TeaInventoryCard({ item, isOwner, onEdit, onDelete, onHi
 
           {/* Expiry info */}
           {item.expiresAt && !isExpired && (
-            <p className="text-[10px] text-stone-400">
+            <p className="text-[0.625rem] text-stone-400">
               有效期至 {new Date(item.expiresAt).toLocaleDateString("zh-CN")}
             </p>
           )}
@@ -111,7 +111,7 @@ export default function TeaInventoryCard({ item, isOwner, onEdit, onDelete, onHi
               {item.user.avatar ? (
                 <img src={item.user.avatar} alt="" className="w-4 h-4 rounded-full object-cover" />
               ) : (
-                <span className="w-4 h-4 rounded-full bg-stone-200 flex items-center justify-center text-[10px]">
+                <span className="w-4 h-4 rounded-full bg-stone-200 flex items-center justify-center text-[0.625rem]">
                   {item.user.username[0]}
                 </span>
               )}

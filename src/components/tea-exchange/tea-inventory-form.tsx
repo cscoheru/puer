@@ -340,7 +340,7 @@ export default function TeaInventoryForm({ initial, onClose, onSaved }: Props) {
                 </select>
               </div>
               {purchaseYears && !openYears && (
-                <p className="text-[10px] text-stone-400 mt-0.5">开版时间默认同购买时间</p>
+                <p className="text-[0.625rem] text-stone-400 mt-0.5">开版时间默认同购买时间</p>
               )}
             </div>
 
@@ -363,7 +363,7 @@ export default function TeaInventoryForm({ initial, onClose, onSaved }: Props) {
             <div>
               <label className="block text-xs text-stone-500 mb-1">有效期（天）</label>
               <input type="number" value={validityDays} onChange={(e) => setValidityDays(e.target.value)} min="1" max="365" className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-sm" placeholder="留空表示永久有效" />
-              <p className="text-[10px] text-stone-400 mt-0.5">到期后茶版将自动失效变灰，可随时续期</p>
+              <p className="text-[0.625rem] text-stone-400 mt-0.5">到期后茶版将自动失效变灰，可随时续期</p>
             </div>
 
             {/* Images — multi-select with drag-to-reorder */}
@@ -390,7 +390,7 @@ export default function TeaInventoryForm({ initial, onClose, onSaved }: Props) {
                     <img src={url} alt="" className="w-full h-full object-cover rounded"
                           onError={(e) => { (e.target as HTMLImageElement).src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect fill="%23f5f5f4" width="64" height="64"/><text x="32" y="36" text-anchor="middle" fill="%23a8a29e" font-size="10">加载失败</text></svg>'); }}
                         />
-                    <button type="button" onClick={() => removeImage(i)} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center z-10">&times;</button>
+                    <button type="button" onClick={() => removeImage(i)} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[0.625rem] rounded-full flex items-center justify-center z-10">&times;</button>
                   </div>
                 ))}
                 <label className="w-16 h-16 border-2 border-dashed border-stone-300 rounded flex items-center justify-center text-stone-400 hover:border-amber-400 hover:text-amber-500 transition cursor-pointer">

@@ -186,7 +186,7 @@ export default function TeaWishForm({ initial, onClose, onSaved }: Props) {
                 {images.map((url, i) => (
                   <div key={i} className="relative w-16 h-16">
                     <img src={url} alt="" className="w-full h-full object-cover rounded" />
-                    <button type="button" onClick={() => removeImage(i)} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">&times;</button>
+                    <button type="button" onClick={() => removeImage(i)} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[0.625rem] rounded-full flex items-center justify-center">&times;</button>
                   </div>
                 ))}
                 <label className="w-16 h-16 border-2 border-dashed border-stone-300 rounded flex items-center justify-center text-stone-400 hover:border-amber-400 hover:text-amber-500 transition cursor-pointer">

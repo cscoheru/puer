@@ -130,7 +130,7 @@ export default function BrewPanel({
                   <button
                     type="button"
                     onClick={() => setImageUrl("")}
-                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center"
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full text-[0.625rem] flex items-center justify-center"
                   >
                     ✕
                   </button>

@@ -137,14 +137,14 @@ export default async function TastingListPage({ searchParams }: PageProps) {
                   </h2>
                   {note.tea && (
                     <div className="flex flex-wrap gap-1">
-                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
+                      <span className="text-[0.625rem] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
                         {note.tea.brand}
                       </span>
-                      <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">
+                      <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">
                         {note.tea.year}
                       </span>
                       {note.tea.name && (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-stone-50 text-stone-600 rounded">
+                        <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-50 text-stone-600 rounded">
                           {note.tea.name}
                         </span>
                       )}
@@ -162,7 +162,7 @@ export default async function TastingListPage({ searchParams }: PageProps) {
                       />
                       <span>{note.author.username}</span>
                     </div>
-                    <span className="text-[10px] text-stone-300">
+                    <span className="text-[0.625rem] text-stone-300">
                       {new Date(note.createdAt).toLocaleDateString("zh-CN")}
                     </span>
                   </div>

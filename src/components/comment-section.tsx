@@ -568,7 +568,7 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
                 <div className="absolute bottom-full left-0 mb-1 bg-white border border-stone-200 rounded-lg shadow-lg p-2 z-10 w-[280px] max-h-52 overflow-y-auto">
                   {EMOJI_CATEGORIES.map((cat) => (
                     <div key={cat.name} className="mb-1">
-                      <div className="text-[10px] text-stone-400 mb-0.5">{cat.name}</div>
+                      <div className="text-[0.625rem] text-stone-400 mb-0.5">{cat.name}</div>
                       <div className="flex flex-wrap gap-0.5">
                         {cat.emojis.map((e) => (
                           <button key={e} type="button" onClick={() => insertEmoji(e)} className="w-7 h-7 flex items-center justify-center text-base hover:bg-stone-100 rounded">

@@ -114,9 +114,9 @@ export default async function TeaListPage({ searchParams }: PageProps) {
                   {tea.name}
                 </h3>
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">{tea.brand}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">{tea.year}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${tea.type === "raw" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                  <span className="text-[0.625rem] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">{tea.brand}</span>
+                  <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">{tea.year}</span>
+                  <span className={`text-[0.625rem] px-1.5 py-0.5 rounded ${tea.type === "raw" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                     {tea.type === "raw" ? "生" : "熟"}
                   </span>
                 </div>

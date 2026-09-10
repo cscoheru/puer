@@ -313,7 +313,7 @@ export default function CreateSessionForm() {
                 {form.images.map((url, i) => (
                   <div key={url} className="relative flex-shrink-0">
                     <img src={url} alt="" className="w-16 h-16 rounded-lg object-cover" />
-                    {i === 0 && <span className="absolute top-0 left-0 text-[10px] bg-amber-600 text-white px-1 rounded-br-lg">封面</span>}
+                    {i === 0 && <span className="absolute top-0 left-0 text-[0.625rem] bg-amber-600 text-white px-1 rounded-br-lg">封面</span>}
                   </div>
                 ))}
               </div>

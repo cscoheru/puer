@@ -207,7 +207,7 @@ export default function ExchangeClient({ brands }: Props) {
                         {item.user.avatar ? (
                           <img src={item.user.avatar} alt="" className="w-4 h-4 rounded-full object-cover" />
                         ) : (
-                          <span className="w-4 h-4 rounded-full bg-stone-200 flex items-center justify-center text-[10px]">{item.user.username[0]}</span>
+                          <span className="w-4 h-4 rounded-full bg-stone-200 flex items-center justify-center text-[0.625rem]">{item.user.username[0]}</span>
                         )}
                         {item.user.username}
                       </a>

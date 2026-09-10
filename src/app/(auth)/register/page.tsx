@@ -26,7 +26,7 @@ function PasswordStrength({ pw }: { pw: string }) {
           <div key={i} className={`h-1 flex-1 rounded ${i <= passed ? color : "bg-stone-200"}`} />
         ))}
       </div>
-      <ul className="text-[11px] text-stone-400 space-y-0.5">
+      <ul className="text-[0.6875rem] text-stone-400 space-y-0.5">
         <li className={longEnough ? "text-green-600" : ""}>• 至少8个字符</li>
         <li className={hasLetter ? "text-green-600" : ""}>• 包含至少一个字母</li>
         <li className={hasNumber ? "text-green-600" : ""}>• 包含至少一个数字</li>

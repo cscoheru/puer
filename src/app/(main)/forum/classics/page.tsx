@@ -198,7 +198,7 @@ export default async function ClassicsPage({
                   >
                     <TeaThumb tea={t} className="w-full h-20 mb-2" icon="text-3xl" rounded="rounded-lg" />
                     <div className="flex items-center gap-1.5">
-                      <span className={`text-[10px] font-bold tabular-nums ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>{i + 1}</span>
+                      <span className={`text-[0.625rem] font-bold tabular-nums ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>{i + 1}</span>
                       <p className="text-xs text-stone-700 font-medium leading-tight line-clamp-2 min-h-[2em]">
                         {recentIds.has(t.id) && (
                           <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-0.5 align-middle" title="近30天有新品鉴" />
@@ -206,11 +206,11 @@ export default async function ClassicsPage({
                         {t.name}
                       </p>
                     </div>
-                    <p className="text-[10px] text-stone-400 mt-1.5 leading-snug">
+                    <p className="text-[0.625rem] text-stone-400 mt-1.5 leading-snug">
                       {t.tastingNoteCount > 0 ? `${t.tastingNoteCount} 篇品鉴` : "建档中"}
                     </p>
                     {market?.price && (
-                      <p className="text-[11px] font-semibold text-amber-800 mt-0.5">{market.price}</p>
+                      <p className="text-[0.6875rem] font-semibold text-amber-800 mt-0.5">{market.price}</p>
                     )}
                   </Link>
                 );
@@ -308,7 +308,7 @@ function HotTeasWidget({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: 
                       )}
                       {t.name}
                     </p>
-                    <p className="text-[10px] text-stone-400">
+                    <p className="text-[0.625rem] text-stone-400">
                       {t.tastingNoteCount > 0 ? `${t.tastingNoteCount} 篇品鉴` : "建档中"}
                       {market?.price && ` · ${market.price}`}
                     </p>
@@ -370,15 +370,15 @@ function TeaList({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: Set<st
                   {tea.name}
                 </h3>
                 {recentIds.has(tea.id) && (
-                  <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full">更新中</span>
+                  <span className="text-[0.625rem] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full">更新中</span>
                 )}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-1.5">
-                <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">{tea.brand}</span>
-                <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">
+                <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">{tea.brand}</span>
+                <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">
                   {tea.year}{tea.batch ? `-${tea.batch}` : ""}
                 </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${tea.type === "raw" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                <span className={`text-[0.625rem] px-1.5 py-0.5 rounded ${tea.type === "raw" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                   {tea.type === "raw" ? "生" : "熟"}
                 </span>
               </div>
@@ -393,12 +393,12 @@ function TeaList({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: Set<st
               {market ? (
                 <>
                   <p className="text-sm font-semibold text-amber-800">{market.price}</p>
-                  <p className="text-[10px] text-stone-300 mt-0.5">{market.source || "东和茶库"}</p>
+                  <p className="text-[0.625rem] text-stone-300 mt-0.5">{market.source || "东和茶库"}</p>
                 </>
               ) : (
-                <p className="text-[10px] text-stone-300">暂无行情</p>
+                <p className="text-[0.625rem] text-stone-300">暂无行情</p>
               )}
-              <p className="text-[10px] text-amber-700 group-hover:translate-x-0.5 transition mt-1.5">查看档案 ›</p>
+              <p className="text-[0.625rem] text-amber-700 group-hover:translate-x-0.5 transition mt-1.5">查看档案 ›</p>
             </div>
           </Link>
         );

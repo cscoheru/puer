@@ -171,4 +171,11 @@
   html {
     @apply font-sans;
   }
+  /* 手机端可读性（R7）：≤md 视口 rem 基准 16px → 18px（+12.5%），
+     全站 rem 单位（字号/间距/圆角等）等比放大约一号；桌面端不受影响 */
+  @media (max-width: 767px) {
+    html {
+      font-size: 112.5%;
+    }
+  }
 }
