@@ -251,5 +251,13 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 #   UPDATE teas SET brand='未知' WHERE id IN (黎明 4 款 ∪ 兴海大曼吕、302景迈); UPDATE teas SET brand='班章' WHERE id IN (c0b91521…,d30b131b…);
 ```
 
+## R7 · 手机端字号整体调大 + App 打包方案存档（2026-09-10 已上线，release 20260910T014427Z-fd6ceb7）
+
+1. **App 打包方案**：完整规划保存至 `docs/app-packaging-plan.md`（Capacitor 远程加载壳，iOS 先行；**状态=暂停待启动**，免费 Apple ID 可完成 Phase 0 PoC）。
+2. **手机端字号**：`globals.css` 中 ≤767px 视口 `html { font-size: 112.5% }`（rem 基准 16→18px，+12.5%），全站字号/间距等比放大约一号，桌面端不受影响；68 处硬编码 `text-[10-13px]` 批量转 `rem`（0.625/0.6875/0.75/0.8125rem）以跟随缩放，8/9px 图标角标保留。
+3. **部署**：commit `fd6ceb7` → context 2.6MB → 服务器 build → activate 一次成功；PREVIOUS `0e9e062b62de`（R6）已打 rollback tag。生产 CSS chunk 验证含 `font-size:112.5%` 与 `.6875rem`；`/`(307→/forum)、`/forum`、`/forum/classics` 全通。
+
+回滚：同 R6 方式，指向 `rollback-20260910T014427Z-fd6ceb7`；或仅回滚字号（`globals.css` 单文件改动，revert 该 commit 的 CSS 部分即可）。
+
 
 
