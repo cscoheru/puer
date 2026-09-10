@@ -310,5 +310,20 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 - 修复：桌面分支改为 `[...orderedBase, ...extraArticles]`（与移动端 append-only 一致）。
 - 回滚：`rollback-20260910T040121Z-b875347` tag 已就位。
 
+## R11 · 茶品内容 SEO：图片/视频收录 + 档案页长尾词（2026-09-10 已上线，release 20260910T041507Z-08d9295）
+
+1. **定位**：茶友搜索多用具体茶品名（长尾），312 茶档案 + 1587 品鉴图 + 视频帖是差异化内容资产。本轮让 Google 正式收录这些内容的图片与视频。
+2. **新 lib `src/lib/seo-image.ts`**：`absImageUrl()`（相对图 URL 绝对化，localhost 归一生产域）+ `firstImageFromHtml()`（帖子 HTML 首图提取）——JSON-LD/og/sitemap 共用。
+3. **茶档案页 `/tea/[id]`**：
+   - title 升级：`品牌 名称 年份 生茶/熟茶普洱茶档案`（例「下关 再品04下关方砖125g 生茶普洱茶档案」）——承接「2003 大益 7542 生茶」式搜索。
+   - Product JSON-LD 加 `image`（hero 三级链绝对化）、`category`、`aggregateRating`（有品鉴评分时输出星级评分——富摘要）。
+   - og:image；hero/茶记缩略图/图库 `<img>` alt 全部语义化（茶名+品牌+年份+生熟）。
+4. **帖子页 `/forum/thread/[id]`**：Article JSON-LD 加 `image`（首图绝对 URL → Google Images 收录帖子图）；`videoUrl` 帖输出 **VideoObject JSON-LD**（contentUrl/thumbnailUrl/uploadDate → Google 视频搜索）；generateMetadata 首图提取改用共用 helper。
+5. **sitemap.xml 图片扩展**：`<image:image>` 115 条（帖子首图 + 茶封面）——Google Images 收录主通道；robots 未禁 /uploads ✓。
+6. **验证**：tea 页新 title + `"image":"https://puer.im/uploads/evernote/..."`；thread Article `"image":[...]`；视频帖 `VideoObject` + contentUrl；sitemap 115 个 image:image。
+7. **GSC 操作建议**：sitemap 已自动更新，GSC 会重新抓取；2-4 周后在 GSC「效果→搜索结果→图片/视频」tab 观察收录；「网址检查」对几个重点茶档案页（大益 7542/金大益）手动请求编入索引可加速。
+
+回滚：`rollback-20260910T041507Z-08d9295` tag 已就位。
+
 
 
