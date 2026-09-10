@@ -345,5 +345,22 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 回滚：镜像 `rollback-20260910T054921Z-cfc08ba` tag 已就位（activate 时自动打）。
 
+## R13 · 品牌修正工具 + 品牌吧入库管理 + 笔记合并品牌搜索（2026-09-10 已上线，release 20260910T061159Z-80f21fb）
+
+**背景（用户反馈）**：归档产生的品牌大量脏数据——`未知 1257`、`班章 115`（山头非品牌）、`老班章 26`、`大印藏 8`（茶名被当品牌）、`富华/永年/吾心光明/洞天福地…` 等。需要能编辑品牌、管理品牌吧，且笔记合并搜索要支持品牌+茶名。
+
+1. **品牌编辑（双模式）**（`/admin/classics` 审核台）：
+   - 单茶：每行「✏️ 品牌」按钮 prompt 改（默认值=当前品牌）。
+   - 批量：品牌筛选下拉选中某品牌（如"大印藏"）→ 行前出现勾选框 + 「全选（N）」→ 输入新品牌（datalist 现有品牌候选）→ 批量改。API：`POST /api/admin/teas/brand`（{teaIds[], brand}，admin 守卫）。
+2. **品牌吧入库**（可管理）：
+   - 新表 `brand_bars`（migration `0005_brand_bars.sql`：CREATE TABLE + 六大吧种子 INSERT ON CONFLICT，已在生产执行 ✓）；schema.prisma 新增 model BrandBar，prisma generate 已随镜像重建。
+   - `/forum/classics` 吧配置改从 DB 读取（`loadBars()`，空表/异常回退内置 DEFAULT_BARS，零停机切换）——"其他吧"逻辑不变（未归入任何吧的品牌自动进）。
+   - 审核台「🏷️ 品牌吧管理」面板：每吧可改图标/吧名/品牌列表（逗号分隔，一吧多品牌）、保存/删除、底部新增吧。API：`GET/POST/DELETE /api/admin/brand-bars`。
+   - **品牌修正联动**：把"大印藏"批量改成"大益"后自动归入大益吧；新品牌想独立成吧在面板加即可。
+3. **笔记合并搜索增强**：展开「笔记管理」后合并输入框支持「品牌 茶名」/纯茶名/纯品牌 检索（`moveNote` 归一化匹配 brand+name），并挂 `datalist#tea-options`（候选格式 `品牌 茶名`，2000 条上限）。
+4. **部署**：commit `80f21fb`；**先跑 0005 migration 再切流量**（避免新代码查表 500）；context 3.6M（rsync 排除 uploads）；build #26 DONE；activate 一次成功；验证：classics 六大吧渲染与上线前一致（DB 驱动）、两 API 403 守卫、容器跑新镜像。
+
+**管理员操作指引（品牌清理建议顺序）**：品牌筛选选「未知/班章/老班章/大印藏」等 → 按茶名判断真实品牌（勐海茶厂→大益、下关茶厂→下关…）→ 勾选批量改 → 需要新吧（如"中茶吧"）在品牌吧面板加。
+
 
 
