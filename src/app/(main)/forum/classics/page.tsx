@@ -16,8 +16,9 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-/** 品牌吧（贴吧式）：六大主力厂牌独立成吧，其余品牌归入其他吧 */
-const BARS = [
+/** 品牌吧（贴吧式）：配置存 DB（P2-R13，管理员可在 /admin/classics 编辑），
+ *  读取失败或表空时回退到内置默认（六大主力厂牌），其余品牌归入其他吧 */
+const DEFAULT_BARS = [
   { key: "dayi", label: "大益吧", icon: "🏷️", brands: ["大益"] },
   { key: "xiaguan", label: "下关吧", icon: "🏔️", brands: ["下关"] },
   { key: "fujin", label: "福今吧", icon: "🍃", brands: ["福今"] },
@@ -25,7 +26,16 @@ const BARS = [
   { key: "liming", label: "黎明吧", icon: "🌅", brands: ["黎明"] },
   { key: "xinghai", label: "兴海吧", icon: "🌊", brands: ["兴海"] },
 ] as const;
-const KNOWN_BRANDS: string[] = BARS.flatMap((b) => [...b.brands]);
+
+type BarConfig = { key: string; label: string; icon: string | null; brands: string[] };
+
+async function loadBars(): Promise<BarConfig[]> {
+  const bars = await prisma.brandBar
+    .findMany({ orderBy: { sortOrder: "asc" }, select: { key: true, label: true, icon: true, brands: true } })
+    .catch(() => []);
+  if (bars.length > 0) return bars;
+  return DEFAULT_BARS.map((b) => ({ key: b.key, label: b.label, icon: b.icon, brands: [...b.brands] }));
+}
 
 /** 茶品热度：品鉴数为主 + 评分加权 + 行情快照/跟进帖加成 */
 function heatScore(t: {
@@ -92,10 +102,13 @@ export default async function ClassicsPage({
   const barKey = params.bar || "all";
   const type = params.type || "";
   const search = params.q || "";
-  const bar = BARS.find((b) => b.key === barKey) || null;
+  // P2-R13：品牌吧配置从 DB 加载（管理员可在 /admin/classics 编辑），空表回退默认
+  const bars = await loadBars();
+  const knownBrands: string[] = bars.flatMap((b) => [...b.brands]);
+  const bar = bars.find((b) => b.key === barKey) || null;
 
   const where: Record<string, unknown> = { isClassic: true };
-  if (barKey === "other") where.brand = { notIn: KNOWN_BRANDS };
+  if (barKey === "other") where.brand = { notIn: knownBrands };
   else if (bar) where.brand = { in: [...bar.brands] };
   if (type) where.type = type;
   if (search) where.name = { contains: search, mode: "insensitive" } as const;
@@ -109,7 +122,7 @@ export default async function ClassicsPage({
 
   const brandCount = new Map(grouped.map((g) => [g.brand, g._count._all]));
   const countForBar = (brands: string[]) => brands.reduce((sum, b) => sum + (brandCount.get(b) || 0), 0);
-  const otherCount = countForBar([...KNOWN_BRANDS]) === 0 ? 0 : grouped.reduce((s, g) => s + g._count._all, 0) - countForBar([...KNOWN_BRANDS]);
+  const otherCount = countForBar([...knownBrands]) === 0 ? 0 : grouped.reduce((s, g) => s + g._count._all, 0) - countForBar([...knownBrands]);
   const totalClassic = grouped.reduce((s, g) => s + g._count._all, 0);
 
   const recentIds = new Set(
@@ -163,7 +176,7 @@ export default async function ClassicsPage({
         <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-1 px-1">
           {[
             { key: "all", label: `全部 ${totalClassic}` },
-            ...BARS.map((b) => ({ key: b.key as string, label: `${b.label} ${countForBar([...b.brands])}` })),
+            ...bars.map((b) => ({ key: b.key as string, label: `${b.label} ${countForBar([...b.brands])}` })),
             { key: "other", label: `其他吧 ${otherCount}` },
           ].map((p) => {
             const active = (p.key === "all" && !bar && barKey !== "other") || p.key === barKey;

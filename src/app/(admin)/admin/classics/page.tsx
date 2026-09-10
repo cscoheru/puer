@@ -91,9 +91,13 @@ export default function AdminClassicsPage() {
 
   async function moveNote(noteId: string, fromTeaId: string) {
     const q = (mergeTarget[noteId] || "").trim();
-    if (!q) { setMessage("请先输入目标茶品名称"); return; }
-    const target = teas.find((t) => t.name === q) || teas.find((t) => t.name.includes(q));
-    if (!target) { setMessage("未找到目标茶品，请输入准确名称"); return; }
+    if (!q) { setMessage("请先输入目标茶品（支持 品牌 茶名 搜索）"); return; }
+    // P2-R13：支持「品牌 茶名」/ 纯茶名 / 纯品牌 检索（datalist 候选为「品牌 茶名」标准格式）
+    const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+    const target =
+      teas.find((t) => norm(`${t.brand}${t.name}`) === norm(q) || norm(t.name) === norm(q)) ||
+      teas.find((t) => `${t.brand} ${t.name}`.includes(q) || t.name.includes(q) || t.brand === q);
+    if (!target) { setMessage("未找到目标茶品，请从候选中选择或输入准确名称"); return; }
     if (target.id === fromTeaId) { setMessage("笔记已属于该茶品"); return; }
     if (!confirm(`将此笔记合并到「${target.brand} ${target.name}」？`)) return;
     const res = await fetch("/api/admin/tasting-notes/move", {
@@ -135,6 +139,67 @@ export default function AdminClassicsPage() {
       const err = await res.json().catch(() => ({}));
       setMessage(err.error || "拆分失败");
     }
+  }
+
+  // ── P2-R13 品牌修正：单茶编辑 + 按品牌批量 ──────────────────────
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBrand, setBulkBrand] = useState("");
+
+  async function changeBrand(teaIds: string[], brand: string) {
+    if (!brand.trim()) { setMessage("请输入新品牌名"); return; }
+    if (!confirm(`将 ${teaIds.length} 款茶的品牌改为「${brand.trim()}」？`)) return;
+    const res = await fetch("/api/admin/teas/brand", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teaIds, brand }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setTeas((prev) => prev.map((t) => (teaIds.includes(t.id) ? { ...t, brand: data.brand } : t)));
+      setSelected(new Set());
+      setBulkBrand("");
+      setMessage(`✓ 已将 ${data.updated} 款茶品牌改为「${data.brand}」`);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMessage(err.error || "品牌修改失败");
+    }
+  }
+
+  // ── P2-R13 品牌吧管理 ──────────────────────────────────────────
+  interface Bar { id: string; key: string; label: string; icon: string | null; brands: string[]; sortOrder: number }
+  const [showBars, setShowBars] = useState(false);
+  const [bars, setBars] = useState<Bar[]>([]);
+  const [newBarLabel, setNewBarLabel] = useState("");
+
+  async function loadBars() {
+    const res = await fetch("/api/admin/brand-bars");
+    const data = await res.json().catch(() => ({ bars: [] }));
+    setBars(data.bars || []);
+  }
+
+  async function saveBar(bar: Bar, isNew = false) {
+    const res = await fetch("/api/admin/brand-bars", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(isNew ? { key: bar.key, label: bar.label, icon: bar.icon, brands: bar.brands } : bar),
+    });
+    if (res.ok) {
+      await loadBars();
+      setMessage(isNew ? `✓ 新增吧「${bar.label}」` : `✓ 吧「${bar.label}」已保存`);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMessage(err.error || "保存失败");
+    }
+  }
+
+  async function deleteBar(bar: Bar) {
+    if (!confirm(`删除吧「${bar.label}」？其品牌将归入「其他吧」。`)) return;
+    const res = await fetch("/api/admin/brand-bars", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: bar.id }),
+    });
+    if (res.ok) { await loadBars(); setMessage(`✓ 已删除「${bar.label}」`); }
   }
 
   return (
@@ -182,7 +247,106 @@ export default function AdminClassicsPage() {
             <option key={b} value={b}>{b}（{c}）</option>
           ))}
         </select>
+        <button
+          onClick={() => { const v = !showBars; setShowBars(v); if (v && bars.length === 0) loadBars(); }}
+          className="px-3 py-1.5 text-sm border border-amber-300 text-amber-800 bg-amber-50 rounded-lg hover:bg-amber-100 transition"
+        >
+          🏷️ 品牌吧管理
+        </button>
       </div>
+
+      {/* P2-R13 品牌吧管理面板 */}
+      {showBars && (
+        <div className="mb-4 border border-amber-200 rounded-xl p-3 bg-amber-50/50 space-y-2">
+          <p className="text-xs text-stone-500">
+            品牌吧决定经典普洱页的分吧；未归入任何吧的品牌自动进「其他吧」。品牌列表用逗号分隔（例：大益，勐海茶厂）。
+          </p>
+          {bars.map((b, i) => (
+            <div key={b.id} className="flex flex-wrap items-center gap-1.5">
+              <input
+                value={b.icon || ""}
+                onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, icon: e.target.value } : x)))}
+                className="w-12 px-2 py-1 text-xs border border-stone-200 rounded text-center"
+                placeholder="图标"
+              />
+              <input
+                value={b.label}
+                onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                className="w-28 px-2 py-1 text-xs border border-stone-200 rounded"
+                placeholder="吧名"
+              />
+              <input
+                value={b.brands.join("，")}
+                onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, brands: e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean) } : x)))}
+                className="flex-1 min-w-48 px-2 py-1 text-xs border border-stone-200 rounded"
+                placeholder="品牌列表（逗号分隔）"
+              />
+              <button onClick={() => saveBar(b)} className="px-2 py-1 text-xs bg-amber-800 text-white rounded hover:bg-amber-900 transition">保存</button>
+              <button onClick={() => deleteBar(b)} className="px-2 py-1 text-xs border border-stone-300 text-stone-500 rounded hover:bg-stone-100 transition">删除</button>
+            </div>
+          ))}
+          <div className="flex items-center gap-1.5 pt-1 border-t border-amber-200">
+            <input
+              value={newBarLabel}
+              onChange={(e) => setNewBarLabel(e.target.value)}
+              placeholder="新增吧名（如：中茶吧）"
+              className="px-2 py-1 text-xs border border-stone-200 rounded w-44"
+            />
+            <button
+              onClick={async () => {
+                const label = newBarLabel.trim();
+                if (!label) return;
+                await saveBar({ id: "", key: label, label, icon: "", brands: [label.replace(/吧$/, "")], sortOrder: 99 }, true);
+                setNewBarLabel("");
+              }}
+              className="px-2 py-1 text-xs bg-stone-700 text-white rounded hover:bg-stone-800 transition"
+            >
+              + 新增吧
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* P2-R13 批量改品牌：筛选到具体品牌后可勾选批量修正（如 大印藏→大益） */}
+      {brandFilter && (
+        <div className="mb-3 p-3 bg-stone-50 border border-stone-200 rounded-xl flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-stone-600">
+            <input
+              type="checkbox"
+              checked={selected.size > 0 && filtered.length > 0 && filtered.every((t) => selected.has(t.id))}
+              onChange={(e) => setSelected(e.target.checked ? new Set(filtered.map((t) => t.id)) : new Set())}
+            />
+            全选「{brandFilter}」（{filtered.length}）
+          </label>
+          <span className="text-xs text-stone-400">已选 {selected.size} 款</span>
+          <input
+            list="brand-options"
+            value={bulkBrand}
+            onChange={(e) => setBulkBrand(e.target.value)}
+            placeholder="改为品牌…"
+            className="px-2 py-1 text-xs border border-stone-200 rounded w-32 focus:border-amber-500 outline-none"
+          />
+          <button
+            onClick={() => changeBrand([...selected], bulkBrand)}
+            disabled={selected.size === 0}
+            className="px-3 py-1 text-xs bg-amber-800 text-white rounded hover:bg-amber-900 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            批量改品牌
+          </button>
+        </div>
+      )}
+
+      {/* datalist：品牌候选（批量/编辑用）+ 茶品候选（笔记合并用，格式：品牌 茶名） */}
+      <datalist id="brand-options">
+        {brands.map(([b]) => (
+          <option key={b} value={b} />
+        ))}
+      </datalist>
+      <datalist id="tea-options">
+        {teas.slice(0, 2000).map((t) => (
+          <option key={t.id} value={`${t.brand} ${t.name}`} />
+        ))}
+      </datalist>
 
       {message && (
         <p className="mb-4 p-3 bg-amber-50 text-amber-800 rounded-lg text-sm">{message}</p>
@@ -198,6 +362,14 @@ export default function AdminClassicsPage() {
             return (
               <div key={t.id} className="bg-white border border-stone-200 rounded-xl p-3">
                 <div className="flex items-center gap-3">
+                  {brandFilter && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(t.id)}
+                      onChange={(e) => setSelected((prev) => { const n = new Set(prev); if (e.target.checked) n.add(t.id); else n.delete(t.id); return n; })}
+                      className="shrink-0"
+                    />
+                  )}
                   <div className="flex-1 min-w-0">
                     <Link href={`/tea/${t.id}`} target="_blank" className="font-medium text-stone-800 hover:text-amber-700 text-sm truncate block">
                       {t.brand} · {t.name}
@@ -206,6 +378,16 @@ export default function AdminClassicsPage() {
                       {t.year} · {t.type === "raw" ? "生茶" : "熟茶"} · {cnt} 篇笔记
                     </div>
                   </div>
+                  <button
+                    onClick={() => {
+                      const nb = prompt(`修改「${t.name}」的品牌（当前：${t.brand}）：`, t.brand);
+                      if (nb !== null && nb.trim() && nb.trim() !== t.brand) changeBrand([t.id], nb);
+                    }}
+                    title="编辑品牌"
+                    className="px-2 py-1.5 text-xs border border-stone-200 text-stone-500 rounded-lg hover:border-amber-400 hover:text-amber-700 transition shrink-0"
+                  >
+                    ✏️ 品牌
+                  </button>
                   <button
                     onClick={() => loadNotes(t.id)}
                     className="px-3 py-1.5 text-xs border border-stone-200 text-stone-600 rounded-lg hover:border-stone-400 transition shrink-0"
@@ -242,10 +424,11 @@ export default function AdminClassicsPage() {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <input
+                            list="tea-options"
                             value={mergeTarget[n.id] || ""}
                             onChange={(e) => setMergeTarget((prev) => ({ ...prev, [n.id]: e.target.value }))}
-                            placeholder="合并到（茶名）"
-                            className="px-2 py-1 text-xs border border-stone-200 rounded w-36 focus:border-amber-500 outline-none"
+                            placeholder="合并到（品牌/茶名）"
+                            className="px-2 py-1 text-xs border border-stone-200 rounded w-40 focus:border-amber-500 outline-none"
                           />
                           <button
                             onClick={() => moveNote(n.id, t.id)}

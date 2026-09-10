@@ -234,6 +234,20 @@ model Board {
   @@map("boards")
 }
 
+// ── 品牌吧（P2-R13）：经典普洱品牌分吧配置，管理员可在后台编辑 ──
+model BrandBar {
+  id    String  @id @default(cuid())
+  key   String  @unique @db.VarChar(50)
+  label String  @db.VarChar(50) // 大益吧
+  icon  String? @db.VarChar(10) // 🏷️
+  brands String[] // 该吧包含的品牌名
+  sortOrder Int  @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("brand_bars")
+}
+
 model BoardModerator {
   id         String    @id @default(cuid())
   boardId    String
