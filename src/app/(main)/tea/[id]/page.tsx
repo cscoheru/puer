@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { absImageUrl } from "@/lib/seo-image";
 import { auth } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -29,19 +30,26 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { id } = await params;
   const tea = await prisma.tea.findUnique({
     where: { id },
-    select: { name: true, brand: true, year: true, type: true, description: true },
+    select: { name: true, brand: true, year: true, type: true, description: true, coverImage: true },
   });
   if (!tea) return { title: "茶品未找到" };
-  const typeLabel = tea.year ? `${tea.year}年` : "";
   const teaType = tea.type === "raw" ? "生茶" : "熟茶";
+  // P2-R11 SEO：年份+生熟+「普洱茶档案」进 title——茶友搜索习惯是
+  // 「2003 大益 7542 生茶」这类精确词，档案页是承接这些长尾词的落地页。
+  const title = `${tea.brand} ${tea.name}${tea.year ? ` ${tea.year}年` : ""} ${teaType}普洱茶档案`.trim();
+  const description =
+    tea.description ||
+    `${tea.brand} ${tea.name}${tea.year ? `（${tea.year}年）` : ""} ${teaType}普洱茶档案：品鉴笔记、口感评测、仓储与行情讨论。`;
+  const heroAbs = absImageUrl(tea.coverImage);
   return {
-    title: `${tea.brand} ${tea.name} ${typeLabel}`.trim(),
-    description: tea.description || `${tea.brand} ${tea.name}${tea.year ? `（${tea.year}年）` : ""} ${teaType} — 普洱茶品详情、品鉴笔记与讨论`,
-    keywords: [tea.name, tea.brand, "普洱茶", teaType, tea.year ? `${tea.year}年` : ""].filter(Boolean),
+    title,
+    description,
+    keywords: [tea.name, tea.brand, "普洱茶", teaType, tea.year ? `${tea.year}年` : "", "品鉴", "茶档案"].filter(Boolean) as string[],
     alternates: { canonical: `/tea/${id}` },
     openGraph: {
-      title: `${tea.brand} ${tea.name}`,
-      description: `${tea.brand} ${tea.name} 普洱茶品详情`,
+      title: `${tea.brand} ${tea.name}${tea.year ? ` ${tea.year}年` : ""}`.trim(),
+      description,
+      ...(heroAbs ? { images: [{ url: heroAbs, width: 1200, height: 900, alt: title }] } : {}),
     },
   };
 }
@@ -126,9 +134,20 @@ export default async function TeaDetailPage({ params }: PageProps) {
     ? (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(1)
     : null;
 
+  // P2-R11 SEO：hero 图三级链（封面→图库→茶记图）提前计算，JSON-LD 与页面共用
+  const galleryFirstImg = Array.isArray(tea.gallery)
+    ? (tea.gallery as unknown[]).find((u): u is string => typeof u === "string" && u.length > 0)
+    : undefined;
+  const noteFirstImg = tastingNotes
+    .flatMap((n) => (Array.isArray(n.images) ? (n.images as unknown[]) : []))
+    .find((u): u is string => typeof u === "string" && u.length > 0);
+  const heroImgSrc = (tea.coverImage || galleryFirstImg || noteFirstImg) as string | undefined;
+  const heroImgAbs = absImageUrl(heroImgSrc);
+  const teaTypeLabel = tea.type === "raw" ? "生茶" : "熟茶";
+
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-8 lg:px-16 py-6 md:py-10">
-      {/* Product JSON-LD */}
+      {/* Product JSON-LD（P2-R11：image + aggregateRating 提升图片收录与富摘要） */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -137,8 +156,21 @@ export default async function TeaDetailPage({ params }: PageProps) {
             "@type": "Product",
             name: `${tea.brand} ${tea.name} ${tea.year || ""}`.trim(),
             description: tea.description || `${tea.brand} ${tea.name} 普洱茶`,
+            category: `普洱茶·${teaTypeLabel}`,
             brand: { "@type": "Brand", name: tea.brand },
             url: `https://puer.im/tea/${id}`,
+            ...(heroImgAbs ? { image: heroImgAbs } : {}),
+            ...(avgScore && allScores.length > 0
+              ? {
+                  aggregateRating: {
+                    "@type": "AggregateRating",
+                    ratingValue: avgScore,
+                    bestRating: "5",
+                    worstRating: "1",
+                    ratingCount: allScores.length,
+                  },
+                }
+              : {}),
           }),
         }}
       />
@@ -223,19 +255,14 @@ export default async function TeaDetailPage({ params }: PageProps) {
           <p className="text-stone-600 text-sm md:text-base mt-4 leading-relaxed">{tea.description}</p>
         )}
 
-        {(() => {
-          // P2-R6 图片三级链：正面封面 → 图库第一张 → 最近品鉴笔记第一图
-          const galleryFirst = Array.isArray(tea.gallery)
-            ? (tea.gallery as unknown[]).find((u) => typeof u === "string" && u.length > 0)
-            : undefined;
-          const noteImg = tastingNotes
-            .flatMap((n) => (Array.isArray(n.images) ? (n.images as unknown[]) : []))
-            .find((u) => typeof u === "string" && u.length > 0);
-          const img = tea.coverImage || galleryFirst || noteImg;
-          return img ? (
-            <img src={img as string} alt={tea.name} className="w-full max-h-96 object-cover rounded-lg mt-4" />
-          ) : null;
-        })()}
+        {/* P2-R6 图片三级链：正面封面 → 图库第一张 → 最近品鉴笔记第一图（R11 起与 JSON-LD 共用并强化 alt） */}
+        {heroImgSrc && (
+          <img
+            src={heroImgSrc}
+            alt={`${tea.brand} ${tea.name}${tea.year ? ` ${tea.year}年` : ""} ${teaTypeLabel}普洱茶`}
+            className="w-full max-h-96 object-cover rounded-lg mt-4"
+          />
+        )}
 
         <div className="text-xs text-stone-400 mt-4">
           创建者: {tea.user.username} · {new Date(tea.createdAt).toLocaleDateString("zh-CN")}
@@ -287,7 +314,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
                   <span className="absolute -left-[9px] top-2 w-4 h-4 rounded-full bg-amber-700 border-2 border-white" />
                   <div className="bg-white border border-stone-200 rounded-lg p-3 flex gap-3">
                     {n.cover && (
-                      <img src={n.cover} alt="" loading="lazy" className="w-16 h-16 object-cover rounded-lg shrink-0" />
+                      <img src={n.cover} alt={`${tea.name} 品鉴笔记：${n.title}`} loading="lazy" className="w-16 h-16 object-cover rounded-lg shrink-0" />
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -323,7 +350,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
               <a key={i} href={src} target="_blank" rel="noopener noreferrer"
                 className="aspect-square rounded-lg overflow-hidden bg-stone-100"
               >
-                <img src={src} alt="" className="w-full h-full object-cover hover:opacity-85 transition" />
+                <img src={src} alt={`${tea.brand} ${tea.name} 图片`} className="w-full h-full object-cover hover:opacity-85 transition" />
               </a>
             ))}
           </div>

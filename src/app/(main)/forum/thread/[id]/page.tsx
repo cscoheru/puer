@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { canViewArticleDetail } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
+import { absImageUrl, firstImageFromHtml } from "@/lib/seo-image";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -48,8 +49,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return { title: "帖子不可见", robots: { index: false, follow: false } };
   }
   const desc = article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 160) || "查看帖子详情";
-  let coverImage = article.content.match(/<img[^>]+src="([^">]+)"/)?.[1] || null;
-  if (coverImage) coverImage = coverImage.replace(/^https?:\/\/localhost:\d+/, "https://puer.im").replace(/^\/\//, "https://").replace(/^\/(uploads)/, "https://puer.im/$1");
+  const coverImage = firstImageFromHtml(article.content);
   const og: Record<string, unknown> = {
     title: article.title,
     description: desc,
@@ -139,10 +139,12 @@ export default async function ThreadPage({ params }: PageProps) {
     }).catch(() => null)
   )?.status === "approved"));
   const flairDef = getFlair(article.flair);
+  // P2-R11 SEO：帖子首图（绝对化）供 Article/VideoObject JSON-LD 使用
+  const threadCoverImg = firstImageFromHtml(article.content);
 
   return (
     <div className="max-w-4xl mx-auto px-3 md:px-6 py-4 md:py-8">
-      {/* Article JSON-LD */}
+      {/* Article JSON-LD（P2-R11：image 字段让 Google Images 收录帖子首图） */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -156,9 +158,29 @@ export default async function ThreadPage({ params }: PageProps) {
             publisher: { "@type": "Organization", name: "Puêr", url: "https://puer.im" },
             url: `https://puer.im/forum/thread/${id}`,
             description: article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 200),
+            ...(threadCoverImg ? { image: [threadCoverImg] } : {}),
           }),
         }}
       />
+      {/* VideoObject JSON-LD（P2-R11：视频帖进 Google 视频搜索富摘要） */}
+      {article.videoUrl && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: safeJsonLdStringify({
+              "@context": "https://schema.org",
+              "@type": "VideoObject",
+              name: article.title,
+              description: article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 200),
+              thumbnailUrl: threadCoverImg ? [threadCoverImg] : undefined,
+              uploadDate: article.createdAt.toISOString(),
+              contentUrl: absImageUrl(article.videoUrl) || undefined,
+              embedUrl: `https://puer.im/forum/thread/${id}`,
+              publisher: { "@type": "Organization", name: "Puêr", url: "https://puer.im" },
+            }),
+          }}
+        />
+      )}
       {/* BreadcrumbList JSON-LD */}
       <script
         type="application/ld+json"
