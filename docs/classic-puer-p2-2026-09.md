@@ -325,5 +325,25 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 回滚：`rollback-20260910T041507Z-08d9295` tag 已就位。
 
+## R12 · 经典普洱审核制（admin/classics）+ 品鉴笔记升降级 + 移动端已读降权（2026-09-10 已上线，release 20260910T054921Z-cfc08ba）
+
+**背景数据（上线前核实）**：茶库 2763 款茶、isClassic=325 款、品鉴笔记 1686 条且 **teaId 关联率 100%**（"笔记全部归档"前提已满足，无需补归档脚本）。同名茶品合并工具 R2 已有（/admin/teas 相似度检测 + merge API）。
+
+1. **审核流（用户需求 #2）**：新增 `/admin/classics` 经典普洱审核台——
+   - 待审核 tab（!isClassic 且有笔记）/ 已发布经典 tab；搜索 + 品牌筛选（按茶品数 Top20）。
+   - 「发布为经典 ✓」/「下架」一键切换 isClassic（POST `/api/admin/teas/classic`，admin 守卫）。经典区（/forum/classics、侧栏热点茶品）只认 isClassic=true。
+   - 新拆分出的茶品 isClassic=false 自动进入待审核池（符合"归档先审后发"）。
+2. **笔记升降级（用户需求 #4）**：审核台内展开茶品（GET `/api/admin/teas/[id]/notes` 轻量列表，倒序 200 条）后每条笔记可：
+   - **↓ 合并（降级）**：输入目标茶名 → POST `/api/admin/tasting-notes/move` 移动 teaId；
+   - **↑ 独立成茶（升级）**：prompt 输入新茶名 → POST `/api/admin/tasting-notes/split` 创建新茶（继承原茶品牌/年份/生熟，isClassic=false）并把笔记挂过去。
+   - 新 lib `src/lib/tea-stats.ts`：`recomputeTeaStats()` 重算 tastingNoteCount + avgRating（五维非空均值），move/split 后双方茶品自动重算。
+3. **茶品内笔记时间倒序（用户需求 #5）**：核实 `/tea/[id]` tastingNotes 查询已 `orderBy createdAt desc`——无需改动。
+4. **未发布茶品的去留（用户需求 #3）**：暂保持 /tea 茶品库对所有茶可见（经典区已收紧）；等管理员用审核台清理出"经典白名单"后再决定是否隐藏非经典档案（用户明确"还没想起初怎么办"，下轮定）。
+5. **移动端已读降权（用户需求 B，回答"是否科学"）**：业界标准做法（Reddit/X/小红书的信息流都做已读降权，探索-利用平衡）。站内本就有已读跟踪（IntersectionObserver + localStorage，`puer_seen_posts`），但移动端加权分未消费该信号。本轮：移动端推荐分 `0.5×热榜位次+0.3×新鲜度+0.2×互动率` **×0.35 已读惩罚**（沉底不剔除，用户仍可找回）；已读记忆 cap 200→400 条（超出自然遗忘≈时间窗）；用**进入页面时的已读快照**计算，阅读过程中新标的已读不当场重排（避免正在看的卡片跳动），下次进入生效——正是"每次进去看到不同的"。
+6. **部署**：commit `cfc08ba`；context 白名单 rsync 3.5M（本地 public/uploads 91M 开发残留已排除——docker 生产 uploads 为 volume 挂载）；build #26 DONE 95.4s；activate 一次成功（PREVIOUS sha256:4a7e…）；`/admin/classics` 307 登录守卫、API 403 权限守卫、/forum 200、容器无错误日志。
+7. **管理员操作指引**：/admin/classics → 「待审核」里按品牌批量审（大益/下关等标杆唛号放行）；发现归档不准的茶展开笔记做合并/独立；「已发布经典」里把不够经典的下架。
+
+回滚：镜像 `rollback-20260910T054921Z-cfc08ba` tag 已就位（activate 时自动打）。
+
 
 
