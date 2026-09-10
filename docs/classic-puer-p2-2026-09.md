@@ -284,5 +284,25 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 回滚：指向 `rollback-20260910T023053Z-893c91b`（纯前端改动，无 DB 变更）。
 
+## R10 · 桌面懒加载修复 + 侧栏扩容滚动 + 专业条款注册勾选 + SEO 系统优化（2026-09-10 已上线，release 20260910T034132Z-ce87da6）
+
+1. **桌面 feed 懒加载**（`forum-feed.tsx`）：sentinel/IntersectionObserver 原仅 `isMobile` 启用——桌面 week 窗口质量门槛只剩 4 帖时无法归档续读。现桌面/移动通用，滚到底自动加载更早归档帖。
+2. **侧栏经典普洱扩容**（`forum-sidebar.tsx`）：top5 → 12 款；茶品列表 `max-h-72 overflow-y-auto overscroll-contain`——卡片不拉长，鼠标悬停滚轮即滚列表（滚穿后再滚页面，符合「滑到哪里哪里动」）。
+3. **条款专业化 + 注册勾选**：`/rules`（8 条，参考 Reddit Rules 结构）、`/privacy`（8 节）、`/terms`（9 节）全部重写（卡片式分节 + 更新日期 + 页面互链 + SEO meta）；注册页新增必勾「已阅读并同意《社区规则》《隐私政策》《用户协议》」（未勾选按钮禁用 + submit 二次校验）。
+4. **SEO**（依据 GSC 报告 `docs/puer.im-Performance-on-Search-2026-09-10.xlsx`：228 展示/5 点击，台湾 58/美国 31/香港 19，长尾 tea/thread 页排名 7-10）：
+   - **nginx www→apex 301**（`/etc/nginx/sites-enabled/puer`：主块 server_name 移除 www，新增 www 80/443 301 块；证书 SAN 本含 www；备份 `/etc/nginx/puer.bak.20260910`）——消除 www/apex 重复收录（GSC 见 www.puer.im/article 页面分散权重）。注意：nginx 非 systemd 管理，reload 用 `nginx -s reload`；sites-enabled 下勿留备份文件（通配 include 会冲突）。
+   - 首页 title/description 重写：「Puêr 普洱茶论坛 — 以茶会友，品鉴生普熟普经典普洱」+ 关键词描述（生普/熟普/大益/中老期）。
+   - `/forum` title 用 `absolute` 绕过模板：「普洱茶论坛_普洱茶交流社区_生普熟普品鉴 - PuerHub」+ keywords 13 个 + og 同步。
+   - `/user/[id]` noindex（GSC 19 展示 0 点击，纯浪费抓取预算）。
+5. **部署**：commit `ce87da6`；context 白名单式 rsync 3.5MB/13 项（首次误传整树 102M 已中止清理——本地 puer-ai 3.4G/ws-server 46M/rag-src 35M 必须排除）；build ≈6min（`#26 DONE` 确认后 activate 一次成功）；PREVIOUS（R9 `893c91b`）已打 rollback tag。title absolute 修正后同 rid 目录二次 build+activate。
+6. **验证**：`/forum` title 新版、12 个 tea 行链接、`max-h-72` 容器、桌面 sentinel 文案均在 HTML；`/register` 勾选、`/rules|/privacy|/terms` 新文案 200；`www.puer.im/x → 301 https://puer.im/x`；`/user/<id>` `noindex`；首页 robots index,follow。
+
+回滚：镜像指向 `rollback-20260910T034132Z-ce87da6`；nginx 回滚 `cp /etc/nginx/puer.bak.20260910 /etc/nginx/sites-enabled/puer && nginx -s reload`。
+
+### SEO 后续建议（未实施，供后续轮次）
+- Google 大词（普洱/普洱茶）竞争极高，短期内现实目标是长尾词第一屏：金大益、金针白莲、7542 唛号、以茶会友等已有 2-28 位排名——tea 档案页 title/desc 已覆盖，持续发品鉴帖即可爬升。
+- GSC 提交 sitemap、监控「网页索引」报告，观察 www 301 后索引合并（约 2-4 周）。
+- 内容为王：312 茶档案 + 1587 品鉴图是最大资产，可做「品牌茶档案聚合页」（/tea?brand=大益 已有）SEO 化 title。
+
 
 

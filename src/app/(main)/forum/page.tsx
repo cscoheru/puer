@@ -7,7 +7,8 @@ import LatestPosts from "@/components/latest-posts";
 import { fetchForumFeed } from "@/lib/forum-feed-server";
 
 export const metadata: Metadata = {
-  title: "普洱茶论坛_普洱茶交流社区_生普熟普品鉴 - PuerHub",
+  // absolute：绕过根模板 %s | Puêr，避免「PuerHub | Puêr」双品牌尾缀
+  title: { absolute: "普洱茶论坛_普洱茶交流社区_生普熟普品鉴 - PuerHub" },
   description:
     "PuerHub 普洱茶论坛：生普/熟普品鉴交流、大益等经典中老期茶档案、仓储行情讨论与茶友问答。普洱茶爱好者聚集地，以茶会友。",
   keywords: [
