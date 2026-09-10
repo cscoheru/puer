@@ -311,57 +311,22 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
   const flairDef = getFlair(article.flair);
 
   return (
-    <div className="bg-white border border-stone-200 rounded-lg hover:border-stone-300 transition overflow-hidden relative">
-      {/* Top: title + metadata row */}
-      <div className="flex gap-2 md:gap-3 px-3 pt-2.5 pb-2 md:px-4 md:pt-3 md:pb-2">
-        {/* Vote column */}
-        <div className="shrink-0 pt-0.5">
-          <VoteButton
-            refId={article.id}
-            type="article"
-            initialUpvotes={article.upvotes}
-            initialDownvotes={article.downvotes}
-            initialValue={article.initialVote}
-            size="sm"
-          />
-        </div>
-
-        {/* Content column */}
-        <div className="min-w-0 flex-1">
-          {/* Title row */}
-          <div className="flex items-start gap-1.5 mb-0.5">
-            <Link
-              href={`/forum/thread/${article.id}`}
-              className="text-sm md:text-base font-semibold text-stone-800 hover:text-amber-800 leading-snug line-clamp-2"
-            >
-              {article.title}
-            </Link>
-            {isNew && (
-              <span className="shrink-0 text-[0.625rem] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium mt-[3px]">新</span>
+    <div className="bg-white border border-stone-200 rounded-lg hover:border-stone-300 transition overflow-hidden relative flex flex-col">
+      {/* P2-R9 Reddit/X 式卡片：作者行 → 标题 → 正文 → 媒体 → 底部操作行
+          （原左列投票压缩标题宽度、元信息 flex-wrap 换行留白，移动端观感差） */}
+      <div className="px-3 pt-2.5 pb-1.5 md:px-4 md:pt-3">
+        {/* 行1：头像 - 作者 - 时间 - 版块 - 徽标 */}
+        <div className="flex items-center gap-2 mb-1.5 min-w-0">
+          <Link href={`/user/${article.author.id}`} className="shrink-0">
+            {article.author.avatar ? (
+              <img src={article.author.avatar} alt="" loading="lazy" className="w-8 h-8 rounded-full object-cover" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-sm">
+                {article.author.username[0]}
+              </div>
             )}
-            {flairDef && (
-              <span className={`shrink-0 inline-flex items-center px-1.5 py-0.5 text-[0.625rem] leading-none font-medium rounded-full mt-[3px] ${flairDef.color}`}>
-                {flairDef.label}
-              </span>
-            )}
-            {article.isEssence && (
-              <span className="shrink-0 text-xs mt-0.5" title="精华">⭐</span>
-            )}
-            {article.isPinned && (
-              <span className="shrink-0 text-xs mt-0.5" title="置顶">📌</span>
-            )}
-          </div>
-
-          {/* Metadata + follow */}
-          <div className="flex items-center gap-1.5 text-xs text-stone-500 flex-wrap">
-            {article.board && (
-              <>
-                <Link href={`/forum/${article.board.slug}`} className="text-stone-500 hover:text-amber-700 font-medium">
-                  {article.board.name}
-                </Link>
-                <span>·</span>
-              </>
-            )}
+          </Link>
+          <div className="flex items-center gap-1.5 text-xs text-stone-500 min-w-0 flex-wrap">
             <AuthorHover
               author={{
                 id: article.author.id,
@@ -375,31 +340,48 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
                 followerCount: article.author.followerCount,
               }}
             />
-            <span>·</span>
+            <span aria-hidden>·</span>
             <span suppressHydrationWarning>{timeAgo(article.createdAt)}</span>
-            {article.replyCount > 0 && (
+            {article.board && (
               <>
-                <span>·</span>
-                <Link href={`/forum/thread/${article.id}`} className="hover:text-stone-600">
-                  {article.replyCount} 条评论
+                <span aria-hidden>·</span>
+                <Link href={`/forum/${article.board.slug}`} className="text-stone-500 hover:text-amber-700 font-medium">
+                  {article.board.name}
                 </Link>
               </>
             )}
-            <div className="ml-auto">
-              <FollowThreadButton articleId={article.id} />
-            </div>
+          </div>
+          <div className="ml-auto flex items-center gap-1 shrink-0">
+            {isNew && (
+              <span className="text-[0.625rem] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium">新</span>
+            )}
+            {flairDef && (
+              <span className={`inline-flex items-center px-1.5 py-0.5 text-[0.625rem] leading-none font-medium rounded-full ${flairDef.color}`}>
+                {flairDef.label}
+              </span>
+            )}
+            {article.isEssence && <span className="text-xs" title="精华">⭐</span>}
+            {article.isPinned && <span className="text-xs" title="置顶">📌</span>}
           </div>
         </div>
+
+        {/* 行2：标题独占整行 */}
+        <Link
+          href={`/forum/thread/${article.id}`}
+          className="block text-sm md:text-base font-semibold text-stone-800 hover:text-amber-800 leading-snug"
+        >
+          {article.title}
+        </Link>
       </div>
 
-      {/* P2-R1 帖子文字内容：置于媒体之前，默认折叠 3 行可展开 */}
+      {/* 行3：正文预览（P2-R1 折叠 3 行可展开） */}
       {article.content && (
         <div className="px-3 pb-2.5 md:px-4 md:pb-3">
           <CollapsibleText text={article.content} />
         </div>
       )}
 
-      {/* Media preview — 4:3 aspect ratio */}
+      {/* 行4：媒体 — 4:3 aspect ratio */}
       {effectiveVideoUrl && (
         <div className="border-t border-stone-100 bg-black aspect-[4/3]">
           <VideoPlayer src={effectiveVideoUrl} onVideoError={() => setVideoFailed(true)} />
@@ -416,6 +398,30 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
         </Link>
       )}
 
+      {/* 行5：底部操作行 — 投票（横排）/ 评论 / 关注 */}
+      <div className="flex items-center gap-1 px-2.5 py-1.5 md:px-3 border-t border-stone-100 mt-auto">
+        <VoteButton
+          refId={article.id}
+          type="article"
+          initialUpvotes={article.upvotes}
+          initialDownvotes={article.downvotes}
+          initialValue={article.initialVote}
+          size="sm"
+        />
+        <Link
+          href={`/forum/thread/${article.id}`}
+          className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition"
+          title="评论"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          {article.replyCount > 0 ? article.replyCount : "评论"}
+        </Link>
+        <div className="ml-auto">
+          <FollowThreadButton articleId={article.id} />
+        </div>
+      </div>
     </div>
   );
 }
