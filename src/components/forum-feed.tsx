@@ -170,7 +170,9 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
   // P2-R5：经典普洱不再穿插移动端信息流（跟进帖与茶品卡片均移除，
   // 入口改由 header「经典普洱」承担），feed 只渲染帖子。
   const items = useMemo<FeedArticle[]>(() => {
-    if (!isMobile) return orderedBase;
+    // P2-R10：桌面也启用懒加载归档续读——extraArticles 必须拼进桌面列表
+    // （此前仅移动端拼接，桌面拉回的数据被丢弃，导致"到底了"但列表不变）。
+    if (!isMobile) return [...orderedBase, ...extraArticles];
     const now = Date.now();
     const scored = orderedBase.map((a, rank) => {
       const posScore = 1 - rank / Math.max(1, orderedBase.length); // 服务端热榜位次
