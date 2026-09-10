@@ -379,5 +379,18 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **注意**：activate 首次运行被中断后，同 RID 二次运行会因 rollback tag/容器竞态报错——但镜像 tag 与容器实际已就位；以后避免中断 activate（总结经验）。
 
+## R15 · 批量品牌运营 + 按品牌批量合并茶品（2026-09-10 已上线，release 20260910T092008Z-aab998f）
+
+**用户需求**：① 品牌管理中茶品可批量移出**到其他品牌**（非仅未知）② 品牌下可搜索全站茶品**批量移入** ③ 茶品合并模块按品牌分组，品牌下**批量勾选多款合并**。
+
+1. **`POST /api/admin/brands/teas` 增强**：新增 `toBrandId` 参数——批量移出目标品牌（校验存在 + 不可等于源品牌），默认仍「未知」（目标品牌行不存在自动补建）。
+2. **新 API `POST /api/admin/teas/merge-batch`**：`{keepId, removeIds[]}` 批量合并——事务转移全部笔记/帖子到保留主体 → 被合并茶名去重进主体 aliases → 删除被合并茶 → `recomputeTeaStats(keepId)` 重算统计。返回 `{merged, moved:{tastingNotes, articles}}`。
+3. **`/admin/brands` 批量操作 UI**：
+   - 搜索候选区：checkbox 多选 + 全选/清空 + 「⬇ 批量移入所选 (N)」+ 保留单个「+ 移入」快捷；搜索结果支持「品牌 茶名 / 纯茶名 / 纯品牌」检索全站 2763 款；
+   - 品牌内茶品列表：checkbox 多选（全选含未显示的全部）+ 吸顶操作条「⇨ 批量移出 (N)」+ **目标品牌下拉**（未知 + 全部其他品牌含数量）；
+   - 切换品牌展开时自动清空勾选。
+4. **`/admin/teas` 重写为按品牌合并**：品牌下拉（按茶品数降序，含数量）→ 品牌内茶品列表（☑ 勾选待合并 + ◉ radio 指定保留主体⭐，默认第一个勾选）+ 品牌内筛选框 → 吸顶「🔗 合并所选到主体」一键批量；右栏「疑似重复」品牌内相似度提示（阈值 0.4–1 可调，最多 50 对）每对「勾选这对」快捷；合并成功显示转移笔记/帖子数并从列表移除。
+5. **部署**：commit `aab998f`；无 migration；build #26 DONE 94.2s；activate 完成（ACTIVATED + PREVIOUS 记录；curl 健康检查遇容器启动窗口 reset 一次，不影响）。线上验证：forum/classics 200、admin/brands 与 admin/teas 307 守卫、merge-batch POST 403 守卫 ✓。
+
 
 
