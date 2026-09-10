@@ -304,5 +304,11 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 - GSC 提交 sitemap、监控「网页索引」报告，观察 www 301 后索引合并（约 2-4 周）。
 - 内容为王：312 茶档案 + 1587 品鉴图是最大资产，可做「品牌茶档案聚合页」（/tea?brand=大益 已有）SEO 化 title。
 
+### R10-fix · 桌面懒加载数据未渲染修复（release 20260910T040121Z-b875347，commit b875347）
+- 症状：R10 上线后桌面滚到底显示「到底了」但列表仍只有首屏 4 帖。
+- 根因：`forum-feed.tsx` 的 `items` useMemo 桌面分支 `if (!isMobile) return orderedBase` 不拼 `extraArticles`（懒加载数据被丢弃）；且页面不满一屏时 observer 连续触发，把归档一次性拉完 → `hasMore=false` → 「到底了」。（服务端 API 正常：`offset=4&limit=10` 返回 10 条 + hasMore=true。）
+- 修复：桌面分支改为 `[...orderedBase, ...extraArticles]`（与移动端 append-only 一致）。
+- 回滚：`rollback-20260910T040121Z-b875347` tag 已就位。
+
 
 
