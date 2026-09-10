@@ -234,8 +234,10 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
     }
   }, [tab, hasMore, orderedBase, extraArticles]);
 
+  // P2-R10：懒加载不再限移动端——桌面端热榜窗口（质量门槛）耗尽后
+  // 同样需要归档续读，否则首屏仅几条（如 week 窗口）就"拉不到底"。
   useEffect(() => {
-    if (!isMobile || !hasMore || !mounted) return;
+    if (!hasMore || !mounted) return;
     const el = sentinelRef.current;
     if (!el) return;
     const io = new IntersectionObserver(
@@ -244,7 +246,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [isMobile, hasMore, mounted, loadMore]);
+  }, [hasMore, mounted, loadMore]);
 
   return (
     <>
@@ -293,10 +295,10 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
               />
             </div>
           ))}
-          {/* 移动端懒加载哨兵：进入视口即拉取下一页 */}
-          {isMobile && items.length > 0 && (
+          {/* 懒加载哨兵：进入视口即拉取下一页（P2-R10 起桌面/移动通用） */}
+          {items.length > 0 && (
             <div ref={sentinelRef} className="py-6 text-center text-xs text-stone-400">
-              {loadingMore ? "正在加载更多…" : hasMore ? "上滑加载更多 ↓" : "— 到底了，去经典普洱茶吧逛逛 —"}
+              {loadingMore ? "正在加载更多…" : hasMore ? "上滑/滚动加载更多 ↓" : "— 到底了，去经典普洱茶吧逛逛 —"}
             </div>
           )}
         </div>

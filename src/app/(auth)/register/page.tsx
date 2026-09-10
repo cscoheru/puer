@@ -37,6 +37,7 @@ function PasswordStrength({ pw }: { pw: string }) {
 
 export default function RegisterPage() {
   const [form, setForm] = useState({ username: "", nickname: "", password: "", hp: "" });
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [assignedUid, setAssignedUid] = useState<number | null>(null);
@@ -49,6 +50,12 @@ export default function RegisterPage() {
     // Anti-bot: reject if submitted too fast (less than 3s after page load)
     if (Date.now() - loadedAt < 3000) {
       setError("请稍后再提交");
+      return;
+    }
+
+    // P2-R10：注册前必须勾选同意社区规则/隐私政策/用户协议
+    if (!agreed) {
+      setError("请先阅读并勾选同意《社区规则》《隐私政策》《用户协议》后再注册");
       return;
     }
 
@@ -161,10 +168,27 @@ export default function RegisterPage() {
             </>
           )}
 
+          {/* P2-R10：注册必须勾选同意三项条款 */}
+          <label className="flex items-start gap-2.5 text-sm text-stone-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-amber-800 shrink-0"
+            />
+            <span>
+              我已阅读并同意
+              <Link href="/rules" target="_blank" className="text-amber-700 hover:underline mx-0.5">《社区规则》</Link>
+              <Link href="/privacy" target="_blank" className="text-amber-700 hover:underline mx-0.5">《隐私政策》</Link>
+              与
+              <Link href="/terms" target="_blank" className="text-amber-700 hover:underline mx-0.5">《用户协议》</Link>
+            </span>
+          </label>
+
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-2.5 bg-amber-800 hover:bg-amber-900 text-white rounded-lg font-medium transition disabled:opacity-50"
+            disabled={loading || !agreed}
+            className="w-full py-2.5 bg-amber-800 hover:bg-amber-900 text-white rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "注册中..." : "注册"}
           </button>

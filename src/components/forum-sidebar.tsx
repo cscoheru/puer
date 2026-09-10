@@ -113,7 +113,7 @@ export default async function ForumSidebar() {
         orderBy: { sortOrder: "asc" },
         select: { id: true, name: true, slug: true, icon: true, threadCount: true },
       }),
-      loadHotClassicTeas(5),
+      loadHotClassicTeas(12),
     ]);
   } catch {}
 
@@ -159,7 +159,7 @@ export default async function ForumSidebar() {
             <span className="text-[0.6875rem] text-amber-700 group-hover:text-amber-600 shrink-0">更多›</span>
           </Link>
           {hotClassicTeas.length > 0 && (
-            <div className="px-1.5 pb-1.5 space-y-0.5">
+            <div className="px-1.5 pb-1.5 space-y-0.5 max-h-72 overflow-y-auto overscroll-contain">
               {hotClassicTeas.map((tea, i) => (
                 <Link
                   key={tea.id}

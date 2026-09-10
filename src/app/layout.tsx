@@ -5,10 +5,11 @@ import { safeJsonLdStringify } from "@/lib/json-ld";
 export const metadata: Metadata = {
   metadataBase: new URL("https://puer.im"),
   title: {
-    default: "Puêr — 以茶会友，品鉴真味",
+    default: "Puêr 普洱茶论坛 — 以茶会友，品鉴生普熟普经典普洱",
     template: "%s | Puêr",
   },
-  description: "Puêr — 普洱茶爱好者社区。品茶交流、茶叶评测、普洱茶知识分享、茶友互动的专业论坛。发现好茶，分享品茶心得。",
+  description:
+    "Puêr（puer.im）普洱茶爱好者社区论坛：生普/熟普品鉴交流、大益等经典中老期普洱茶档案与行情讨论、仓储知识与茶友问答。以茶会友，品鉴真味。",
   keywords: ["普洱茶", "普洱论坛", "品茶", "茶友社区", "茶叶评测", "普洱茶交流", "puer tea", "品茶论坛", "茶文化"],
   alternates: { canonical: "/" },
   openGraph: {

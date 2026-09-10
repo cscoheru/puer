@@ -28,6 +28,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const levelName = getLevelName(user.level);
   return {
     title: `${user.username}的个人主页`,
+    // P2-R10 SEO：用户主页无搜索价值（GSC 19 展示 0 点击），noindex 节省抓取预算
+    robots: { index: false, follow: true },
     description: `${user.username}（${levelName}）— 查看该茶友的帖子、茶版、心愿单和交易记录`,
     alternates: { canonical: `/user/${id}` },
     openGraph: {

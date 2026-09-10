@@ -7,13 +7,17 @@ import LatestPosts from "@/components/latest-posts";
 import { fetchForumFeed } from "@/lib/forum-feed-server";
 
 export const metadata: Metadata = {
-  title: "普洱论坛 - 品茶交流社区",
-  description: "普洱茶爱好者交流论坛。品茶心得分享、茶叶评测讨论、普洱茶知识问答。与万千茶友一起发现好茶。",
-  keywords: ["普洱论坛", "品茶论坛", "茶友交流", "茶叶讨论", "普洱茶社区"],
+  title: "普洱茶论坛_普洱茶交流社区_生普熟普品鉴 - PuerHub",
+  description:
+    "PuerHub 普洱茶论坛：生普/熟普品鉴交流、大益等经典中老期茶档案、仓储行情讨论与茶友问答。普洱茶爱好者聚集地，以茶会友。",
+  keywords: [
+    "普洱茶论坛", "普洱论坛", "普洱茶", "普洱茶社区", "生普", "熟普", "大益", "经典普洱",
+    "中老期茶", "品鉴", "茶友交流", "puer tea forum", "puerim",
+  ],
   alternates: { canonical: "/forum" },
   openGraph: {
-    title: "普洱论坛 - 品茶交流社区 | Puêr",
-    description: "普洱茶爱好者交流论坛。品茶心得分享、茶叶评测讨论、普洱茶知识问答。",
+    title: "普洱茶论坛 - 生普熟普品鉴 | PuerHub 普洱茶社区",
+    description: "生普/熟普品鉴交流、大益等经典中老期茶档案、仓储行情讨论与茶友问答。",
   },
 };
 
