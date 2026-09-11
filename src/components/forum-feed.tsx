@@ -160,6 +160,38 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
     setOrderedBase(sorted);
   }, [articles]);
 
+  // P2-R16 已读降权·会话恢复：切 app 回来 / 黑屏点亮屏幕（visibilitychange
+  // hidden→visible，离开 ≥10s 防误触电源键/下拉通知栏扰动）时刷新已读快照并重排——
+  // 本次会话读过的沉底、没读的靠前。阅读中页面持续可见不会触发，不破坏
+  // R12「阅读中卡片不跳动」设计；同组内稳定排序保持原有相对顺序。
+  const [reorderTick, setReorderTick] = useState(0);
+  const hiddenAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const awayMs = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : Infinity;
+      hiddenAtRef.current = null;
+      if (awayMs < 10_000) return;
+      seenSnapshotRef.current = getSeenPosts();
+      const snap = seenSnapshotRef.current;
+      // 桌面端同步刷新 seen/unseen 分组（稳定排序，组内顺序不变）
+      setOrderedBase((prev) =>
+        [...prev].sort((a, b) => {
+          const aSeen = snap.has(a.id);
+          const bSeen = snap.has(b.id);
+          return aSeen === bSeen ? 0 : aSeen ? 1 : -1;
+        }),
+      );
+      // 移动端加权流：bump tick 使 items 依赖变化 → 按新快照重排
+      setReorderTick((t) => t + 1);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
   // P2-R3 移动端检测：桌面（lg+）保持三栏 + 五 tab；移动端切单一加权推荐流
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -194,7 +226,8 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
     });
     scored.sort((x, y) => y.s - x.s);
     return [...scored.map((e) => e.data), ...extraArticles];
-  }, [orderedBase, extraArticles, isMobile]);
+    // reorderTick：P2-R16 会话恢复（切 app 回来/点亮屏幕）时按新已读快照重排
+  }, [orderedBase, extraArticles, isMobile, reorderTick]);
 
   // Track seen items via intersection observer
   const seenTrackerRef = useRef<IntersectionObserver | null>(null);
