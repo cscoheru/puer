@@ -392,5 +392,18 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 4. **`/admin/teas` 重写为按品牌合并**：品牌下拉（按茶品数降序，含数量）→ 品牌内茶品列表（☑ 勾选待合并 + ◉ radio 指定保留主体⭐，默认第一个勾选）+ 品牌内筛选框 → 吸顶「🔗 合并所选到主体」一键批量；右栏「疑似重复」品牌内相似度提示（阈值 0.4–1 可调，最多 50 对）每对「勾选这对」快捷；合并成功显示转移笔记/帖子数并从列表移除。
 5. **部署**：commit `aab998f`；无 migration；build #26 DONE 94.2s；activate 完成（ACTIVATED + PREVIOUS 记录；curl 健康检查遇容器启动窗口 reset 一次，不影响）。线上验证：forum/classics 200、admin/brands 与 admin/teas 307 守卫、merge-batch POST 403 守卫 ✓。
 
+## R16 · 已读降权·会话恢复（切 app 回来 / 黑屏点亮时重排）（2026-09-10 已上线，release 20260910T132308Z-ba5753b）
+
+**用户复核发现缺口**：R12 的已读降权只在「进入页面（组件 mount）」拍快照，三个场景中两个不生效：
+- ① 彻底重开（页面重新加载）→ 组件重新 mount，重拍快照 ✓ 原本就生效；
+- ② 切换 app 回来（页面后台保活未销毁）→ 无监听，快照停留旧值 ✗；
+- ③ 黑屏后点亮屏幕 → 同② ✗。
+
+**修复**（`forum-feed.tsx`）：监听 `visibilitychange`——hidden 时记时间戳；visible 且离开 **≥10 秒**（防误触电源键/下拉通知栏扰动）时：重读 localStorage 已读记录刷新 `seenSnapshotRef` → 桌面端稳定排序刷新 seen/unseen 分组（组内相对顺序不变）→ bump `reorderTick` 触发移动端加权流按新快照重排（看过的 ×0.35 沉底）。**阅读中页面持续可见不会触发**，不破坏 R12「阅读中卡片不跳动」设计。
+
+**运维事件**：本次部署首次 build 因服务器磁盘 99% 满（86G/88G，历史 58 个镜像 tag 61.6GB + build cache 15.1GB）失败 `no space left on device`。清理：删旧 puer-hub-app 版本 tag（仅保留当前 + rollback 各一）+ `docker builder prune -a` + dangling → 释放 48GB（99%→43%），旧 release 目录只留最近 2 个。**经验：以后每 2-3 个 release 清一次旧镜像**（`docker images | grep puer-hub-app` 手动 rmi，保留当前 + 上一版）。
+
+**部署**：commit `ba5753b`；无 migration；重建 build #26 DONE 100.3s；activate 正常。线上验证：forum/classics 200、容器 R16 镜像、磁盘 48% ✓。
+
 
 
