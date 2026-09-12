@@ -48,7 +48,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   } catch { /* skip */ }
 
   try {
-    const teas = await prisma.tea.findMany({ select: { id: true, updatedAt: true, coverImage: true }, take: 1000 });
+    const teas = await prisma.tea.findMany({ where: { deletedAt: null }, select: { id: true, updatedAt: true, coverImage: true }, take: 1000 });
     teaPages = teas.map((t) => ({
       url: `${baseUrl}/tea/${t.id}`,
       lastModified: t.updatedAt,

@@ -19,8 +19,8 @@ const teaSchema = z.object({
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const tea = await prisma.tea.findUnique({
-    where: { id },
+  const tea = await prisma.tea.findFirst({
+    where: { id, deletedAt: null },
     include: { _count: { select: { articles: true } } },
   });
   if (!tea) {

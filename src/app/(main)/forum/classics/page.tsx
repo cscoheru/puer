@@ -107,7 +107,7 @@ export default async function ClassicsPage({
   const knownBrands: string[] = bars.flatMap((b) => [...b.brands]);
   const bar = bars.find((b) => b.key === barKey) || null;
 
-  const where: Record<string, unknown> = { isClassic: true };
+  const where: Record<string, unknown> = { isClassic: true, deletedAt: null };
   if (barKey === "other") where.brand = { notIn: knownBrands };
   else if (bar) where.brand = { in: [...bar.brands] };
   if (type) where.type = type;
@@ -115,8 +115,8 @@ export default async function ClassicsPage({
 
   // 各吧茶品数 + 热门池（左侧widget）+ 近期有品鉴更新的茶（用于"更新中"标记）
   const [grouped, hotPool, recentNotes] = await Promise.all([
-    prisma.tea.groupBy({ by: ["brand"], where: { isClassic: true }, _count: { _all: true } }).catch(() => []),
-    prisma.tea.findMany({ where: { isClassic: true }, orderBy: { tastingNoteCount: "desc" }, take: 60, select: teaSelect }).catch(() => []),
+    prisma.tea.groupBy({ by: ["brand"], where: { isClassic: true, deletedAt: null }, _count: { _all: true } }).catch(() => []),
+    prisma.tea.findMany({ where: { isClassic: true, deletedAt: null }, orderBy: { tastingNoteCount: "desc" }, take: 60, select: teaSelect }).catch(() => []),
     prisma.tastingNote.findMany({ orderBy: { createdAt: "desc" }, take: 40, distinct: ["teaId"], select: { teaId: true, createdAt: true } }).catch(() => []),
   ]);
 

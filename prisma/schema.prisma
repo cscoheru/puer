@@ -150,6 +150,9 @@ model Tea {
   isClassic  Boolean @default(false) // 入选"经典普洱"模块
   marketInfo Json?   // 东和行情快照 {skuId, name, price, unit, changePct, updatedAt}
 
+  // P2-R21 品牌管理删除箱：软删除标记（null=正常；非空=在删除箱中，前台/后台列表均过滤）
+  deletedAt DateTime?
+
   tastingNoteCount Int    @default(0) // 缓存品鉴笔记数
   avgRating        Float? // 综合评分（各维度平均）
 
@@ -165,6 +168,7 @@ model Tea {
 
   @@index([brand, year])
   @@index([tastingNoteCount])
+  @@index([deletedAt])
   @@map("teas")
 }
 

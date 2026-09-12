@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
   const [teas, total] = await Promise.all([
     prisma.tea.findMany({
-      where,
+      where: { ...where, deletedAt: null },
       include: {
         _count: { select: { articles: true, tastingNotes: true } },
         user: { select: { username: true } },
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.tea.count({ where }),
+    prisma.tea.count({ where: { ...where, deletedAt: null } }),
   ]);
 
   return NextResponse.json({ teas, total, page, limit });

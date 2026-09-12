@@ -15,7 +15,7 @@ export async function GET() {
   }
   const [brands, counts] = await Promise.all([
     prisma.brand.findMany({ orderBy: { name: "asc" } }),
-    prisma.tea.groupBy({ by: ["brand"], _count: { _all: true } }),
+    prisma.tea.groupBy({ by: ["brand"], where: { deletedAt: null }, _count: { _all: true } }),
   ]);
   const countMap = new Map(counts.map((c) => [c.brand, c._count._all]));
   return NextResponse.json({

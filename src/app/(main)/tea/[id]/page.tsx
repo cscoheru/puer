@@ -28,8 +28,8 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const tea = await prisma.tea.findUnique({
-    where: { id },
+  const tea = await prisma.tea.findFirst({
+    where: { id, deletedAt: null },
     select: { name: true, brand: true, year: true, type: true, description: true, coverImage: true },
   });
   if (!tea) return { title: "茶品未找到" };
@@ -60,8 +60,8 @@ export default async function TeaDetailPage({ params }: PageProps) {
   const canEdit = session?.user && session.user.level >= 2;
   const isAdmin = session?.user?.role === "admin";
 
-  const tea = await prisma.tea.findUnique({
-    where: { id },
+  const tea = await prisma.tea.findFirst({
+    where: { id, deletedAt: null },
     include: {
       _count: { select: { articles: true, tastingNotes: true } },
       user: { select: { username: true } },

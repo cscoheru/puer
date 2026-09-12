@@ -26,7 +26,7 @@ export default async function TeaListPage({ searchParams }: PageProps) {
   const page = Math.max(1, parseInt(params.page || "1"));
   const limit = 24;
 
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { deletedAt: null };
   if (brand) where.brand = brand;
   if (year) where.year = parseInt(year);
   if (type) where.type = type;

@@ -25,6 +25,18 @@ interface Tea {
 // R20 品牌内茶品分页大小（未知品牌上千款也能翻页处理完）
 const OWNED_PAGE_SIZE = 100;
 
+// P2-R21 删除箱条目
+interface TrashTea {
+  id: string;
+  name: string;
+  brand: string;
+  year: number;
+  type: string;
+  deletedAt: string;
+  tastingNoteCount: number;
+  _count: { tastingNotes: number; articles: number; teaSessions: number };
+}
+
 export default function AdminBrandsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [teas, setTeas] = useState<Tea[]>([]);
@@ -43,6 +55,16 @@ export default function AdminBrandsPage() {
   // R20 批量选择：品牌内茶品勾选（搜索结果可全选/取消全选）/ 移出目标品牌 id（"" = 未知）
   const [selOwned, setSelOwned] = useState<string[]>([]);
   const [moveOutTarget, setMoveOutTarget] = useState("");
+  // P2-R21 删除箱
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashTeas, setTrashTeas] = useState<TrashTea[]>([]);
+  const [selTrash, setSelTrash] = useState<string[]>([]);
+
+  async function loadTrash() {
+    const res = await fetch("/api/admin/brands/trash").catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
+    setTrashTeas(data.teas || []);
+  }
 
   async function reload() {
     const [b, t] = await Promise.all([
@@ -51,6 +73,7 @@ export default function AdminBrandsPage() {
     ]);
     setBrands(b.brands || []);
     setTeas(t.teas || []);
+    await loadTrash();
   }
 
   useEffect(() => {
@@ -155,6 +178,61 @@ export default function AdminBrandsPage() {
     }
   }
 
+  // P2-R21 软删除：移入删除箱（可还原/彻底删除）
+  async function deleteTeas(brandId: string, teaIds: string[]) {
+    if (!confirm(`将 ${teaIds.length} 款茶品移入删除箱？\n删除后前台不再展示，可在删除箱中还原或彻底删除。`)) return;
+    const res = await fetch("/api/admin/brands/teas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brandId, deleteTeaIds: teaIds }),
+    });
+    if (res.ok) {
+      setMessage(`🗑 已将 ${teaIds.length} 款茶品移入删除箱（可还原或彻底删除）`);
+      setSelOwned([]);
+      await reload();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMessage(err.error || "操作失败");
+    }
+  }
+
+  async function restoreTeas(teaIds: string[]) {
+    const res = await fetch("/api/admin/brands/trash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "restore", teaIds }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setMessage(`✓ 已还原 ${data.restored ?? 0} 款茶品到原品牌`);
+      setSelTrash((s) => s.filter((id) => !teaIds.includes(id)));
+      await reload();
+    } else {
+      setMessage(data.error || "还原失败");
+    }
+  }
+
+  async function purgeTeas(teaIds: string[]) {
+    if (!confirm(`彻底删除 ${teaIds.length} 款茶品？此操作不可恢复！`)) return;
+    const res = await fetch("/api/admin/brands/trash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "purge", teaIds }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const blockedMsg =
+        data.blocked?.length > 0
+          ? `；${data.blocked.length} 款因关联笔记/帖子/茶会被跳过（先在合并工具处理内容）`
+          : "";
+      setMessage(`🔥 已彻底删除 ${data.purged ?? 0} 款茶品${blockedMsg}`);
+      setSelTrash((s) => s.filter((id) => !teaIds.includes(id)));
+      await loadTrash();
+    } else {
+      setMessage(data.error || "删除失败");
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <nav className="text-xs md:text-sm text-stone-400 mb-4">
@@ -191,10 +269,91 @@ export default function AdminBrandsPage() {
         >
           + 创建品牌
         </button>
+        <button
+          onClick={() => { setShowTrash((v) => !v); if (!showTrash) loadTrash(); }}
+          className="px-3 py-1.5 text-sm border border-stone-300 text-stone-600 rounded-lg hover:border-red-400 hover:text-red-700 transition whitespace-nowrap"
+        >
+          🗑 删除箱{trashTeas.length > 0 ? `（${trashTeas.length}）` : ""}
+        </button>
       </div>
 
       {message && (
         <p className="mb-4 p-3 bg-amber-50 text-amber-800 rounded-lg text-sm">{message}</p>
+      )}
+
+      {/* P2-R21 删除箱面板 */}
+      {showTrash && (
+        <div className="mb-6 bg-white border border-red-200 rounded-xl p-4">
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <span className="font-medium text-sm text-red-800">🗑 删除箱（{trashTeas.length}）</span>
+            <span className="text-xs text-stone-400">茶品删除后先进此处；可还原回原品牌，或彻底删除（不可恢复）</span>
+            <div className="flex-1" />
+            {trashTeas.length > 0 && (
+              <>
+                <button
+                  onClick={() => setSelTrash(selTrash.length === trashTeas.length ? [] : trashTeas.map((t) => t.id))}
+                  className="px-2.5 py-1 text-xs border border-stone-200 text-stone-600 rounded-lg hover:border-stone-400 transition"
+                >
+                  {selTrash.length === trashTeas.length ? "取消全选" : "全选"}
+                </button>
+                <button
+                  onClick={() => selTrash.length > 0 && restoreTeas(selTrash)}
+                  disabled={selTrash.length === 0}
+                  className="px-2.5 py-1 text-xs border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition disabled:opacity-40"
+                >
+                  ↩ 还原 ({selTrash.length})
+                </button>
+                <button
+                  onClick={() => selTrash.length > 0 && purgeTeas(selTrash)}
+                  disabled={selTrash.length === 0}
+                  className="px-2.5 py-1 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-40"
+                >
+                  🔥 彻底删除 ({selTrash.length})
+                </button>
+              </>
+            )}
+          </div>
+          {trashTeas.length === 0 ? (
+            <p className="text-sm text-stone-400 py-4 text-center">删除箱是空的</p>
+          ) : (
+            <ul className="divide-y divide-stone-100 max-h-72 overflow-y-auto">
+              {trashTeas.map((t) => (
+                <li key={t.id} className="flex items-center gap-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selTrash.includes(t.id)}
+                    onChange={(e) => setSelTrash(e.target.checked ? [...selTrash, t.id] : selTrash.filter((x) => x !== t.id))}
+                    className="accent-red-600"
+                  />
+                  <span className="font-medium text-stone-800 flex-1 min-w-0 truncate">
+                    {t.name}
+                    <span className="text-xs text-stone-400 ml-2">
+                      {t.brand || "未知"} · {t.year || "?"} · {t.type === "raw" ? "生" : "熟"}
+                      {t._count.tastingNotes > 0 || t._count.articles > 0 || t._count.teaSessions > 0
+                        ? ` · ⚠ 笔记${t._count.tastingNotes}/帖子${t._count.articles}/茶会${t._count.teaSessions}（不可彻底删）`
+                        : ""}
+                    </span>
+                  </span>
+                  <span className="text-xs text-stone-400 whitespace-nowrap">
+                    {t.deletedAt ? new Date(t.deletedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                  </span>
+                  <button
+                    onClick={() => restoreTeas([t.id])}
+                    className="px-2 py-0.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 transition whitespace-nowrap"
+                  >
+                    ↩ 还原
+                  </button>
+                  <button
+                    onClick={() => purgeTeas([t.id])}
+                    className="px-2 py-0.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 transition whitespace-nowrap"
+                  >
+                    🔥 彻底删除
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {loading ? (
@@ -308,6 +467,12 @@ export default function AdminBrandsPage() {
                           className="px-2.5 py-1 text-xs bg-amber-800 text-white rounded hover:bg-amber-900 font-medium"
                         >
                           ⇨ 批量移出 ({selOwned.length})
+                        </button>
+                        <button
+                          onClick={() => deleteTeas(b.id, selOwned)}
+                          className="px-2.5 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 font-medium"
+                        >
+                          🗑 移入删除箱 ({selOwned.length})
                         </button>
                         <button
                           onClick={() => setSelOwned([])}
