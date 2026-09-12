@@ -518,6 +518,29 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **验收提示**：品牌管理 → 打开某品牌 → 茶品管理 → 勾选若干 → 「移入删除箱」→ 顶部「删除箱（N）」→ 可见刚删的茶（含原品牌）→ 「还原」回到原品牌列表 / 「彻底删除」物理删除（有关联内容的会被跳过并提示）。
 
+## R22 · 转化档案与图片墙付费会员预览锁定（2026-09-13 已上线，release 20260912T151315Z-d0a4e4b）
+
+**需求（安全）**：茶品详情页「转化档案 · 历年品鉴」与「图片墙」存在内容被复制/不当利用风险；付费会员体系另行系统规划，先上**预览锁定**：非付费会员每条转化档案仅见前两行预览（后折叠）、图片墙仅两行渐变虚化且不可点击查看大图，点击查看详情提示「你暂时没有查看权限」。
+
+**实现（核心原则：受保护内容不进 SSR HTML，view-source 拿不到）**：
+- **权限预埋**：`src/app/(main)/tea/[id]/page.tsx` 中 `isPaidMember = false`（TODO 接付费体系）+ `canViewFullArchive = isAdmin || isPaidMember`（admin 豁免）——付费上线后改此一处即可。
+- **转化档案**（非付费）：summary 服务端截断 64 字（约两行，尾部「……」）+ line-clamp-2；**时间线不再输出笔记首图**（cover=null）；条目尾部「完整品鉴内容仅付费会员可见」+ 🔒「查看完整品鉴 →」锁定按钮。
+- **图片墙**（非付费）：仅前 10 张（桌面 5 列×2 行）图 URL 进 HTML；`<a target=_blank>` 改为纯 `<div>`（无链接、`pointer-events-none`、`draggable=false`）；容器底部白渐变锁定遮罩（`LockedWallOverlay`）：「🔒 会员专享 · 完整图片库仅付费会员可见 + 还有 N 张图」；标题计数显示 `10/107`。
+- **hero 三级链**：非付费不再用笔记图兜底（仅茶品自身 cover/gallery），避免笔记大图全尺寸暴露。
+- 新组件 `src/components/tea/locked-tip.tsx`（client）：`LockedTip`（行内锁定按钮+气泡）与 `LockedWallOverlay`（图片墙遮罩）；点击均提示「你暂时没有查看权限」，气泡 2.5s 自动消失。
+
+**部署**：commit `d0a4e4b`；无 migration；rsync 白名单 3.6M；build DONE；activate 正常（容器跑新镜像，health 200）。守卫：forum/classics/tea 200、api/teas 200 ✓。清理旧镜像（保留 current+rollback+上一版）。
+
+**线上实测**（测试对象 `2001-黎明7540`：9 条品鉴、107 张图，未登录视角）：
+- 图片 URL：HTML 中恰好 10 张 `/uploads/evernote/*`，其余 97 张 URL **零泄漏**；
+- 摘要：两条 500 字长笔记，前 64 字在 HTML、**第 64 字后全文片段 grep 不到**；
+- 时间线笔记图 0 张；`target=_blank` 大图链接 0 个；锁定按钮/会员专享遮罩文案均在位。
+- （注：grep 计数×2/×3 为 Next SSR HTML + flight payload 重复序列化，正常。）
+
+**遗留（付费会员体系规划时统一处理）**：/tasting 品鉴 feed 的公开性、图片服务端水印、受保护内容 API 化（点击后鉴权拉取）、会员字段与支付接入、classics 列表缩略图策略。
+
+**验收提示**：未登录/普通用户打开 https://puer.im/tea/04792cf7-3929-4d34-877e-59809c0e8b54 —— 转化档案每条仅两行预览+🔒按钮（点击提示无权限）；图片墙 10/107 张、底部渐变锁定（点击提示无权限）；右键查看源代码搜不到其余图 URL 与摘要全文。admin 登录后完整可见。
+
 
 
 
