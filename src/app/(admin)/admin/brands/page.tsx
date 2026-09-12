@@ -22,22 +22,25 @@ interface Tea {
   _count?: { tastingNotes: number };
 }
 
+// R20 品牌内茶品分页大小（未知品牌上千款也能翻页处理完）
+const OWNED_PAGE_SIZE = 100;
+
 export default function AdminBrandsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [teas, setTeas] = useState<Tea[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
-  // 展开的品牌 id -> 茶品搜索词
+  // 展开的品牌 id -> 本品牌内茶品搜索词 + 分页
   const [openId, setOpenId] = useState<string | null>(null);
   const [teaSearch, setTeaSearch] = useState("");
+  const [ownedPage, setOwnedPage] = useState(1);
   // 编辑中的品牌 id + 表单
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [newBrandName, setNewBrandName] = useState("");
-  // R15 批量选择：候选区勾选 / 品牌内茶品勾选 / 移出目标品牌 id（"" = 未知）
-  const [selCand, setSelCand] = useState<string[]>([]);
+  // R20 批量选择：品牌内茶品勾选（搜索结果可全选/取消全选）/ 移出目标品牌 id（"" = 未知）
   const [selOwned, setSelOwned] = useState<string[]>([]);
   const [moveOutTarget, setMoveOutTarget] = useState("");
 
@@ -62,21 +65,24 @@ export default function AdminBrandsPage() {
 
   const openBrand = brands.find((b) => b.id === openId) || null;
 
-  // 该品牌下的茶品
+  // 该品牌下的茶品（R20：跨品牌「移入」入口已移除——归属调整统一在茶品现属
+  // 品牌侧「移出到其他品牌」完成，避免双向入口搞乱归属）
   const brandTeas = useMemo(
     () => (openBrand ? teas.filter((t) => t.brand === openBrand.name) : []),
     [teas, openBrand],
   );
 
-  // 搜索候选：不属于该品牌的茶（品牌+茶名检索），取前 20
-  const candidates = useMemo(() => {
-    if (!openBrand || !teaSearch.trim()) return [];
+  // R20 本品牌内搜索（茶名/年份）——搜索结果支持全选/取消全选，配合分页
+  // 可处理「未知」上千款的大品牌
+  const brandTeasFiltered = useMemo(() => {
     const q = teaSearch.trim().toLowerCase();
-    return teas
-      .filter((t) => t.brand !== openBrand.name)
-      .filter((t) => `${t.brand} ${t.name}`.toLowerCase().includes(q) || t.name.toLowerCase().includes(q) || t.brand.toLowerCase().includes(q))
-      .slice(0, 20);
-  }, [teas, openBrand, teaSearch]);
+    if (!q) return brandTeas;
+    return brandTeas.filter((t) => t.name.toLowerCase().includes(q) || String(t.year).includes(q));
+  }, [brandTeas, teaSearch]);
+
+  const ownedTotalPages = Math.max(1, Math.ceil(brandTeasFiltered.length / OWNED_PAGE_SIZE));
+  const ownedPageSafe = Math.min(ownedPage, ownedTotalPages);
+  const pagedBrandTeas = brandTeasFiltered.slice((ownedPageSafe - 1) * OWNED_PAGE_SIZE, ownedPageSafe * OWNED_PAGE_SIZE);
 
   async function saveBrand(b: Brand, name: string, description: string, icon?: string) {
     const res = await fetch("/api/admin/brands", {
@@ -104,7 +110,7 @@ export default function AdminBrandsPage() {
       body: JSON.stringify({ name }),
     });
     if (res.ok) {
-      setMessage(`✓ 已创建品牌「${name}」，展开后可搜索添加茶品`);
+      setMessage(`✓ 已创建品牌「${name}」，展开后可管理茶品`);
       setNewBrandName("");
       await reload();
     } else {
@@ -127,23 +133,6 @@ export default function AdminBrandsPage() {
     } else {
       const err = await res.json().catch(() => ({}));
       setMessage(err.error || "删除失败");
-    }
-  }
-
-  async function addTeas(brandId: string, teaIds: string[]) {
-    const res = await fetch("/api/admin/brands/teas", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brandId, addTeaIds: teaIds }),
-    });
-    if (res.ok) {
-      setMessage(`✓ 已划入 ${teaIds.length} 款茶品`);
-      setTeaSearch("");
-      setSelCand([]);
-      await reload();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setMessage(err.error || "操作失败");
     }
   }
 
@@ -223,7 +212,7 @@ export default function AdminBrandsPage() {
                   <div className="text-xs text-stone-400 mt-0.5">{b.teaCount} 款茶品</div>
                 </div>
                 <button
-                  onClick={() => { setOpenId(openId === b.id ? null : b.id); setTeaSearch(""); setSelCand([]); setSelOwned([]); setMoveOutTarget(""); }}
+                  onClick={() => { setOpenId(openId === b.id ? null : b.id); setTeaSearch(""); setOwnedPage(1); setSelOwned([]); setMoveOutTarget(""); }}
                   className="px-3 py-1.5 text-xs border border-stone-200 text-stone-600 rounded-lg hover:border-stone-400 transition shrink-0"
                 >
                   {openId === b.id ? "收起" : "茶品管理"}
@@ -272,69 +261,25 @@ export default function AdminBrandsPage() {
               {openId === b.id && (
                 <div className="mt-3 border-t border-stone-100 pt-3 space-y-3">
                   <div>
-                    <input
-                      value={teaSearch}
-                      onChange={(e) => { setTeaSearch(e.target.value); setSelCand([]); }}
-                      placeholder="搜索茶品移入该品牌（支持 品牌 茶名 / 纯茶名 / 纯品牌）…"
-                      className="w-full px-3 py-1.5 text-xs border border-stone-200 rounded-lg focus:border-amber-500 outline-none"
-                    />
-                    {candidates.length > 0 && (
-                      <div className="mt-1.5">
-                        {selCand.length > 0 && (
-                          <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 rounded-t-lg border-x border-t border-amber-200">
-                            <span className="text-xs text-amber-800 font-medium">已勾选 {selCand.length} / {candidates.length} 款</span>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => setSelCand(candidates.map((t) => t.id))}
-                                className="px-2 py-0.5 text-[0.65rem] border border-amber-300 text-amber-800 rounded hover:bg-amber-100"
-                              >
-                                全选
-                              </button>
-                              <button
-                                onClick={() => setSelCand([])}
-                                className="px-2 py-0.5 text-[0.65rem] border border-amber-300 text-amber-800 rounded hover:bg-amber-100"
-                              >
-                                清空
-                              </button>
-                              <button
-                                onClick={() => addTeas(b.id, selCand)}
-                                className="px-2.5 py-0.5 text-xs bg-amber-800 text-white rounded hover:bg-amber-900 font-medium"
-                              >
-                                ⬇ 批量移入所选 ({selCand.length})
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        <div className={`border border-stone-200 divide-y divide-stone-100 max-h-64 overflow-y-auto ${selCand.length > 0 ? "rounded-b-lg" : "rounded-lg"}`}>
-                          {candidates.map((t) => (
-                            <label key={t.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-stone-50 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={selCand.includes(t.id)}
-                                onChange={(e) =>
-                                  setSelCand((prev) => (e.target.checked ? [...prev, t.id] : prev.filter((id) => id !== t.id)))
-                                }
-                                className="accent-amber-800 shrink-0"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <span className="text-xs text-stone-700 truncate block">
-                                  {t.brand} · {t.name}
-                                </span>
-                                <span className="text-[0.65rem] text-stone-400">
-                                  {t.year} · {t.type === "raw" ? "生茶" : "熟茶"} · {t._count?.tastingNotes ?? t.tastingNoteCount} 篇
-                                </span>
-                              </div>
-                              <button
-                                onClick={(e) => { e.preventDefault(); addTeas(b.id, [t.id]); }}
-                                className="px-2 py-1 text-xs bg-stone-700 text-white rounded hover:bg-stone-800 transition shrink-0"
-                              >
-                                + 移入
-                              </button>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={teaSearch}
+                        onChange={(e) => { setTeaSearch(e.target.value); setOwnedPage(1); }}
+                        placeholder={`搜索本品牌茶品（共 ${brandTeas.length} 款，支持茶名/年份）…`}
+                        className="flex-1 min-w-56 px-3 py-1.5 text-xs border border-stone-200 rounded-lg focus:border-amber-500 outline-none"
+                      />
+                      <button
+                        onClick={() =>
+                          setSelOwned((prev) =>
+                            prev.length === brandTeasFiltered.length ? [] : brandTeasFiltered.map((t) => t.id),
+                          )
+                        }
+                        disabled={brandTeasFiltered.length === 0}
+                        className="px-2 py-1 text-[0.65rem] border border-amber-300 text-amber-800 rounded hover:bg-amber-100 disabled:opacity-40 shrink-0"
+                      >
+                        {selOwned.length === brandTeasFiltered.length && brandTeasFiltered.length > 0 ? "取消全选" : `全选结果（${brandTeasFiltered.length}）`}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-1">
@@ -374,24 +319,14 @@ export default function AdminBrandsPage() {
                     )}
 
                     <div className="flex items-center gap-2 px-1">
-                      {brandTeas.length > 0 && (
-                        <button
-                          onClick={() =>
-                            setSelOwned((prev) =>
-                              prev.length === brandTeas.length ? [] : brandTeas.map((t) => t.id),
-                            )
-                          }
-                          className="text-[0.65rem] text-stone-400 hover:text-amber-700"
-                        >
-                          {selOwned.length === brandTeas.length ? "取消全选" : `全选（${brandTeas.length}）`}
-                        </button>
-                      )}
                       <span className="text-[0.65rem] text-stone-400">
-                        勾选后可批量移出到其他品牌或未知
+                        {teaSearch.trim()
+                          ? `搜索结果 ${brandTeasFiltered.length} / ${brandTeas.length} 款，已勾选 ${selOwned.length} 款`
+                          : `共 ${brandTeas.length} 款，已勾选 ${selOwned.length} 款；勾选后可批量移出到其他品牌`}
                       </span>
                     </div>
 
-                    {brandTeas.slice(0, 100).map((t) => (
+                    {pagedBrandTeas.map((t) => (
                       <label key={t.id} className="flex items-center gap-2 bg-stone-50 rounded-lg px-2.5 py-1.5 cursor-pointer hover:bg-stone-100 transition">
                         <input
                           type="checkbox"
@@ -408,18 +343,33 @@ export default function AdminBrandsPage() {
                         <span className="text-[0.65rem] text-stone-400 shrink-0">
                           {t.year} · {t._count?.tastingNotes ?? t.tastingNoteCount} 篇
                         </span>
-                        <button
-                          onClick={(e) => { e.preventDefault(); removeTeas(b.id, [t.id]); }}
-                          className="px-2 py-0.5 text-xs border border-stone-300 text-stone-500 rounded hover:border-red-300 hover:text-red-600 transition shrink-0"
-                        >
-                          移出
-                        </button>
                       </label>
                     ))}
-                    {brandTeas.length > 100 && (
-                      <p className="text-[0.65rem] text-stone-400">
-                        列表仅显示前 100 款（共 {brandTeas.length} 款）；批量移入请用上方搜索，批量移出先勾选可见项分批处理
-                      </p>
+                    {brandTeasFiltered.length === 0 && brandTeas.length > 0 && (
+                      <p className="text-[0.65rem] text-stone-400">本品牌内无匹配「{teaSearch.trim()}」的茶品</p>
+                    )}
+
+                    {/* R20 分页：大品牌（如未知上千款）翻页处理，勾选跨页保留 */}
+                    {ownedTotalPages > 1 && (
+                      <div className="flex items-center justify-center gap-3 pt-1">
+                        <button
+                          onClick={() => setOwnedPage((p) => Math.max(1, p - 1))}
+                          disabled={ownedPageSafe <= 1}
+                          className="px-2.5 py-1 text-xs border border-stone-200 text-stone-600 rounded hover:border-amber-400 disabled:opacity-40"
+                        >
+                          ‹ 上一页
+                        </button>
+                        <span className="text-[0.65rem] text-stone-500">
+                          第 {ownedPageSafe} / {ownedTotalPages} 页 · 每页 {OWNED_PAGE_SIZE} 款
+                        </span>
+                        <button
+                          onClick={() => setOwnedPage((p) => Math.min(ownedTotalPages, p + 1))}
+                          disabled={ownedPageSafe >= ownedTotalPages}
+                          className="px-2.5 py-1 text-xs border border-stone-200 text-stone-600 rounded hover:border-amber-400 disabled:opacity-40"
+                        >
+                          下一页 ›
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

@@ -29,6 +29,9 @@ export default function AdminClassicsPage() {
   const [tab, setTab] = useState<"pending" | "classic">("pending");
   const [search, setSearch] = useState("");
   const [brandFilter, setBrandFilter] = useState("");
+  // R20 列表分页（此前一次渲染上千条且无分页，大品牌只能看到前一段）
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   // 展开的茶品 id -> 笔记列表（null=加载中）
   const [openNotes, setOpenNotes] = useState<Record<string, Note[] | null>>({});
   // 正在合并的笔记 id -> 输入的目标茶名
@@ -42,10 +45,11 @@ export default function AdminClassicsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // R20：品牌下拉展示全部品牌（此前只取前 20 个）
   const brands = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of teas) m.set(t.brand, (m.get(t.brand) || 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [teas]);
 
   const filtered = useMemo(() => {
@@ -54,8 +58,16 @@ export default function AdminClassicsPage() {
     if (tab === "pending") list = list.filter((t) => (t._count?.tastingNotes ?? t.tastingNoteCount) > 0);
     if (brandFilter) list = list.filter((t) => t.brand === brandFilter);
     if (search) list = list.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()) || t.brand.includes(search));
-    return list.slice(0, 300);
+    return list;
   }, [teas, tab, search, brandFilter]);
+
+  // R20 分页：筛选条件变化回到第 1 页
+  useEffect(() => {
+    setPage(1);
+  }, [tab, search, brandFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages);
+  const paged = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
   const pendingCount = useMemo(
     () => teas.filter((t) => !t.isClassic && (t._count?.tastingNotes ?? t.tastingNoteCount) > 0).length,
@@ -369,7 +381,7 @@ export default function AdminClassicsPage() {
         ))}
       </datalist>
       <datalist id="tea-options">
-        {teas.slice(0, 2000).map((t) => (
+        {teas.map((t) => (
           <option key={t.id} value={`${t.brand} ${t.name}`} />
         ))}
       </datalist>
@@ -382,7 +394,10 @@ export default function AdminClassicsPage() {
         <p className="text-stone-400 text-sm py-8 text-center">加载中…</p>
       ) : (
         <div className="space-y-2">
-          {filtered.map((t) => {
+          <p className="text-xs text-stone-400">
+            共 {filtered.length} 款 · 第 {pageSafe} / {totalPages} 页（每页 {PAGE_SIZE} 款）
+          </p>
+          {paged.map((t) => {
             const cnt = t._count?.tastingNotes ?? t.tastingNoteCount;
             const notes = openNotes[t.id];
             return (
@@ -479,6 +494,38 @@ export default function AdminClassicsPage() {
           })}
           {filtered.length === 0 && (
             <p className="text-stone-400 text-sm py-8 text-center">没有符合条件的茶品</p>
+          )}
+
+          {/* R20 分页导航：大列表（如品牌下几百款）翻页处理 */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-3 py-3">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={pageSafe <= 1}
+                className="px-3 py-1.5 text-sm border border-stone-200 text-stone-600 rounded-lg hover:border-amber-400 disabled:opacity-40"
+              >
+                ‹ 上一页
+              </button>
+              <span className="text-xs text-stone-500">
+                第 {pageSafe} / {totalPages} 页
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={pageSafe >= totalPages}
+                className="px-3 py-1.5 text-sm border border-stone-200 text-stone-600 rounded-lg hover:border-amber-400 disabled:opacity-40"
+              >
+                下一页 ›
+              </button>
+              <select
+                value={String(pageSafe)}
+                onChange={(e) => setPage(parseInt(e.target.value, 10))}
+                className="px-2 py-1.5 text-xs border border-stone-200 rounded-lg bg-white"
+              >
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  <option key={p} value={p}>跳到第 {p} 页</option>
+                ))}
+              </select>
+            </div>
           )}
         </div>
       )}
