@@ -208,17 +208,21 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
   // 但 mount 快照已拍、它们仍在「未读」组占据前排——尤其 R17 修复前的历史浏览无记录，
   // 大量用户认知中的"旧帖"实为系统未读。刷新 1.5s 后重拍快照并重排一次：
   // 首屏刚标记的旧帖立即沉底，"旧帖回前"现象逐次消失（记录随浏览自然积累）。
+  // P2-R19：重排时把已加载的追加页（extraArticles）一并并入首屏分组——
+  // 首屏加载快、1.5s 时追加页已到达的场景，追加页同样需要已读沉底。
   useEffect(() => {
     const t = setTimeout(() => {
       seenSnapshotRef.current = getSeenPosts();
       const snap = seenSnapshotRef.current;
-      setOrderedBase((prev) =>
-        [...prev].sort((a, b) => {
-          const aSeen = snap.has(a.id);
-          const bSeen = snap.has(b.id);
-          return aSeen === bSeen ? 0 : aSeen ? 1 : -1;
-        }),
-      );
+      const bySeen = (a: FeedArticle, b: FeedArticle) => {
+        const aSeen = snap.has(a.id);
+        const bSeen = snap.has(b.id);
+        return aSeen === bSeen ? 0 : aSeen ? 1 : -1;
+      };
+      const baseIds = new Set(orderedBaseRef.current.map((a) => a.id));
+      const merged = [...orderedBaseRef.current, ...extraRef.current.filter((e) => !baseIds.has(e.id))];
+      setOrderedBase(merged.sort(bySeen));
+      setExtraArticles([]);
       setReorderTick((tick) => tick + 1);
     }, 1500);
     return () => clearTimeout(t);

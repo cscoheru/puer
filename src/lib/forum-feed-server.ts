@@ -286,29 +286,47 @@ async function hotRankAndPage(opts: {
 
   const combined = [...manualPinned, ...ranked] as unknown as ArticleRow[];
 
+  // 归档续读公共查询（窗口耗尽/不足时按 createdAt 倒序返回更早帖子；排除
+  // 置顶避免与首屏重复；hotOverride 多为 NULL，须显式包含，`<> 'pinned'`
+  // 会滤掉 NULL；跨请求 id 重复由客户端去重兜底）。注意 wherePublished
+  // 自带 AND（跟进帖排除），此处必须合并进同一数组，直接写 AND 键会覆盖丢失。
+  const archiveWhere = {
+    ...wherePublished,
+    AND: [
+      ...((wherePublished.AND as object[]) || []),
+      { OR: [{ hotOverride: null }, { hotOverride: { not: "pinned" } }] },
+    ],
+  };
+  const fetchArchive = async (skip: number, take: number) =>
+    prisma.article.findMany({
+      where: archiveWhere,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+      select: articleSelect,
+    });
+
   if (offset < combined.length) {
-    return {
-      rows: combined.slice(offset, offset + limit),
-      hasMore: offset + limit < combined.length,
-    };
+    // P2-R19：热榜窗口不足一页时自动「归档续读」填满 limit。周/日窗口帖量
+    // 少时首屏只有 2-3 条（如 week 仅 3 帖达标），头部长期是同样几张老帖，
+    // 已读降权形同虚设——没有未读帖可以顶上；补满后客户端始终有足量内容
+    // 可供未读优先重排。窗口内帖可能同时落在归档头部（createdAt 倒序），
+    // 服务端按 id 去重，避免 SSR 首屏出现重复 key。
+    const windowRows = combined.slice(offset, offset + limit);
+    let rows = windowRows;
+    let hasMore = offset + limit < combined.length;
+    if (windowRows.length < limit) {
+      const windowIds = new Set(windowRows.map((a) => a.id));
+      const need = limit - windowRows.length;
+      const archive = await fetchArchive(0, need + 1);
+      const fresh = (archive.filter((a) => !windowIds.has(a.id)) as unknown as ArticleRow[]).slice(0, need);
+      rows = [...windowRows, ...fresh];
+      // 归档拿满 need+1 才说明池子还有剩余（fresh 去重后可能少一条，用原始取数判断）
+      hasMore = archive.length > need;
+    }
+    return { rows, hasMore };
   }
-  // 归档续读：窗口耗尽后按 createdAt 倒序返回更早帖子（排除置顶避免与
-  // 首屏重复；hotOverride 多为 NULL，须显式包含，`<> 'pinned'` 会滤掉 NULL；
-  // 跨请求 id 重复由客户端去重兜底）。注意 wherePublished 自带 AND（跟进帖
-  // 排除），此处必须合并进同一数组，直接写 AND 键会覆盖丢失。
   const skip = offset - combined.length;
-  const archive = await prisma.article.findMany({
-    where: {
-      ...wherePublished,
-      AND: [
-        ...((wherePublished.AND as object[]) || []),
-        { OR: [{ hotOverride: null }, { hotOverride: { not: "pinned" } }] },
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-    skip,
-    take: limit,
-    select: articleSelect,
-  });
+  const archive = await fetchArchive(skip, limit);
   return { rows: archive as unknown as ArticleRow[], hasMore: archive.length === limit };
 }

@@ -43,9 +43,12 @@ export default async function ForumPage(props: {
   // 首屏数据：与移动端懒加载（/api/forum/feed）共用 fetchForumFeed，
   // 保证 SSR 首屏与后续分页排序一致（v4 热榜窗口算法见 lib 内注释）。
   // P2-R5：经典普洱跟进帖已在数据层排除（升级后进入），页面不再单独查询。
+  // P2-R19：首屏显式 24 条——week 窗口帖量少时（如仅 3 帖达标）由数据层
+  // 归档续读自动补满，避免首屏只有 2-3 张卡、头部永远是同样几张老帖。
   const { articles: feedArticles } = await fetchForumFeed({
     tab,
     userId: session?.user?.id,
+    limit: 24,
   });
 
   return (
