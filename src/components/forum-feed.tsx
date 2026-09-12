@@ -204,6 +204,26 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
+  // P2-R18 冷启动兜底：刷新后首屏卡片会被 observer 立即标记已读（rootMargin 预载区），
+  // 但 mount 快照已拍、它们仍在「未读」组占据前排——尤其 R17 修复前的历史浏览无记录，
+  // 大量用户认知中的"旧帖"实为系统未读。刷新 1.5s 后重拍快照并重排一次：
+  // 首屏刚标记的旧帖立即沉底，"旧帖回前"现象逐次消失（记录随浏览自然积累）。
+  useEffect(() => {
+    const t = setTimeout(() => {
+      seenSnapshotRef.current = getSeenPosts();
+      const snap = seenSnapshotRef.current;
+      setOrderedBase((prev) =>
+        [...prev].sort((a, b) => {
+          const aSeen = snap.has(a.id);
+          const bSeen = snap.has(b.id);
+          return aSeen === bSeen ? 0 : aSeen ? 1 : -1;
+        }),
+      );
+      setReorderTick((tick) => tick + 1);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
   // P2-R3 移动端检测：桌面（lg+）保持三栏 + 五 tab；移动端切单一加权推荐流
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
