@@ -500,6 +500,24 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **验收提示**：经典审核选品牌（如大益）→ 已发布经典 tab，可翻页看完 136 款；品牌管理 → 未知 → 茶品管理，1051 款分 11 页，搜索"班章"等关键词 → 全选结果 → 移出到目标品牌。
 
+## R21 · 品牌茶品管理删除箱：软删除 + 还原 + 彻底删除（2026-09-12 已上线，release 20260912T085707Z-f5e9996）
+
+**需求**：茶品管理批量操作旁增加「删除」；删除不直接物理删，先进**删除箱**；删除箱内可**还原**（回原品牌）与**彻底删除**（不可恢复）。
+
+**实现**：
+- **数据模型**：`Tea.deletedAt DateTime?`（migration `0007_tea_deleted_at.sql`：加列 + 索引，生产已执行 ✓）。NULL=正常；非空=在删除箱。软删不动 `brand` 字段——还原即回原品牌；软删时同步 `isClassic=false` 摘出经典模块。
+- **API**：
+  - `POST /api/admin/brands/teas` 新增 `{brandId, deleteTeaIds[]}` 分支：批量置 `deletedAt=now`（只作用于未在删除箱中的）；
+  - 新端点 `/api/admin/brands/trash`：GET 列出删除箱（含 `_count` 笔记/帖子/茶会关联计数）；POST `{action:"restore"|"purge", teaIds[]}`——restore 置空 deletedAt；purge **物理删除但先查关联**，有品鉴笔记/帖子/茶会内容的茶品**拒删跳过**并返回明细（保护用户内容，需先在合并工具转移），无关联的直接删。
+- **全站过滤**（软删茶品不再出现）：`/api/teas` 列表与计数、`/api/teas/[id]` GET、茶品详情页 SSR（findFirst，软删 404）、茶品百科 `/tea` 列表、`/forum/classics`（分组计数+热门池+主查询）、`sitemap.xml`、`admin/brands` 品牌茶数 groupBy。feed 内帖子关联茶品卡片未过滤（帖子本身仍有效，边缘 case 可接受）。
+- **UI（admin/brands）**：勾选操作条新增「🗑 移入删除箱 (n)」（红色，confirm 二次确认）；页面顶部新增「🗑 删除箱（N）」按钮 → 红框面板：全选/批量还原/批量彻底删除 + 逐条还原/彻底删除；有关联内容的条目显示 ⚠ 计数警示（笔记/帖子/茶会，不可彻底删）；purge 后提示被跳过数量。
+
+**部署**：commit `f5e9996`；**migration 先行**（加列前向安全，旧镜像不感知）；rsync 白名单（R19 流程）3.6M；build DONE；activate 一次成功（curl 健康检查遇容器启动窗口 reset 一次，不影响）。守卫：forum/classics/tea 200、admin/brands 307、新 trash API 403、brands/teas API 403 ✓。DB 验证：`deletedAt IS NOT NULL` 计数 0（初始空箱）、teas 总数 1973。清理旧镜像（保留 current+rollback+上一版），磁盘 59%。
+
+**运维教训**：ssh 远程后台 nohup 构建时，`bash -c '...$RID...'` 单引号内的变量在后台 bash 中无值（且 `VAR=x` 尾参只是 `$0`）——正确姿势：本地写好脚本（变量写死字面量）→ scp → nohup 执行。
+
+**验收提示**：品牌管理 → 打开某品牌 → 茶品管理 → 勾选若干 → 「移入删除箱」→ 顶部「删除箱（N）」→ 可见刚删的茶（含原品牌）→ 「还原」回到原品牌列表 / 「彻底删除」物理删除（有关联内容的会被跳过并提示）。
+
 
 
 
