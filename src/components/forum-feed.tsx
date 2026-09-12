@@ -164,8 +164,18 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
   // hidden→visible，离开 ≥10s 防误触电源键/下拉通知栏扰动）时刷新已读快照并重排——
   // 本次会话读过的沉底、没读的靠前。阅读中页面持续可见不会触发，不破坏
   // R12「阅读中卡片不跳动」设计；同组内稳定排序保持原有相对顺序。
+  // P2-R17：重排时把懒加载追加页（extraArticles）一并并入首屏重排（此前追加页
+  // 按服务端顺序 append，从不参与已读降权）；extraRef 供本 effect 读取最新值。
   const [reorderTick, setReorderTick] = useState(0);
   const hiddenAtRef = useRef<number | null>(null);
+  const extraRef = useRef<FeedArticle[]>([]);
+  const orderedBaseRef = useRef<FeedArticle[]>([]);
+  useEffect(() => {
+    extraRef.current = extraArticles;
+  }, [extraArticles]);
+  useEffect(() => {
+    orderedBaseRef.current = orderedBase;
+  }, [orderedBase]);
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -177,14 +187,16 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
       if (awayMs < 10_000) return;
       seenSnapshotRef.current = getSeenPosts();
       const snap = seenSnapshotRef.current;
-      // 桌面端同步刷新 seen/unseen 分组（稳定排序，组内顺序不变）
-      setOrderedBase((prev) =>
-        [...prev].sort((a, b) => {
-          const aSeen = snap.has(a.id);
-          const bSeen = snap.has(b.id);
-          return aSeen === bSeen ? 0 : aSeen ? 1 : -1;
-        }),
-      );
+      const bySeen = (a: FeedArticle, b: FeedArticle) => {
+        const aSeen = snap.has(a.id);
+        const bSeen = snap.has(b.id);
+        return aSeen === bSeen ? 0 : aSeen ? 1 : -1;
+      };
+      // 追加页并入首屏（按 id 去重）后统一 seen/unseen 分组重排
+      const baseIds = new Set(orderedBaseRef.current.map((a) => a.id));
+      const merged = [...orderedBaseRef.current, ...extraRef.current.filter((e) => !baseIds.has(e.id))];
+      setOrderedBase(merged.sort(bySeen));
+      setExtraArticles([]);
       // 移动端加权流：bump tick 使 items 依赖变化 → 按新快照重排
       setReorderTick((t) => t + 1);
     };
@@ -218,20 +230,30 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
       const fresh = Math.exp(-ageH / 72); // ~3 天量级的新鲜度衰减
       const engageRaw = a.upvotes + 2 * a.replyCount + 1;
       const engage = engageRaw / (engageRaw + 8); // 平滑互动率 0..1
-      let s = 0.5 * posScore + 0.3 * fresh + 0.2 * engage;
-      // P2-R12 已读降权：看过的帖子分数 ×0.35 沉底（不剔除，用户仍可找回）；
-      // 记忆仅 localStorage 最近 400 条，超出自然遗忘≈降权时间窗
-      if (seenSnapshotRef.current.has(a.id)) s *= 0.35;
+      const s = 0.5 * posScore + 0.3 * fresh + 0.2 * engage;
       return { data: a, s };
     });
-    scored.sort((x, y) => y.s - x.s);
+    // P2-R17 已读两级分组（替代 R12 的 ×0.35 柔性降权——热帖降权后仍可能压住
+    // 未读帖，用户感知"排序没变"）：未读组在前、已读组整组沉底，组内按推荐分。
+    // 看过的帖子绝不排在未读之前；记忆仅 localStorage 最近 400 条，超出自然遗忘。
+    const snap = seenSnapshotRef.current;
+    scored.sort((x, y) => {
+      const xs = snap.has(x.data.id) ? 1 : 0;
+      const ys = snap.has(y.data.id) ? 1 : 0;
+      if (xs !== ys) return xs - ys;
+      return y.s - x.s;
+    });
     return [...scored.map((e) => e.data), ...extraArticles];
     // reorderTick：P2-R16 会话恢复（切 app 回来/点亮屏幕）时按新已读快照重排
   }, [orderedBase, extraArticles, isMobile, reorderTick]);
 
   // Track seen items via intersection observer
+  // P2-R17 修复：① 卡片容器补 data-article-id（此前缺失导致 getAttribute 恒为
+  // null，markSeen 从未执行——已读降权/「新」徽章失灵的根因）；② observer 生命周期
+  // 与 seen 解耦（旧实现依赖 [seen]，每次标记都 disconnect 重建，已渲染卡片不会
+  // 重新挂上新 observer，观察链路标记一次即断死）。现改为永生 observer + 函数式
+  // setSeen（引用相等时 React 自动 bail out，不触发多余渲染）。
   const seenTrackerRef = useRef<IntersectionObserver | null>(null);
-  const cardRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   useEffect(() => {
     seenTrackerRef.current = new IntersectionObserver(
@@ -241,9 +263,12 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
             const id = entry.target.getAttribute("data-article-id");
             if (id) {
               markSeen(id);
-              if (!seen.has(id)) {
-                setSeen((prev) => { const next = new Set(prev); next.add(id); return next; });
-              }
+              setSeen((prev) => {
+                if (prev.has(id)) return prev;
+                const next = new Set(prev);
+                next.add(id);
+                return next;
+              });
             }
           }
         }
@@ -251,7 +276,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
       { threshold: 0.3, rootMargin: "200px" }
     );
     return () => seenTrackerRef.current?.disconnect();
-  }, [seen]);
+  }, []);
 
   // P2-R3 懒加载：滚动接近底部时拉取下一页（仅移动端）。热榜窗口耗尽后
   // 服务端自动续读更早的归档帖，保证一直有内容可刷。
@@ -332,7 +357,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
       ) : (
         <div className="space-y-1">
           {items.map((article) => (
-            <div key={article.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
+            <div key={article.id} data-article-id={article.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
               <ArticleCard
                 article={article}
                 currentUserId={currentUserId}
