@@ -405,5 +405,24 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **部署**：commit `ba5753b`；无 migration；重建 build #26 DONE 100.3s；activate 正常。线上验证：forum/classics 200、容器 R16 镜像、磁盘 48% ✓。
 
+## R17 · 已读追踪根因修复：排序从未生效的真 Bug（2026-09-11 已上线，release 20260910T012439Z-9b5cd29）
+
+**用户实测反馈**：关闭浏览器重开后内容无变化、看过多次的帖子仍排第一、「新」徽章不消失——怀疑 R16 没部署。排查确认 R16 已部署，但**R12 的已读机制本身从未真正工作过**，两个叠加 Bug：
+
+1. **致命 Bug（根因）**：卡片容器 `<div>` 从未设置 `data-article-id` 属性，而 IntersectionObserver 回调靠 `entry.target.getAttribute("data-article-id")` 取 id——恒为 null → **`markSeen()` 一次都没执行过** → localStorage 已读记录为空 → 降权无数据可用、「新」徽章（条件 `!seen.has(id)`）永不消失。
+2. **观察链路断死 Bug**：observer 的 useEffect 依赖 `[seen]`——每次标记已读都触发 disconnect 旧 observer + 创建新 observer，但已渲染卡片不会自动挂上新 observer（ref 回调仅在 DOM 挂载时执行）→ 标记一次后观察链路即断，直到其他 state 变化引起重渲染才偶然恢复。
+3. **降权力度不足**：×0.35 柔性降权下，超热帖（推荐分 0.8+）降权后仍压过多数未读帖，用户感知"排序没变"。
+4. **追加页盲区**：懒加载追加的 extraArticles 按服务端顺序 append，从不参与已读降权。
+
+**修复**（`forum-feed.tsx`）：
+- 卡片容器补 `data-article-id={article.id}`（根因修复）；
+- observer 改永生单例（`[]` 依赖）+ 函数式 `setSeen`（引用相等时 React bail out，不触发多余渲染）；
+- 移动端排序改**两级分组**：未读组在前（按推荐分）、已读组整组沉底（组内按分）——看过的帖子绝不排在未读之前，效果肉眼可见（替代 ×0.35）；
+- 会话恢复重排（R16 的 visibilitychange）时把 extraArticles 并入首屏统一重排（id 去重），追加页已读同样沉底。
+
+**部署**：commit `9b5cd29`；无 migration；build 因上次清了缓存全量重建较慢（#26 DONE 约 22 分钟）；activate 正常。线上验证：forum/classics 200、容器 R17 镜像、镜像内 chunk `0cnxeb073vejy.js` 含 `data-article-id` ✓。
+
+**注意**：修复上线前的历史浏览不会补录（从未记录过）；上线后新浏览才开始累积已读记录。
+
 
 
