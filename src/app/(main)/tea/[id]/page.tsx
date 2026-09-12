@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import ArticleCard from "@/components/tea/article-card";
 import TastingCard from "@/components/tea/tasting-card";
 import PromoteButton from "@/components/tea/promote-button";
+import { LockedTip, LockedWallOverlay } from "@/components/tea/locked-tip";
 import type { Prisma } from "@/generated/prisma/client";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
@@ -99,29 +100,59 @@ export default async function TeaDetailPage({ params }: PageProps) {
   // 但对所有人公开"转化档案"摘要时间线（标题 + summary + 评分 + 首图）。
   const visibleNotes = isAdmin ? tastingNotes : [];
 
+  // P2-R22 付费会员区预埋：目前无付费体系，全员（除 admin）仅见预览——
+  // 转化档案摘要截断（约两行）、时间线不显示笔记图片、图片墙只输出前两行且加渐变锁定遮罩。
+  // 受保护内容一律不进 SSR HTML（view-source 拿不到全文/图 URL）；接入付费体系后改此判断即可。
+  const isPaidMember = false; // TODO(R22+): 付费会员体系（session 会员字段）
+  const canViewFullArchive = isAdmin || isPaidMember;
+  const ARCHIVE_PREVIEW_LEN = 64; // 摘要预览字数（约两行）
+  const WALL_PREVIEW_COUNT = 10; // 图片墙两行（桌面 5 列 × 2）
+
   // Public conversion timeline (curated summary only), oldest → newest
   const publicTimeline = tastingNotes
-    .map((n) => ({
-      id: n.id,
-      title: n.title,
-      summary: n.summary,
-      createdAt: n.createdAt,
-      cover:
-        Array.isArray(n.images)
-          ? ((n.images as unknown[]).find((i): i is string => typeof i === "string") ?? null)
-          : null,
-      scores: [n.appearance, n.color, n.aroma, n.taste, n.aftertaste].filter(
-        (s): s is number => s !== null,
-      ),
-    }))
+    .map((n) => {
+      if (canViewFullArchive) {
+        return {
+          id: n.id,
+          title: n.title,
+          summary: n.summary,
+          createdAt: n.createdAt,
+          cover:
+            Array.isArray(n.images)
+              ? ((n.images as unknown[]).find((i): i is string => typeof i === "string") ?? null)
+              : null,
+          scores: [n.appearance, n.color, n.aroma, n.taste, n.aftertaste].filter(
+            (s): s is number => s !== null,
+          ),
+        };
+      }
+      // 非付费：仅预览——截断摘要（SSR 不输出全文），不带笔记图片
+      const preview =
+        n.summary && n.summary.length > ARCHIVE_PREVIEW_LEN
+          ? `${n.summary.slice(0, ARCHIVE_PREVIEW_LEN)}……`
+          : n.summary;
+      return {
+        id: n.id,
+        title: n.title,
+        summary: preview,
+        createdAt: n.createdAt,
+        cover: null,
+        scores: [n.appearance, n.color, n.aroma, n.taste, n.aftertaste].filter(
+          (s): s is number => s !== null,
+        ),
+      };
+    })
     .reverse();
 
   // Collect all images from tasting notes (evernote 图床 URL 本就公开)
-  const allImages = tastingNotes.flatMap((n) =>
+  // P2-R22 非付费：只输出前两行进 HTML，其余图 URL 不下发
+  const allNoteImages = tastingNotes.flatMap((n) =>
     Array.isArray(n.images)
       ? (n.images as unknown[]).filter((i): i is string => typeof i === "string")
       : [],
   );
+  const allImages = canViewFullArchive ? allNoteImages : allNoteImages.slice(0, WALL_PREVIEW_COUNT);
+  const hiddenWallCount = allNoteImages.length - allImages.length;
 
   const typeLabel = tea.type === "raw" ? "生茶" : "熟茶";
   const market = parseMarket(tea.marketInfo);
@@ -141,7 +172,8 @@ export default async function TeaDetailPage({ params }: PageProps) {
   const noteFirstImg = tastingNotes
     .flatMap((n) => (Array.isArray(n.images) ? (n.images as unknown[]) : []))
     .find((u): u is string => typeof u === "string" && u.length > 0);
-  const heroImgSrc = (tea.coverImage || galleryFirstImg || noteFirstImg) as string | undefined;
+  // P2-R22 非付费：hero 不用笔记图兜底（仅茶品自身封面/图库），避免笔记大图全尺寸暴露
+  const heroImgSrc = (tea.coverImage || galleryFirstImg || (canViewFullArchive ? noteFirstImg : undefined)) as string | undefined;
   const heroImgAbs = absImageUrl(heroImgSrc);
   const teaTypeLabel = tea.type === "raw" ? "生茶" : "熟茶";
 
@@ -328,7 +360,13 @@ export default async function TeaDetailPage({ params }: PageProps) {
                       </div>
                       <p className="text-sm font-medium text-stone-800 mt-0.5 truncate">{n.title}</p>
                       {n.summary && (
-                        <p className="text-xs text-stone-500 mt-1 leading-relaxed line-clamp-3">{n.summary}</p>
+                        <p className="text-xs text-stone-500 mt-1 leading-relaxed line-clamp-2 md:line-clamp-2">{n.summary}</p>
+                      )}
+                      {!canViewFullArchive && (
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <span className="text-[0.65rem] text-stone-400">完整品鉴内容仅付费会员可见</span>
+                          <LockedTip label="查看完整品鉴 →" />
+                        </div>
                       )}
                     </div>
                   </div>
@@ -339,20 +377,35 @@ export default async function TeaDetailPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* Image Wall */}
+      {/* Image Wall — P2-R22 非付费仅前两行进 HTML + 渐变锁定遮罩（不可点击查看大图） */}
       {allImages.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg md:text-2xl font-serif font-bold text-stone-800 mb-4">
-            图片墙 ({allImages.length})
+            图片墙 ({canViewFullArchive ? allImages.length : `${allImages.length}${hiddenWallCount > 0 ? `/${allImages.length + hiddenWallCount}` : ""}`})
           </h2>
-          <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-            {allImages.map((src, i) => (
-              <a key={i} href={src} target="_blank" rel="noopener noreferrer"
-                className="aspect-square rounded-lg overflow-hidden bg-stone-100"
-              >
-                <img src={src} alt={`${tea.brand} ${tea.name} 图片`} className="w-full h-full object-cover hover:opacity-85 transition" />
-              </a>
-            ))}
+          <div className="relative">
+            <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+              {allImages.map((src, i) =>
+                canViewFullArchive ? (
+                  <a key={i} href={src} target="_blank" rel="noopener noreferrer"
+                    className="aspect-square rounded-lg overflow-hidden bg-stone-100"
+                  >
+                    <img src={src} alt={`${tea.brand} ${tea.name} 图片`} className="w-full h-full object-cover hover:opacity-85 transition" />
+                  </a>
+                ) : (
+                  <div key={i} className="aspect-square rounded-lg overflow-hidden bg-stone-100">
+                    <img
+                      src={src}
+                      alt={`${tea.brand} ${tea.name} 图片预览`}
+                      loading="lazy"
+                      draggable={false}
+                      className="w-full h-full object-cover pointer-events-none select-none"
+                    />
+                  </div>
+                ),
+              )}
+            </div>
+            {!canViewFullArchive && <LockedWallOverlay hiddenCount={hiddenWallCount} />}
           </div>
         </div>
       )}
