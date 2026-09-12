@@ -449,5 +449,38 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **结果**：brands 表 34→**32** 个；福今 132、黎明八角亭 58、陈升号 31、未知 1122；校验 orphan（teas.brand ∉ brands）= 0 ✓、班章残留 0 ✓。
 
+## R19 · 「每次进来还是那几个老帖」真根因：首屏窗口无未读可换 + 窗口不足自动归档补满（2026-09-12 已上线，release 20260912T030651Z-c2cb89e）
+
+**用户反馈**：R17/R18 后仍"每次进入页面还是那几个老帖子"。
+
+**排查**（三轮纸上推演无果后改用 Playwright 无头浏览器对线上实测，三轮逐步逼近）：
+1. 复现脚本：手机 viewport 进入 → 滚动标记 → 刷新 → 前 10 位全是已读帖、位置 0-7 连续原序——确凿复现；
+2. 加 console/pageerror 监听 + 预置 12 条已读再刷新：无任何 JS 报错，DOM 纹丝不动，localStorage 记录在；
+3. **读 React fiber 内部 hooks 状态**（`__reactFiber$` 树遍历找 hook 最多的组件实例）逐项解码：`seen=Set(10)` 快照已拍 ✓、`isMobile=true` ✓、items useMemo deps 尾部 `,true,1` 证明 **1.5s 兜底已执行（reorderTick=1）且重排已跑** ✓——**已读机制全链路正常**；
+4. 但 `orderedBase` 只有 **3 条**：`/forum` 默认 `tab=week`（周热榜窗口），本周仅 3 帖达标质量门槛 → SSR 首屏 3 张卡 → loadMore 归档续读 7 条（3 条与首屏重复被客户端去重）。
+
+**真根因**：不是已读降权失灵，而是**首屏数据窗口太小**——3 张 week 帖全部读过时，已读组里没有未读帖可以顶上来（两级分组正确执行但结果不变）；append-only 的 7 条归档老帖不参与分组。用户每次进来看到的就是同样的 3+7 张老脸。week 窗口帖量随发帖量波动，此前窗口内帖子多所以"以前正常"。
+
+**修复**（三处）：
+- `forum-feed-server.ts`：热榜窗口不足一页时**自动归档续读填满 limit**（归档查询提取为 `fetchArchive` 公共函数；服务端按 id 去重窗口/归档交集，避免 SSR 重复 key；`hasMore = archive.length > need`）；
+- `forum/page.tsx`：SSR 首屏显式 `limit: 24`（此前默认 60 但窗口只有 3 条时实际返回 3 条）；
+- `forum-feed.tsx`：1.5s 冷启动兜底重排时把已加载的 extraArticles 并入首屏统一分组（与 R17 visibilitychange 同逻辑，覆盖"首屏加载快、兜底时追加页已到达"的场景）。
+
+**部署波折**：rsync 首次传输被抢跑的 docker build 打断（prisma/schema.prisma 未到致 `prisma generate` 失败）；第二次 exclude 模式传了 1.1G 全 repo（上一 release 仅 3.7M）终止；第三次 `--files-from` 白名单但**该模式下 `-a` 不隐含递归**只建了空目录；最终 `rsync -a --recursive --files-from` 白名单（src/prisma/public/根配置文件，排除 src/generated 与 public/uploads）传 3.0M ✓。build 缓存命中较快；activate 正常。
+
+**线上验证**（Playwright 端到端）：
+- 首屏卡片 10 → **22 张**；
+- 预置首屏前 12 条为已读 → 刷新 3.2s 后：前 10 位全为未读，12 条已读位置 `[10..21]` 连续沉底 ✓ 两级分组完美生效；
+- 连续滚动加载 39 张卡**零重复** ✓ 分页游标一致；
+- 守卫：forum 200、forum/classics 200、admin 307、API admin 403 ✓。
+
+**运维**：清理旧镜像（保留 current + rollback + 上一版），磁盘 55%。Playwright 已加入 devDependencies，本次排查的浏览器级验证方法可复用（localStorage 预置已读 → 刷新 → 断言 DOM 顺序，及 fiber hooks dump）。
+
+**教训**：
+- 「排序没生效」类 bug，先 dump 框架内部状态（React fiber hooks）确认逻辑是否执行，再判断是逻辑 bug 还是**数据窗口问题**——本次机制三天前就是好的，缺的是可换的未读内容；
+- rsync 部署改用 `--files-from` 白名单时必须显式 `--recursive`（`-a` 在该模式下不含递归）；
+- 不要在 rsync 未结束时启动 docker build（验证 RSYNC_OK 后再 build）。
+
+
 
 
