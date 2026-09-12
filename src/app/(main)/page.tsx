@@ -58,8 +58,8 @@ export default async function HomePage() {
           <Link href="/forum" className="px-6 py-2.5 bg-amber-800 text-white rounded-lg hover:bg-amber-900 transition font-medium">
             进入论坛
           </Link>
-          <Link href="/tea" className="px-6 py-2.5 border border-amber-800 text-amber-800 rounded-lg hover:bg-amber-50 transition font-medium">
-            茶品百科
+          <Link href="/forum/classics" className="px-6 py-2.5 border border-amber-800 text-amber-800 rounded-lg hover:bg-amber-50 transition font-medium">
+            经典普洱
           </Link>
         </div>
       </section>

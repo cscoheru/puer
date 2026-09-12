@@ -44,11 +44,9 @@ export default async function TastingNotePage({ params }: PageProps) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 md:px-8 lg:px-16 py-6 md:py-10">
-      {/* Breadcrumb */}
+      {/* Breadcrumb — P2-R23：去掉「茶品库」入口（对用户绝对隐藏） */}
       <nav className="text-xs md:text-sm text-stone-400 mb-4">
         <Link href="/forum" className="hover:text-amber-700 transition">品茶论坛</Link>
-        <span className="mx-2">/</span>
-        <Link href="/tea" className="hover:text-amber-700 transition">茶品库</Link>
         <span className="mx-2">/</span>
         <Link href={`/tea/${note.tea.id}`} className="hover:text-amber-700 transition">{note.tea.name}</Link>
         <span className="mx-2">/</span>

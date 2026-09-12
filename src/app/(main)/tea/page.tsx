@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -18,6 +20,9 @@ interface PageProps {
 const BRANDS = ["大益", "下关", "福今", "陈升号", "宝和祥", "今大福", "勐库戎氏", "中茶", "老班章"];
 
 export default async function TeaListPage({ searchParams }: PageProps) {
+  // P2-R23 茶品库对用户绝对隐藏：全量茶品列表（含未发布档案）仅 admin 可见
+  const session = await auth();
+  if (session?.user?.role !== "admin") notFound();
   const params = await searchParams;
   const brand = params.brand || "";
   const year = params.year || "";

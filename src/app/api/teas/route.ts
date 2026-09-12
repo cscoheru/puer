@@ -28,6 +28,15 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1");
   const limit = parseInt(searchParams.get("limit") || "20");
 
+  // P2-R23 茶品库对用户绝对隐藏：全量/筛选列表模式（无 q）仅 admin；
+  // 带关键词的搜索（发品鉴笔记/发帖时选茶）保持可用，但非 admin 强制 limit≤20 防枚举。
+  const session = await auth();
+  const isAdmin = session?.user?.role === "admin";
+  if (!isAdmin && !search) {
+    return NextResponse.json({ error: "无权限浏览茶品列表" }, { status: 403 });
+  }
+  const safeLimit = isAdmin ? limit : Math.min(limit, 20);
+
   const where: Record<string, unknown> = {};
   if (brand) where.brand = brand;
   if (year) where.year = parseInt(year);
@@ -42,8 +51,8 @@ export async function GET(req: NextRequest) {
         user: { select: { username: true } },
       },
       orderBy: [{ tastingNoteCount: "desc" }, { createdAt: "desc" }],
-      skip: (page - 1) * limit,
-      take: limit,
+      skip: (page - 1) * safeLimit,
+      take: safeLimit,
     }),
     prisma.tea.count({ where: { ...where, deletedAt: null } }),
   ]);

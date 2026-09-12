@@ -69,7 +69,8 @@ export default async function TeaDetailPage({ params }: PageProps) {
     },
   }).catch(() => null);
 
-  if (!tea) notFound();
+  // P2-R23 茶品库绝对隐藏：非经典茶档案仅 admin 可访问（经典茶详情页是 classics 流量承接页，保持公开）
+  if (!tea || (!isAdmin && !tea.isClassic)) notFound();
 
   const [tastingNotes, articles] = await Promise.all([
     prisma.tastingNote.findMany({
@@ -206,17 +207,15 @@ export default async function TeaDetailPage({ params }: PageProps) {
           }),
         }}
       />
-      {/* Breadcrumb */}
+      {/* Breadcrumb — P2-R23：去掉「茶品库」入口（茶品库仅 admin 可见，对用户绝对隐藏） */}
       <nav className="text-xs md:text-sm text-stone-400 mb-4">
         <Link href="/forum" className="hover:text-amber-700 transition">品茶论坛</Link>
-        <span className="mx-2">/</span>
         {tea.isClassic && (
           <>
-            <Link href="/forum/classics" className="hover:text-amber-700 transition">经典普洱</Link>
             <span className="mx-2">/</span>
+            <Link href="/forum/classics" className="hover:text-amber-700 transition">经典普洱</Link>
           </>
         )}
-        <Link href="/tea" className="hover:text-amber-700 transition">茶品库</Link>
         <span className="mx-2">/</span>
         <span className="text-stone-600">{tea.name}</span>
       </nav>

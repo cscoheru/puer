@@ -23,7 +23,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     where: { id, deletedAt: null },
     include: { _count: { select: { articles: true } } },
   });
-  if (!tea) {
+  // P2-R23 茶品库绝对隐藏：非经典茶档案 JSON 仅 admin 可读
+  const session = await auth();
+  if (!tea || (tea.isClassic !== true && session?.user?.role !== "admin")) {
     return NextResponse.json({ error: "茶品不存在" }, { status: 404 });
   }
 
