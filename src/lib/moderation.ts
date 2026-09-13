@@ -106,12 +106,13 @@ export async function screenContent(text: string): Promise<ModResult> {
       reason: "AI 判定正常",
       source: "ai",
     };
-  } catch {
+  } catch (e) {
     return {
       decision: "review",
       categories: [],
       confidence: 0,
-      reason: "AI 调用失败/超时,转人工",
+      // P2-R24：附上错误详情（如 "DeepSeek 402: ..." 余额不足），审核台可直接看到送审原因
+      reason: `AI 调用失败,转人工: ${e instanceof Error ? e.message.slice(0, 100) : "unknown"}`,
       source: "fallback",
     };
   }

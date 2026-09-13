@@ -40,6 +40,7 @@ interface FeedArticle {
   createdAt: string;
   isEssence: boolean;
   isPinned: boolean;
+  status: string; // P2-R24：pending_review 时显示「审核中」（仅作者本人可见）
   content: string;
   coverImage?: string | null;
   images?: string[];
@@ -458,6 +459,11 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
             )}
             {article.isEssence && <span className="text-xs" title="精华">⭐</span>}
             {article.isPinned && <span className="text-xs" title="置顶">📌</span>}
+            {article.status && article.status !== "published" && (
+              <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-500 text-white rounded-full font-medium" title="审核通过后对所有人可见">
+                ⏳ 审核中
+              </span>
+            )}
           </div>
         </div>
 

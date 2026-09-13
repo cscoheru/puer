@@ -130,7 +130,7 @@ export default async function SearchPage(props: {
     id: a.id, title: a.title, upvotes: a.upvotes, downvotes: a.downvotes,
     replyCount: a.replyCount, createdAt: a.createdAt,
     isEssence: false, isPinned: false, content: "", videoUrl: a.videoUrl,
-    flair: null, board: a.board,
+    status: "published" as const, flair: null, board: a.board,
     author: { id: a.author.id, username: a.author.username, avatar: null, level: 0, followerCount: 0, karma: 0 },
     initialVote: voteMap.get(a.id) || 0,
   }));

@@ -20,6 +20,7 @@ export interface FeedArticleDTO {
   createdAt: string;
   isEssence: boolean;
   isPinned: boolean;
+  status: string;
   content: string;
   coverImage?: string | null;
   images?: string[];
@@ -41,6 +42,7 @@ const articleSelect = {
   createdAt: true,
   isEssence: true,
   isPinned: true,
+  status: true,
   content: true,
   videoUrl: true,
   flair: true,
@@ -84,6 +86,7 @@ async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedAr
     createdAt: a.createdAt.toISOString(),
     isEssence: a.isEssence,
     isPinned: a.isPinned,
+    status: ((a as { status?: string }).status as string) || "published",
     content: a.content.replace(/<[^>]*>/g, " ").replace(/\s+\n/g, "\n").slice(0, 500),
     coverImage: a.content.match(/<img[^>]+src="([^">]+)"/)?.[1] || null,
     images: Array.from(a.content.matchAll(/<img[^>]+src="([^">]+)"/g)).map((m) => m[1]),
@@ -113,11 +116,18 @@ export async function fetchForumFeed(opts: {
   // P2-R5：经典普洱跟进帖（classics 吧 + 关联茶品）不进主 feed——内容为
   // 多篇茶记聚合、无视频/轮播，与普通帖风格差异大；仅在茶品档案/经典普洱
   // 区内浏览。升级为正式帖（promotedHomeAt 非空）后才进入首页 feed。
-  // 注：visibleArticleWhere 返回值自带 OR 键，嵌套条件必须走 AND 合并。
+  // P2-R24：另放行「作者本人的待审帖」（仅作者自己可见，卡片标「审核中」）——
+  // 否则 AI 审核故障（fail-closed）期间作者发完帖在 feed 完全找不到，误以为发布失败。
+  // 注：visibleArticleWhere 返回值自带 status/OR 键，嵌套条件必须走 AND 合并。
   const wherePublished = {
-    ...visibleArticleWhere(opts.userId ?? undefined),
     boardId: { not: null },
     AND: [
+      {
+        OR: [
+          visibleArticleWhere(opts.userId ?? undefined),
+          ...(opts.userId ? [{ status: "pending_review" as const, authorId: opts.userId }] : []),
+        ],
+      },
       {
         OR: [
           { teaId: null },
@@ -190,7 +200,12 @@ export async function fetchForumFeed(opts: {
     }));
 
     const minEngage = tab === "day" ? 1 : Math.max(2, Math.round(totalPosts / 20));
+    // P2-R24 新帖冷启动（一）：发布 48h 内免互动门槛——新帖没有 upvotes/回复，
+    // 原门槛（≥2 互动）会把它们整个挡在热榜外，用户发完帖翻遍 feed 也看不到。
+    const FRESH_HOURS = 48;
+    const freshCut = Date.now() - FRESH_HOURS * 3600_000;
     const filtered = enriched.filter((a) => {
+      if (new Date(a.createdAt).getTime() >= freshCut) return true; // 新帖宽限期
       const netScore = Math.max(0, (a.upvotes || 0) - (a.downvotes || 0));
       const totalEngage = netScore + (a.replyCount || 0);
       const hasMedia = !!(a.videoUrl || a._coverImage);
@@ -229,6 +244,21 @@ async function hotRankAndPage(opts: {
     const timeBonus = 1 + 0.3 / (1 + age / 48);
     return { ...a, _hotScore: score * boost * timeBonus };
   });
+
+  // P2-R24 新帖冷启动（二）：48h 内新帖给「榜首基准 × 时间衰减」的冷启动分——
+  // 发布即刻 ≈ 榜首水平（热榜前部高曝光），线性衰减 48h 归零；期间若攒到真实
+  // 互动则取两者较大值留存，无人关注则 48h 后被互动门槛过滤、自然沉底被超越。
+  const FRESH_HOURS = 48;
+  const freshCut = now - FRESH_HOURS * 3600_000;
+  const topScore = scored.reduce((m, a) => Math.max(m, (a._hotScore as number) || 0), 0);
+  for (const a of scored) {
+    const createdMs = new Date(a.createdAt).getTime();
+    if (createdMs >= freshCut) {
+      const freshFactor = 1 - (now - createdMs) / (FRESH_HOURS * 3600_000); // 1 → 0
+      const coldStart = topScore * 0.98 * freshFactor;
+      if (coldStart > ((a._hotScore as number) || 0)) a._hotScore = coldStart;
+    }
+  }
 
   scored.sort((a, b) => (b._hotScore as number) - (a._hotScore as number));
 
