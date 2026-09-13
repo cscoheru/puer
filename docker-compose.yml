@@ -79,7 +79,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-MinioHub2026Secure}
       NEXT_PUBLIC_MINIO_URL: https://puer.im/minio
       NEXT_PUBLIC_WS_URL: wss://puer.im
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
       RAG_SERVICE_URL: http://rag-service:8000
       RAG_SERVICE_TOKEN: ${RAG_SERVICE_TOKEN:-}
     volumes:
@@ -116,7 +116,7 @@ services:
       ANTHROPIC_TEACHER_TOKEN: ${ANTHROPIC_TEACHER_TOKEN:-}
       GLM_API_KEY: ${GLM_API_KEY:-}
       KIMI_API_KEY: ${KIMI_API_KEY:-}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
     volumes:
       - ./rag-data:/data:ro
       - ./uploads:/host-uploads:ro

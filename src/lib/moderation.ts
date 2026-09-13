@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/prisma";
 
 /**
- * 内容审核:本地敏感词 → AI(DeepSeek)→ 故障转人工 三层闸。
+ * 内容审核:本地敏感词 → AI(MiniMax)→ 故障转人工 三层闸。
  * 决策三种:publish(直接发布) / review(进待审队列) / reject(直接拒绝提交)。
  * 策略(用户锁定):
  *  - 命中本地敏感词 → 直接 reject(本站只做真实茶品茶器交流,违规词在源头拦死,不浪费人工审核)
  *  - AI 放行 + 可疑送审(AI 判定违规或把握不足 → review)
  *  - AI 故障/超时 → fail-closed 送人工
+ *
+ * P2-R25:DeepSeek(402 欠费故障)切换为 MiniMax OpenAI 兼容接口。
  */
 
 export type ModDecision = "publish" | "review" | "reject";
@@ -21,8 +23,8 @@ export interface ModResult {
 
 const AI_TIMEOUT_MS = 8000;
 const PUBLISH_CONFIDENCE = 0.7;
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-chat";
+const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
+const MINIMAX_MODEL = "MiniMax-M3";
 
 // ─── 本地敏感词缓存(60s)── 调用方在提交链路,需低延迟、低 DB 压力 ───────────────
 let keywordCache: { rows: { keyword: string; category: string }[]; ts: number } = {
@@ -68,13 +70,13 @@ export async function screenContent(text: string): Promise<ModResult> {
     // 关键词表读取失败不阻断 —— 继续交给 AI
   }
 
-  // 2) AI 层:DeepSeek 分类。无 key 或任何错误 → fail-closed 送审
-  if (!process.env.DEEPSEEK_API_KEY) {
+  // 2) AI 层:MiniMax 分类。无 key 或任何错误 → fail-closed 送审
+  if (!process.env.MINIMAX_API_KEY) {
     return {
       decision: "review",
       categories: [],
       confidence: 0,
-      reason: "AI 未配置(DEEPSEEK_API_KEY 缺失),转人工",
+      reason: "AI 未配置(MINIMAX_API_KEY 缺失),转人工",
       source: "fallback",
     };
   }
@@ -118,7 +120,10 @@ export async function screenContent(text: string): Promise<ModResult> {
   }
 }
 
-// ─── DeepSeek 调用(模式取自 scripts/auto-post.mjs;timeout 取自 lib/sitemap-ping.ts)──
+// ─── MiniMax 调用(OpenAI 兼容;timeout 取自 lib/sitemap-ping.ts)──
+// MiniMax-M3 默认开 adaptive thinking(先思考再答),审核链路低延迟,
+// 显式 disabled 让其直接输出 JSON;response_format json_object 若网关
+// 不识别会忽略,prompt 已强约束只返回 JSON,解析失败由上层 catch 兜底。
 async function classifyByAI(
   text: string
 ): Promise<{ category: string; confidence: number; reason: string }> {
@@ -135,17 +140,18 @@ ${text.slice(0, 4000)}
 
 只返回 JSON,不要任何解释:{"category":"normal|adult|gambling|drug|political|investment","confidence":0到1的小数,"reason":"不超过30字的中文理由"}`;
 
-  const res = await fetch(DEEPSEEK_URL, {
+  const res = await fetch(MINIMAX_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+      Authorization: `Bearer ${process.env.MINIMAX_API_KEY}`,
     },
     body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
+      model: MINIMAX_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
-      max_tokens: 200,
+      max_completion_tokens: 200,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
     }),
     signal: AbortSignal.timeout(AI_TIMEOUT_MS),
@@ -153,7 +159,7 @@ ${text.slice(0, 4000)}
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
-    throw new Error(`DeepSeek ${res.status}: ${err.slice(0, 200)}`);
+    throw new Error(`MiniMax ${res.status}: ${err.slice(0, 200)}`);
   }
 
   const data = await res.json();

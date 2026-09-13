@@ -50,7 +50,7 @@ const OK_BODY_HTML =
   "不足之处是尾水略带涩感、且前两泡厚度稍欠。冲泡上用100度热水、投茶7克,过程从简,重点记录口感。</p>";
 const OK_SUMMARY = "回甘持久,尾水略涩";
 
-// Inject a fetcher returning a DeepSeek-shaped body. `content` is the raw
+// Inject a fetcher returning an OpenAI-shaped body. `content` is the raw
 // model string placed at choices[0].message.content (already JSON-stringified
 // by the model into {content,summary}).
 type FetchLike = typeof fetch;
@@ -74,8 +74,8 @@ function okModelJson(inner: { content: string; summary: string }): unknown {
 }
 
 // Save/restore the key so this file never leaks env state.
-const PREV_KEY = process.env.DEEPSEEK_API_KEY;
-process.env.DEEPSEEK_API_KEY = "test-key";
+const PREV_KEY = process.env.MINIMAX_API_KEY;
+process.env.MINIMAX_API_KEY = "test-key";
 
 // ─── extractNumberTokens ────────────────────────────────────────────────
 
@@ -261,7 +261,7 @@ test("deepSeekAdapt: HTTP non-ok → rejected with status", async () => {
   const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
   const r = await deepSeekAdapt({ source, fetcher: makeFetcher({}, 500) });
   assert.equal(r.ok, false);
-  assert.match((r as { reason: string }).reason, /DeepSeek 500/);
+  assert.match((r as { reason: string }).reason, /MiniMax 500/);
 });
 
 test("deepSeekAdapt: fetch throws → rejected, never throws", async () => {
@@ -276,16 +276,16 @@ test("deepSeekAdapt: fetch throws → rejected, never throws", async () => {
 
 test("deepSeekAdapt: missing API key → rejected (fail-closed)", async () => {
   const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
-  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.MINIMAX_API_KEY;
   try {
     const r = await deepSeekAdapt({
       source,
       fetcher: makeFetcher(okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY })),
     });
     assert.equal(r.ok, false);
-    assert.match((r as { reason: string }).reason, /DEEPSEEK_API_KEY missing/);
+    assert.match((r as { reason: string }).reason, /MINIMAX_API_KEY missing/);
   } finally {
-    process.env.DEEPSEEK_API_KEY = "test-key";
+    process.env.MINIMAX_API_KEY = "test-key";
   }
 });
 

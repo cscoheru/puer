@@ -2,8 +2,9 @@
  * 小红书钩子文案生成:把论坛精华帖改写成小红书风格的「大白话钩子」。
  * 返回 {hookTitle, caption, tags} 供发布包后台一键复制 → 手动发小红书。
  *
- * 模式取自 src/lib/moderation.ts(DeepSeek + AbortSignal.timeout + json_object),
+ * 模式取自 src/lib/moderation.ts(MiniMax OpenAI 兼容 + AbortSignal.timeout),
  * 双保险 JSON parse 取自 scripts/auto-post.mjs。
+ * P2-R25:随内容审核一起从 DeepSeek 切换到 MiniMax(同一 MINIMAX_API_KEY)。
  */
 
 export interface XhsCopy {
@@ -12,21 +13,21 @@ export interface XhsCopy {
   tags: string[]; // 3-5 个标签关键词(不带 #)
 }
 
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-chat";
+const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
+const MINIMAX_MODEL = "MiniMax-M3";
 const TIMEOUT_MS = 30_000; // 文案生成比审核慢(prompt 长 + 发散),8s 会误杀
 
 /**
  * @param title    原帖标题
  * @param htmlContent 原帖正文(HTML,会先剥标签再喂给模型)
- * @throws 无 DEEPSEEK_API_KEY 或 API 调用失败/超时/返回非 JSON
+ * @throws 无 MINIMAX_API_KEY 或 API 调用失败/超时/返回非 JSON
  */
 export async function generateXhsCopy(
   title: string,
   htmlContent: string
 ): Promise<XhsCopy> {
-  if (!process.env.DEEPSEEK_API_KEY) {
-    throw new Error("DEEPSEEK_API_KEY 未配置,无法生成小红书文案");
+  if (!process.env.MINIMAX_API_KEY) {
+    throw new Error("MINIMAX_API_KEY 未配置,无法生成小红书文案");
   }
 
   const plain = (htmlContent || "").replace(/<[^>]*>/g, "").slice(0, 800);
@@ -45,17 +46,18 @@ ${plain}
 严格按以下JSON返回(不要markdown代码块、不要任何解释):
 {"hookTitle":"标题","caption":"正文","tags":["标签1","标签2"]}`;
 
-  const res = await fetch(DEEPSEEK_URL, {
+  const res = await fetch(MINIMAX_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+      Authorization: `Bearer ${process.env.MINIMAX_API_KEY}`,
     },
     body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
+      model: MINIMAX_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.9,
-      max_tokens: 600,
+      max_completion_tokens: 600,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -63,7 +65,7 @@ ${plain}
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
-    throw new Error(`DeepSeek ${res.status}: ${err.slice(0, 200)}`);
+    throw new Error(`MiniMax ${res.status}: ${err.slice(0, 200)}`);
   }
 
   const data = await res.json();
@@ -75,7 +77,7 @@ ${plain}
     parsed = JSON.parse(text);
   } catch {
     const m = text.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error("DeepSeek 返回非 JSON,无法解析文案");
+    if (!m) throw new Error("MiniMax 返回非 JSON,无法解析文案");
     parsed = JSON.parse(m[0]);
   }
 

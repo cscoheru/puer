@@ -34,8 +34,8 @@ import type { NormalizedNote } from "./normalize.ts";
 // DeepSeek config — mirrors src/lib/moderation.ts. Those consts are
 // module-private there, so they are re-declared here to keep the adapter free
 // of a runtime dependency on the moderation module's side effects.
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-chat";
+const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
+const MINIMAX_MODEL = "MiniMax-M3";
 
 // Adaptation knobs (deliberately tighter than the retired creative rewrite).
 const ADAPT_TIMEOUT_MS = 20_000;
@@ -223,37 +223,41 @@ export interface DeepSeekAdaptOptions {
 }
 
 /**
- * Call DeepSeek to adapt the draft body/summary. Fail-safe: any error or
- * validation failure returns {ok:false,reason} and never throws. On success
- * the returned content has been sanitized, length-checked, and numerically
- * grounded against the source corpus.
+ * Call MiniMax (OpenAI-compatible) to adapt the draft body/summary. Fail-safe:
+ * any error or validation failure returns {ok:false,reason} and never throws.
+ * On success the returned content has been sanitized, length-checked, and
+ * numerically grounded against the source corpus.
+ *
+ * P2-R25:DeepSeek → MiniMax 切换。函数名 deepSeekAdapt 为历史名,被
+ * runner/测试引用,暂保留;内部已走 MINIMAX_API_KEY + MiniMax-M3。
  */
 export async function deepSeekAdapt(
   opts: DeepSeekAdaptOptions,
 ): Promise<AdaptResult> {
   const { source } = opts;
-  const key = process.env.DEEPSEEK_API_KEY;
-  if (!key) return { ok: false, reason: "DEEPSEEK_API_KEY missing" };
+  const key = process.env.MINIMAX_API_KEY;
+  if (!key) return { ok: false, reason: "MINIMAX_API_KEY missing" };
 
   const fetcher = opts.fetcher ?? fetch;
   const timeoutMs = opts.timeoutMs ?? ADAPT_TIMEOUT_MS;
 
   let resp: Response;
   try {
-    resp = await fetcher(DEEPSEEK_URL, {
+    resp = await fetcher(MINIMAX_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
+        model: MINIMAX_MODEL,
         messages: [
           { role: "system", content: ADAPT_SYSTEM },
           { role: "user", content: buildPrompt(source) },
         ],
         temperature: ADAPT_TEMPERATURE,
-        max_tokens: ADAPT_MAX_TOKENS,
+        max_completion_tokens: ADAPT_MAX_TOKENS,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
       }),
       signal: AbortSignal.timeout(timeoutMs),
@@ -264,14 +268,14 @@ export async function deepSeekAdapt(
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    return { ok: false, reason: `DeepSeek ${resp.status}: ${errText.slice(0, 200)}` };
+    return { ok: false, reason: `MiniMax ${resp.status}: ${errText.slice(0, 200)}` };
   }
 
   let body: DeepSeekBody;
   try {
     body = (await resp.json()) as DeepSeekBody;
   } catch {
-    return { ok: false, reason: "DeepSeek returned non-JSON body" };
+    return { ok: false, reason: "MiniMax returned non-JSON body" };
   }
   const raw = body?.choices?.[0]?.message?.content ?? "";
   const parsed = parseLooseJson(raw);
