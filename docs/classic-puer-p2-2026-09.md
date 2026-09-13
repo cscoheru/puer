@@ -559,6 +559,30 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **验收提示**：未登录打开经典普洱 → 点茶品：面包屑为「品茶论坛 / 经典普洱 / 茶名」无茶品库；地址栏直接敲 /tea 或任何非经典茶 URL → 404；admin 登录后 /tea 列表与全部档案正常。
 
+---
+
+## R24 · 2026-09-13 · 新帖冷启动权重 + 待审帖作者可见 + 审核故障可诊断（release `20260913T034500Z-ef5d8e8`）
+
+**需求（体验/增长）**：用户用另一账号发新帖（2017广隆金章）后 feed 完全看不到；并要求新帖具备高权重——展示一段时间无人点击关注后权重慢慢下降、被其他帖子超越。
+
+**根因排查**：①帖子 `status=pending_review`——`screenContent` 的 DeepSeek 调用报 **402 Payment Required（余额耗尽）**，fail-closed 全部送审，feed 只显示 published，作者本人也看不到（`visibleArticleWhere` 只豁免 private 不豁免待审）；②即使审核通过，热榜 week tab 的互动门槛（`totalEngage >= max(2, N/20)`）会把零互动新帖整个过滤出热榜——新帖天然没有曝光。
+
+**修复**：
+- **新帖冷启动（热榜 day/week/month）**：发布 48h 内新帖免互动门槛直接进排序；排序分 = `max(正常热分, 窗口榜首正常分 × 0.98 × (1 - age/48h))`——发布即刻 ≈ 榜首水平高曝光，线性衰减 48h 归零；期间攒到互动取两者较大值留存，无人关注则 48h 后被门槛过滤自然沉底、被其他帖超越（正是用户要的行为模型）；
+- **待审帖作者可见**：feed `wherePublished` 的 AND[0] 改为 `OR: [visibleArticleWhere(userId), {status: pending_review, authorId: userId}]`——作者发完帖立刻能在 feed 看到自己的帖子（卡片带「⏳ 审核中」badge，DTO 新增 `status` 字段），不再误以为发布失败；对其他用户仍完全不可见；
+- **审核故障可诊断**：`moderation.ts` fallback 分支把异常详情（如 `DeepSeek 402: ...`）写进 moderation.reason，审核台直接看到送审原因。
+
+**部署教训（重要，三次 build 失败排查）**：
+1. **rsync 白名单缺 `package-lock.json` / `prisma.config.ts`**——服务器残留旧版 lock（缺 playwright）导致 `npm ci` EUSAGE；旧版 prisma.config.ts（无 `?? ""` 兜底）在容器 TS 严格检查报 `string | undefined`。白名单已补：`package-lock.json prisma.config.ts postcss.config.mjs eslint.config.mjs components.json`；
+2. **`releases/` 发布快照目录被 `COPY . .` 带进容器**——tsconfig `**/*.ts` 扫到旧快照代码且 `@/*` 别名解析到新 src 类型，跨版本类型不匹配报错。`.dockerignore` 与 `tsconfig.exclude` 均已加 `releases`；
+3. **容器启动方式**：app 由 docker compose 管理（服务名 `puer-hub-app`、端口 3002、镜像 tag `puer-hub-app:<rel>`），`--env-file` 直启会因 .env 引号不剥离报 `ERR_INVALID_URL`，且 compose 网络名为 `puer-hub_puer-net`；正确激活姿势：`docker tag puer-hub:<rid> puer-hub-app:latest && docker compose up -d --no-deps app`（`--no-deps` 避免拉取不存在的 rag-service 镜像）。
+
+**待用户操作**：①**DeepSeek 充值**（402 是所有新帖进待审的直接原因，充值后自动恢复直接发布）；②登录 admin 到 `/admin/reviews` 放行积压 2 篇正常帖（2017广隆金章、跟进·2001下关敬业号；「高端高端」为 AI 判定的垃圾帖建议拒绝）——走审核台放行才会补发经验与搜索引擎提交。
+
+**验收提示**：作者账号发帖后（无论是否送审）刷新论坛，热榜首屏应立即看到自己的帖子（待审时带「⏳ 审核中」灰 badge）；48h 内该帖持续靠前，无人互动则随时间下滑，48h 后退出热榜（仍可在「最新」找到）；他人视角看不到任何待审帖。
+
+**遗留**：`status` 字段仅 feed 链路透传（latest 侧栏、个人主页等未标 badge，非必需）；R23 语义不变。
+
 
 
 

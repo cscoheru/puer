@@ -4,6 +4,7 @@ evernote_export
 src/generated
 .git
 ws-server
+releases
 *.log
 .env
 .env.local
