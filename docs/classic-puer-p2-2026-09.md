@@ -583,6 +583,28 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **遗留**：`status` 字段仅 feed 链路透传（latest 侧栏、个人主页等未标 badge，非必需）；R23 语义不变。
 
+---
+
+## R25 · 2026-09-13 · AI 服务切换 DeepSeek → MiniMax（release `20260913T043500Z-04eecab`）
+
+**需求**：R24 发现 DeepSeek 账户欠费（402）导致 AI 审核全部 fail-closed 送审；用户决定弃用 DeepSeek，API 账户整体切换到 MiniMax（服务器 `.env` 已预置 `MINIMAX_API_KEY`）。
+
+**切换范围（全站 3 处 AI 调用点统一）**：
+- `src/lib/moderation.ts`（内容审核，核心）：`https://api.minimax.cn/v1/chat/completions`（OpenAI 兼容）+ 模型 `MiniMax-M3` + `MINIMAX_API_KEY`；M3 默认开 adaptive thinking（先思考再答），审核链路显式 `thinking: {type:"disabled"}` 保低延迟；`max_tokens`→`max_completion_tokens`（新参数，旧参数已 deprecated）；`response_format json_object` 保留（MiniMax 兼容层支持，实测生效）；
+- `src/lib/xhs-content.ts`（小红书文案生成）：同上切换，`thinking disabled`，timeout 30s 不变；
+- `src/lib/tea-drafts/adapt.ts`（茶记草稿 AI 适配）：同上切换。函数名 `deepSeekAdapt` 为历史名被 runner/测试引用，保留不改（注释已说明），内部走 MiniMax；
+- `docker-compose.yml`（app + rag-service 两处）与 `docker-compose.override.yml`：环境变量映射 `DEEPSEEK_API_KEY`→`MINIMAX_API_KEY`；
+- `adapt.test.ts` 同步更新（env key 名 + 错误前缀断言），23 个单测全过。
+
+**线上实测（容器内真实 MINIMAX_API_KEY）**：
+- 正常茶文（黄大益开汤/茶气/烟韵/仓储/杀青术语）→ `{"category":"normal","confidence":0.99}`，4.4s（8s 超时内）✓ 不误判；
+- 违规文本（上门服务加微信）→ `{"category":"adult","confidence":0.95,"reason":"涉黄引流,暗示上门服务并引导加微信"}` ✓ 准确拦截；
+- compose 环境变量注入验证 ✓（容器 env 含 MINIMAX_API_KEY）。
+
+**效果**：审核链路恢复「AI 直接放行正常帖」——新发帖不再进待审队列（R24 的 fail-closed 送审与作者可见待审帖机制保留作兜底）；小红书文案生成、茶记 AI 适配同步复活。`.env` 中旧 `DEEPSEEK_API_KEY` 已无用，可删可留。
+
+**部署**：commit `04eecab`；rsync 白名单补 `docker-compose.yml`/`docker-compose.override.yml`；build OK；compose 激活正常；`/forum` 200。
+
 
 
 
