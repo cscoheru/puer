@@ -15,6 +15,7 @@ import AuthorHover from "@/components/author-hover";
 import CommentSection from "@/components/comment-section";
 import ModerateButton from "@/components/moderate-button";
 import ForumContent from "@/components/forum-content";
+import ArticleImageGallery from "@/components/article-image-gallery";
 import VideoPlayer from "@/components/video-player";
 import DeleteThreadButton from "@/components/delete-thread-button";
 import PromoteHomeButton from "@/components/promote-home-button";
@@ -33,7 +34,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { id } = await params;
   const article = await prisma.article.findUnique({
     where: { id },
-    select: { title: true, content: true, summary: true, tags: true, videoUrl: true, status: true, visibility: true, authorId: true, createdAt: true, updatedAt: true, author: { select: { username: true } } },
+    select: { title: true, content: true, summary: true, tags: true, videoUrl: true, images: true, status: true, visibility: true, authorId: true, createdAt: true, updatedAt: true, author: { select: { username: true } } },
   });
   const session = await auth();
   const viewable =
@@ -49,7 +50,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return { title: "帖子不可见", robots: { index: false, follow: false } };
   }
   const desc = article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 160) || "查看帖子详情";
-  const coverImage = firstImageFromHtml(article.content);
+  // P2-R26：封面 fallback 到 article.images（茶记帖 content 无内联图）
+  const coverImage = firstImageFromHtml(article.content) || article.images?.[0] || null;
   const og: Record<string, unknown> = {
     title: article.title,
     description: desc,
@@ -140,7 +142,12 @@ export default async function ThreadPage({ params }: PageProps) {
   )?.status === "approved"));
   const flairDef = getFlair(article.flair);
   // P2-R11 SEO：帖子首图（绝对化）供 Article/VideoObject JSON-LD 使用
-  const threadCoverImg = firstImageFromHtml(article.content);
+  // P2-R26：fallback article.images（茶记自动帖图片在独立字段）
+  const threadCoverImg = firstImageFromHtml(article.content) || article.images?.[0] || null;
+
+  // P2-R26：茶记帖图片墙 — article.images 中未内联进 content 的部分
+  const inlineSrcs = new Set(Array.from(article.content.matchAll(/<img[^>]+src="([^">]+)"/g)).map((m) => m[1]));
+  const galleryImages = (article.images ?? []).filter((u) => !inlineSrcs.has(u));
 
   return (
     <div className="max-w-4xl mx-auto px-3 md:px-6 py-4 md:py-8">
@@ -262,6 +269,9 @@ export default async function ThreadPage({ params }: PageProps) {
 
           {/* Content */}
           <ForumContent html={article.content} />
+
+          {/* P2-R26：补充图片墙（茶记帖 images 字段，content 未内联的部分） */}
+          <ArticleImageGallery images={galleryImages} />
 
           {/* Video embed */}
           {article.videoUrl && (

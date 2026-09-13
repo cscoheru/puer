@@ -44,6 +44,8 @@ const articleSelect = {
   isPinned: true,
   status: true,
   content: true,
+  // P2-R26：茶记自动帖图片存独立 images 字段（content 纯文字），select 必须带上
+  images: true,
   videoUrl: true,
   flair: true,
   hotOverride: true,
@@ -62,11 +64,26 @@ type ArticleRow = {
   isEssence: boolean;
   isPinned: boolean;
   content: string;
+  images: string[] | null;
   videoUrl: string | null;
   flair: string | null;
   board: { slug: string; name: string } | null;
   author: { id: string; username: string; avatar: string | null; level: number; followerCount: number; karma: number };
 } & Record<string, unknown>;
+
+/**
+ * P2-R26：feed 图片 = content 内联 <img> ∪ article.images 字段（去重保序）。
+ * 茶记自动帖（tasting-draft）的图片在独立 images 字段、content 纯文字，
+ * 旧逻辑只从 content 提取导致这类帖子在 feed 全部无图、无轮播、无封面。
+ */
+function extractFeedImages(a: { content: string; images: string[] | null }): {
+  coverImage: string | null;
+  images: string[];
+} {
+  const inline = Array.from(a.content.matchAll(/<img[^>]+src="([^">]+)"/g)).map((m) => m[1]);
+  const merged = [...inline, ...(a.images ?? [])].filter((u, i, arr) => arr.indexOf(u) === i);
+  return { coverImage: merged[0] ?? null, images: merged };
+}
 
 async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedArticleDTO[]> {
   const voteMap = new Map<string, number>();
@@ -88,8 +105,7 @@ async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedAr
     isPinned: a.isPinned,
     status: ((a as { status?: string }).status as string) || "published",
     content: a.content.replace(/<[^>]*>/g, " ").replace(/\s+\n/g, "\n").slice(0, 500),
-    coverImage: a.content.match(/<img[^>]+src="([^">]+)"/)?.[1] || null,
-    images: Array.from(a.content.matchAll(/<img[^>]+src="([^">]+)"/g)).map((m) => m[1]),
+    ...extractFeedImages(a),
     videoUrl: a.videoUrl,
     flair: a.flair,
     board: a.board,
@@ -196,7 +212,8 @@ export async function fetchForumFeed(opts: {
     const totalPosts = eligible.length;
     const enriched = eligible.map((a) => ({
       ...a,
-      _coverImage: a.content.match(/<img[^>]+src="([^">]+)"/)?.[1] || null,
+      // P2-R26：封面含 article.images fallback（茶记帖 content 无内联图）
+      _coverImage: extractFeedImages(a).coverImage,
     }));
 
     const minEngage = tab === "day" ? 1 : Math.max(2, Math.round(totalPosts / 20));
