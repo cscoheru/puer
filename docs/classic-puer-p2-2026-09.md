@@ -605,6 +605,28 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **部署**：commit `04eecab`；rsync 白名单补 `docker-compose.yml`/`docker-compose.override.yml`；build OK；compose 激活正常；`/forum` 200。
 
+## R26 — 茶记帖图片/轮播视频全链路修复（2026-09-13，commit 3352e14）
+
+**用户报障**：最近两天发的新帖，编辑时有很多图片，发布后 feed 无图无轮播、无图片生成视频。
+
+**排查（三层根因，DB 数据未丢）**：
+1. **渲染层忽略 `article.images` 字段**：茶记自动帖管线（tea-drafts）把图片存 Article 独立 `images` 字段（assemble.ts 明确设计"content 纯文字、图走 gallery"），但 feed `toDTO` 与帖子详情页只从 `content` 正则提取 `<img>` → tasting-draft 帖在 feed 无封面/无轮播、详情页整页无图（DB 实查：0085=7 图、金针白莲=29 图、勐海之星对冲=26 图，全在 images 字段）。普通帖（发帖 API 同时写 content img + images）不受影响——广隆金章 8 图正常即此因。热榜 `hasMedia` 宽限判定同样只看 content → tasting 帖连热榜媒体门槛都过不了；
+2. **轮播视频从未生成**：`generateSlideshowVideo` 以 `process.cwd()/public/uploads` 解析图片和写视频，但 2026-09-09 起 auto-post cron 改在宿主机 `/opt/puer-hub` 跑（R19，因旧镜像缺 pg），宿主机无 uploads 目录 → 全部 tasting 帖 `videoUrl=null`，且 attachVideos 静默失败无日志；
+3. adapt prompt 明确禁止 AI 输出 `<img>`（安全设计），re-embed 依赖渲染层读 images 字段——即管线本来就期望渲染层处理，渲染层却没做。
+
+**修复**：
+- `src/lib/forum-feed-server.ts`：articleSelect 加 `images: true`；新增 `extractFeedImages()`（content 内联 img ∪ article.images 去重保序），toDTO 的 coverImage/images 与热榜 `_coverImage`（hasMedia 判定）统一走它；
+- `src/app/(main)/forum/thread/[id]/page.tsx`：select 加 images；og/JSON-LD 封面 fallback `images[0]`；正文后渲染 `<ArticleImageGallery>`（content 未内联的 images，去重）；
+- 新增 `src/components/article-image-gallery.tsx`（client，复用 `.image-gallery` CSS + lightbox，与 ForumContent 体验一致）；
+- 服务器 `cron-task.sh` auto-post 分支改 `docker exec puer-hub-app tsx scripts/auto-post.mjs`（容器内 DATABASE_URL 由 compose env 提供，uploads 完整）——**视频生成恢复**；原宿主机路径备份 `cron-task.sh.bak-r26`；
+- 新增 `scripts/backfill-videos.mjs`：容器内一次性补生成存量帖（images≥4 且 videoUrl null）轮播视频，幂等可重跑。
+
+**验证**：220 单测全过；tsc 仅预存 integration-test 的 adapter-pg 历史报错；build OK。部署 commit `3352e14`。
+
+**部署后发现的第四层问题（Next standalone 静态缓存）**：backfill 生成的 27 个视频文件已落盘（容器/宿主 bind 均在）、DB videoUrl 已写，但 HTTP 404；同目录启动前写入的旧视频 200。根因：**Next standalone 启动时缓存 public 目录清单，运行期新写入的文件静态 serve 404 直到下次容器重启**——这不仅影响 cron 视频，也影响每次部署重启后的用户新上传图片（上传成功但立即 404，直到下次部署才可见）。修复：新增 `src/app/uploads/[...path]/route.ts` 兜底路由——public 静态命中优先（旧文件不受影响），静态 miss 落到 route handler 直接读磁盘返回（路径字符白名单 + 防 `..` 穿越 + MIME 表 + immutable 缓存头），保证新文件立即可访问。容器随本修复重启后，backfill 视频同时进入静态清单。
+
+
+
 
 
 

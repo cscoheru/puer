@@ -11,7 +11,7 @@
  *
  * 幂等：videoUrl 已有的跳过；重复跑安全。
  */
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../src/generated/prisma/client.js";
 import { generateSlideshowVideo } from "../src/lib/slideshow-video.ts";
 
 const args = process.argv.slice(2);
