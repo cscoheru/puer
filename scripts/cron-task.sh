@@ -51,8 +51,9 @@ case "$TASK" in
       -e AUTO_TEA_DRAFT_BOARD_ID="169748e7-123e-40f5-b283-b016c83f9c32" \
       puer-hub-app ./node_modules/.bin/tsx scripts/auto-post.mjs --apply
     ;;
-  auto-reply|auto-vote|auto-boost-new)
+  auto-reply|auto-boost-new|rag-post)
     # 宿主机直跑(仅 DB+AI 调用,无 /app 文件路径依赖;pg 模块在宿主机 node_modules)
+    # rag-post 额外读宿主机 rag-data 语料(茶问 /ask 同一份知识库)
     run node "scripts/${TASK}.mjs"
     ;;
   *)
