@@ -25,7 +25,8 @@ log_alert() {
 
 # ── env from .env ────────────────────────────────────────────────────
 DB_PWD=$(grep -E "^DB_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '"')
-DEEPSEEK=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
+# R27:AI 自动任务由 DeepSeek 切换到 MiniMax(与容器内 src/lib 同一 key)
+MINIMAX=$(grep -E "^MINIMAX_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
 
 # ── resolve postgres container IP (docker network) ───────────────────
 PG_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' puer-hub-postgres 2>/dev/null)
@@ -35,7 +36,7 @@ if [ -z "${PG_IP}" ] || [ -z "${DB_PWD}" ]; then
 fi
 
 export DATABASE_URL="postgresql://puerhub:${DB_PWD}@${PG_IP}:5432/puerhub"
-export DEEPSEEK_API_KEY="${DEEPSEEK}"
+export MINIMAX_API_KEY="${MINIMAX}"
 
 run() {
   "$@" || { log_alert "command failed: $*"; exit 1; }

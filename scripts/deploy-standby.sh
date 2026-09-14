@@ -20,7 +20,7 @@ PG_USER="puerhub"
 PG_DB="puerhub"
 PG_PASS="${DB_PASSWORD:-TeaHub2026Secure}"
 AUTH_SECRET="${AUTH_SECRET:-puer-hub-prod-change-me}"
-DEEPSEEK_KEY="${DEEPSEEK_API_KEY:-}"
+MINIMAX_KEY="${MINIMAX_API_KEY:-}"
 
 # ── Prerequisites ──────────────────────────────────────
 echo -e "${YELLOW}[1/5] Checking prerequisites...${NC}"

@@ -16,9 +16,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export const DB_URL = process.env.DATABASE_URL;
-export const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_MODEL = "deepseek-chat";
-const DEEPSEEK_BASE = "https://api.deepseek.com/v1/chat/completions";
+// R27:DeepSeek(402 欠费)→ MiniMax,与 src/lib/moderation.ts(R25)同一兼容层与参数约定
+export const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
+const MINIMAX_MODEL = "MiniMax-M3";
+const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
 export const VIDEO_DIR = "/app/public/uploads/videos";
 export const EVERNOTE_DIR = "/app/public/uploads/evernote";
 
@@ -145,7 +146,7 @@ export function generateVideo(images) {
   return videoUrl;
 }
 
-// ── DeepSeek content rewrite ────────────────────────────────────────
+// ── MiniMax content rewrite(R27:由 DeepSeek 切换) ────────────────────
 
 export async function generateContent(note) {
   const scores = [];
@@ -179,20 +180,23 @@ ${plainContent}
 请严格按以下JSON格式返回（不要markdown代码块）：
 {"title": "帖子标题", "content": "帖子正文HTML"}`;
 
-  const response = await fetch(DEEPSEEK_BASE, {
+  const response = await fetch(MINIMAX_BASE, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEEPSEEK_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${MINIMAX_API_KEY}` },
     body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
+      model: MINIMAX_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.9,
-      max_tokens: 1000,
+      // MiniMax-M3: max_completion_tokens(非 max_tokens) + 显式关 thinking(默认 adaptive 太慢)
+      max_completion_tokens: 1000,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
     }),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!response.ok) {
-    throw new Error(`DeepSeek API error ${response.status}: ${await response.text()}`);
+    throw new Error(`MiniMax API error ${response.status}: ${await response.text()}`);
   }
 
   const text = (await response.json()).choices?.[0]?.message?.content || "";
@@ -205,7 +209,7 @@ ${plainContent}
       const parsed = JSON.parse(jsonMatch[0]);
       return { title: parsed.title, content: parsed.content };
     }
-    throw new Error("Failed to parse DeepSeek response as JSON");
+    throw new Error("Failed to parse MiniMax response as JSON");
   }
 }
 

@@ -1,15 +1,16 @@
 // publish-helpers.mjs — shared logic for auto-publishing site videos to
 // YouTube (resumable upload) and Facebook (Graph API file_url).
-// Runs inside the app container (has DB, DeepSeek, fs access to /uploads/videos).
+// Runs inside the app container (has DB, MiniMax, fs access to /uploads/videos).
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { DEEPSEEK_API_KEY, log, sql, sqlSingle, escapeSql } from "./post-helpers.mjs";
+import { MINIMAX_API_KEY, log, sql, sqlSingle, escapeSql } from "./post-helpers.mjs";
 
 // re-export log so the cron scripts can import it from here
 export { log };
 
-const DEEPSEEK_BASE = "https://api.deepseek.com/v1/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-v4-flash"; // API migrated from "deepseek-chat" to v4
+// R27:DeepSeek(402 欠费)→ MiniMax M3,与 src/lib/moderation.ts(R25)同一兼容层与参数约定
+const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
+const MINIMAX_MODEL = "MiniMax-M3";
 const SITE = "https://puer.im";
 
 // ---- env (set in container .env during Phase B) ----
@@ -45,29 +46,31 @@ export async function pickCandidate(platform) {
   return rows[Math.floor(Math.random() * rows.length)];
 }
 
-// ---- DeepSeek copy generation (mirrors src/lib/xhs-content.ts pattern) ----
-async function deepseek(prompt) {
-  if (!DEEPSEEK_API_KEY) throw new Error("DEEPSEEK_API_KEY not set");
-  const res = await fetch(DEEPSEEK_BASE, {
+// ---- MiniMax copy generation (R27; mirrors src/lib/xhs-content.ts pattern) ----
+async function minimax(prompt) {
+  if (!MINIMAX_API_KEY) throw new Error("MINIMAX_API_KEY not set");
+  const res = await fetch(MINIMAX_BASE, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEEPSEEK_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${MINIMAX_API_KEY}` },
     body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
+      model: MINIMAX_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.9,
-      max_tokens: 900,
+      // MiniMax-M3: max_completion_tokens(非 max_tokens) + 显式关 thinking(默认 adaptive 太慢)
+      max_completion_tokens: 900,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
     }),
     signal: AbortSignal.timeout(30000),
   });
-  if (!res.ok) throw new Error(`DeepSeek ${res.status}: ${(await res.text()).slice(0, 120)}`);
+  if (!res.ok) throw new Error(`MiniMax ${res.status}: ${(await res.text()).slice(0, 120)}`);
   const text = (await res.json()).choices?.[0]?.message?.content?.trim() || "";
   try {
     return JSON.parse(text);
   } catch {
     const m = text.match(/\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
-    throw new Error("DeepSeek JSON parse failed");
+    throw new Error("MiniMax JSON parse failed");
   }
 }
 
@@ -100,7 +103,7 @@ export async function genYoutubeCopy(article) {
 ${plain(article)}
 严格按以下 JSON 返回(不要 markdown 代码块、不要解释):
 {"title":"100字以内视频标题,含具体茶品/口感/年份等有信息量的词","description":"200-400字描述,口语化介绍视频内容,结尾单独一行写:更多普洱茶内容见 ${SITE}","tags":["3到5个YouTube搜索关键词,中文,不带#号"]}`;
-  const c = await deepseek(prompt);
+  const c = await minimax(prompt);
   if (!c.title || !c.description) throw new Error("YT copy incomplete");
   const attribution = await musicAttribution(article.videoUrl);
   return {
@@ -117,7 +120,7 @@ export async function genFbCopy(article) {
 ${plain(article)}
 严格按以下 JSON 返回(不要 markdown 代码块、不要解释):
 {"title":"60字以内标题","caption":"100-200字口语正文,结尾单独一行写:${SITE}"}`;
-  const c = await deepseek(prompt);
+  const c = await minimax(prompt);
   if (!c.caption) throw new Error("FB copy incomplete");
   const attribution = await musicAttribution(article.videoUrl);
   return {

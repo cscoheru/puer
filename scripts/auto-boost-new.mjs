@@ -9,20 +9,21 @@
  * never reach the hot ranking → never hit the essence threshold.
  *
  * This breaks the loop: each run gives 48h-old posts a small vote boost
- * (+3~5) and 1-2 DeepSeek replies from the bot pool, so they enter the
+ * (+3~5) and 1-2 MiniMax replies (R27, was DeepSeek) from the bot pool, so they enter the
  * hotScore algorithm's view. Posts already taking off (net>=15 or reply>=8)
  * are skipped — they don't need cold start.
  *
- * Run inside app container (has DeepSeek + pg): node /app/scripts/auto-boost-new.mjs
+ * Run inside app container (has MiniMax + pg): node /app/scripts/auto-boost-new.mjs
  */
 
 import { randomUUID } from "node:crypto";
 import {
-  DB_URL, DEEPSEEK_API_KEY,
+  DB_URL, MINIMAX_API_KEY,
   log, sql, sqlSingle, pickRandom, shuffleArray, escapeSql,
 } from "./lib/post-helpers.mjs";
 
-const DEEPSEEK_BASE = "https://api.deepseek.com/v1/chat/completions";
+// R27:DeepSeek(402 欠费)→ MiniMax M3,与 src/lib/moderation.ts(R25)同一兼容层与参数约定
+const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
 
 const PERSONAS = [
   { style: "好奇小白", tone: "刚入坑,不懂就问,语气真诚谦逊,常说'请问''不太懂'" },
@@ -91,17 +92,20 @@ async function generateReply(post) {
 帖子标题：${post.title}
 帖子内容：${plain}`;
 
-  const res = await fetch(DEEPSEEK_BASE, {
+  const res = await fetch(MINIMAX_BASE, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${DEEPSEEK_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${MINIMAX_API_KEY}` },
     body: JSON.stringify({
-      model: "deepseek-v4-flash",
+      model: "MiniMax-M3",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.9,
-      max_tokens: 200,
+      // MiniMax-M3: max_completion_tokens(非 max_tokens) + 显式关 thinking(默认 adaptive 太慢)
+      max_completion_tokens: 200,
+      thinking: { type: "disabled" },
     }),
+    signal: AbortSignal.timeout(60_000),
   });
-  if (!res.ok) throw new Error(`DeepSeek ${res.status}: ${(await res.text()).slice(0, 100)}`);
+  if (!res.ok) throw new Error(`MiniMax ${res.status}: ${(await res.text()).slice(0, 100)}`);
   const text = (await res.json()).choices?.[0]?.message?.content?.trim();
   return text || null;
 }
@@ -120,8 +124,8 @@ async function insertComment({ articleId, content, userId }) {
 
 async function main() {
   log("=== Auto-boost-new started ===");
-  if (!DEEPSEEK_API_KEY) {
-    console.error("ERROR: DEEPSEEK_API_KEY not set");
+  if (!MINIMAX_API_KEY) {
+    console.error("ERROR: MINIMAX_API_KEY not set");
     process.exit(1);
   }
 
@@ -157,7 +161,7 @@ async function main() {
       }
     }
 
-    // Replies: 1-2 DeepSeek replies from random old users
+    // Replies: 1-2 MiniMax replies from random old users
     const replyN = 1 + Math.floor(Math.random() * 2); // 1-2
     let postReplies = 0;
     for (let i = 0; i < replyN; i++) {

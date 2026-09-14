@@ -4,7 +4,7 @@
  * auto-convert.mjs — DEPRECATED. Disabled as of the tea-draft-runner cutover.
  *
  * This legacy pipeline turned tasting notes into PUBLISHED forum posts via
- * DeepSeek rewrite + random author/board/image shuffle — exactly the
+ * MiniMax rewrite (R27, was DeepSeek) + random author/board/image shuffle — exactly the
  * untrustworthy behavior the new runner replaces. It is retained only so the
  * old crontab entry keeps resolving until T8 removes it; it must NOT run.
  *
@@ -22,11 +22,11 @@ if (process.env.AUTO_CONVERT_LEGACY_FORCE !== "1") {
   );
   process.exit(0);
 }
-console.warn("[auto-convert] LEGACY FORCE override active — running deprecated DeepSeek pipeline.");
+console.warn("[auto-convert] LEGACY FORCE override active — running deprecated auto pipeline (MiniMax, R27).");
 
 
 import {
-  DEEPSEEK_API_KEY, BOARDS,
+  MINIMAX_API_KEY, BOARDS,
   log, sqlSingle, pickRandom,
   generateVideo, generateContent, insertPost,
 } from "./lib/post-helpers.mjs";
@@ -100,8 +100,8 @@ async function pickUser() {
 
 async function main() {
   log("=== Auto-convert started ===");
-  if (!DEEPSEEK_API_KEY) {
-    console.error("ERROR: DEEPSEEK_API_KEY not set");
+  if (!MINIMAX_API_KEY) {
+    console.error("ERROR: MINIMAX_API_KEY not set");
     process.exit(1);
   }
 

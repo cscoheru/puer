@@ -4,20 +4,21 @@
  * auto-reply.mjs — Auto-reply to forum posts with diverse user personas
  *
  * Picks posts (preferring low-reply ones) → generates contextual replies
- * via DeepSeek → inserts as comments from random users
+ * via MiniMax (R27, was DeepSeek) → inserts as comments from random users
  *
  * Environment:
  *   DATABASE_URL   — PostgreSQL connection
- *   DEEPSEEK_API_KEY — DeepSeek API key
+ *   MINIMAX_API_KEY — MiniMax API key (R27, was DEEPSEEK_API_KEY)
  */
 
 import { randomUUID } from "node:crypto";
 
 // ── Config ──────────────────────────────────────────────────────────
 const DB_URL = process.env.DATABASE_URL;
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_MODEL = "deepseek-chat";
-const DEEPSEEK_BASE = "https://api.deepseek.com/v1/chat/completions";
+// R27:DeepSeek(402 欠费)→ MiniMax M3,与 src/lib/moderation.ts(R25)同一兼容层与参数约定
+const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
+const MINIMAX_MODEL = "MiniMax-M3";
+const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
 
 // User persona archetypes for reply style diversity
 const PERSONAS = [
@@ -210,7 +211,7 @@ async function pickUser(excludeAuthorId, articleId) {
   return fallback[0];
 }
 
-// ── Step 4: Generate reply via DeepSeek ─────────────────────────────
+// ── Step 4: Generate reply via MiniMax(R27) ─────────────────────────
 
 function pickWeightedReplyType() {
   const totalWeight = REPLY_TYPES.reduce((s, t) => s + t.weight, 0);
@@ -263,24 +264,27 @@ ${existingReplies.length > 0 ? "6. 针对已有回复中的观点进行回应或
 请严格按以下JSON格式返回（不要markdown代码块）：
 {"content": "回复内容HTML"}`;
 
-  const response = await fetch(DEEPSEEK_BASE, {
+  const response = await fetch(MINIMAX_BASE, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      Authorization: `Bearer ${MINIMAX_API_KEY}`,
     },
     body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
+      model: MINIMAX_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.9,
-      max_tokens: 800,
+      // MiniMax-M3: max_completion_tokens(非 max_tokens) + 显式关 thinking(默认 adaptive 太慢)
+      max_completion_tokens: 800,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
     }),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`DeepSeek API error ${response.status}: ${err}`);
+    throw new Error(`MiniMax API error ${response.status}: ${err}`);
   }
 
   const data = await response.json();
@@ -291,7 +295,7 @@ ${existingReplies.length > 0 ? "6. 针对已有回复中的观点进行回应或
   } catch {
     const m = text.match(/\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
-    throw new Error("Failed to parse DeepSeek response");
+    throw new Error("Failed to parse MiniMax response");
   }
 }
 
@@ -326,8 +330,8 @@ async function insertComment({ articleId, content, userId, parentId }) {
 async function main() {
   log("=== Auto-reply started ===");
 
-  if (!DEEPSEEK_API_KEY) {
-    console.error("ERROR: DEEPSEEK_API_KEY not set");
+  if (!MINIMAX_API_KEY) {
+    console.error("ERROR: MINIMAX_API_KEY not set");
     process.exit(1);
   }
 
