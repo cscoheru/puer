@@ -44,11 +44,15 @@ run() {
 
 case "$TASK" in
   auto-post)
-    export AUTO_TEA_DRAFT_AUTHOR_ID="cmpb7net1000001ocrss0o4de"
-    export AUTO_TEA_DRAFT_BOARD_ID="169748e7-123e-40f5-b283-b016c83f9c32"
-    run ./node_modules/.bin/tsx scripts/auto-post.mjs --apply
+    # R26/R27:必须容器内跑 — slideshow 视频依赖容器 /app/public/uploads(宿主机无此路径)。
+    # AI(茶记 adapt)R25 起走 MiniMax,经 -e 透传 MINIMAX_API_KEY。
+    run docker exec -e DATABASE_URL -e MINIMAX_API_KEY \
+      -e AUTO_TEA_DRAFT_AUTHOR_ID="cmpb7net1000001ocrss0o4de" \
+      -e AUTO_TEA_DRAFT_BOARD_ID="169748e7-123e-40f5-b283-b016c83f9c32" \
+      puer-hub-app ./node_modules/.bin/tsx scripts/auto-post.mjs --apply
     ;;
   auto-reply|auto-vote|auto-boost-new)
+    # 宿主机直跑(仅 DB+AI 调用,无 /app 文件路径依赖;pg 模块在宿主机 node_modules)
     run node "scripts/${TASK}.mjs"
     ;;
   *)
