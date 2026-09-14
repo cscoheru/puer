@@ -641,6 +641,25 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **部署与验证**：rsync 7 文件到宿主机（`/app/scripts` 多为单文件 bind 即时生效；未挂载的 publish/auto-boost 脚本 `docker cp` 补进容器）；容器内 MiniMax 真调用返回正常；手动实跑 `cron-task.sh auto-boost-new`：3 帖 +13 votes + **4 条 MiniMax 回复**（402 时期恒 0 回复），公网 `/api/comments` 立即可见。220 单测全过（`npm run test:unit`）。教训沉淀 AGENTS.md R27 节。
 
+## R28：cron 全量审计 + rag-post RAG 接地创作管线（commit 096a768，2026-09-14）
+
+**crontab 审计结果**（原 28 条活跃）：
+- auto-reply 实为 **20 条/天**（初盘点误数 16，uniq -c 截断），几乎每小时一条 AI 回复，过密且同质化 → **降到 6 条**（09:13/10:57/12:33/14:17/17:37/20:57 白天分布），被裁条目以 `# R28-trimmed` 注释保留可回溯；
+- auto-vote（1 条/天，老帖随机点赞）价值低、与 auto-boost-new 职责重叠 → **下线**（`# R28-removed`）；
+- auto-post（茶记草稿）/auto-boost-new（冷启动）/5 条运维备份（pg_dump、uploads tar、备机同步、浏览量快照、uptime 探活）全部健康保留；
+- auto-publish-youtube 维持用户暂停状态。
+
+**新建 rag-post 管线**（用户需求：一定创作、不同用户身份、不盲创、进后台草稿）：
+- 选题源 = 茶问 `/ask` 同一份语料 `rag-data/knowledge-chunks.jsonl`（973 行、≥400 字可用素材 857 篇），**先检索后创作**——MiniMax M3 拿真实茶文素材人设化改写，禁止虚构素材外事实；
+- 主笔从活跃老用户池（level>=1、active、2026-05-23 前注册）随机轮换，同轮不重复，5 种人设；
+- 五道闸：素材幂等（`<!--rag-post:{srcHash}-->` marker，一篇文章永不复用）/接地 prompt/硬校验（标题 10-40 字、正文 150-1000 字、禁 `<img>`、禁 AI 自曝）/日上限 2 篇/单篇失败跳过不写半成品；
+- 产出 `status='draft'` 进 `/admin/drafts` 人工审核后发布，summary 尾附 `[素材:来源]` 溯源；
+- **工程教训**：MiniMax JSON 输出会被内容裸引号炸解析（DRY_RUN 实测），生成类改用三段标记式（TITLE/CONTENT/QUESTION）解析，永不 parse 失败；
+- cron：每日 02:37（错开 02:07 茶记管线），`DRY_RUN=1` 可验收。
+
+**验证**：DRY_RUN 生成质量高（「8592熟、88青、8582碎末…」人设口吻+素材事实）；真跑 2/2 草稿入库（两位不同主笔、draft 状态、公网 feed 不可见、summary 带溯源）；短内容（91 字）被硬校验正确拦截。crontab 备份 `backups/crontab-backup-r28-20260914.txt`。
+
+
 
 
 
