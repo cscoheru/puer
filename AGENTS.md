@@ -63,3 +63,26 @@ This version has breaking changes — APIs, conventions, and file structure may 
    （如 `images`/`videoUrl`）若不在 select 里，页面静默丢内容且不报错。新增展示字段时
    同步加 select + DTO + 类型三处。
 
+## R27 追加：AI 供应商切换与「服务器侧改动回滚」事故
+
+**事故**（2026-09-14 发现）：R26 曾在服务器上手动改 `cron-task.sh`（auto-post 改 docker exec
+容器内跑），但改动**只存在服务器、未回传 git**；R26b 部署按 git 白名单 rsync 时用仓库旧版
+覆盖了服务器修复 → auto-post 退回宿主机直跑、视频链路再次断裂，且无人发现（服务器上的
+`.bak-r26` 备份也已丢失）。同类问题：R25 切 MiniMax 只切了 `src/lib` 三处，`scripts/` 下
+auto-reply/auto-boost-new/publish 管线仍走 DeepSeek，402 欠费后 AI 回复静默归零近一月。
+
+## 规则（R27）
+
+1. **凡是「先改服务器、后补提交」的热修复，当场必须回传 git**（scp 拉回本地 → commit →
+   push），否则下一次 rsync/cd 部署必然静默回滚。验收清单加一条：`ssh diff` 服务器关键
+   配置文件（cron-task.sh、compose）与 git HEAD 是否一致。
+2. **切 AI 供应商（或任何外部依赖）必须全局 grep 供应商痕迹**（endpoint/模型名/API key
+   env 名），逐个调用点确认；「src/ 切了、scripts/ 没切」的半切换等于没切。
+3. **同一供应商的调用参数模式统一沉淀为一个参考实现**（本案 `src/lib/moderation.ts` 的
+   MiniMax 模式：`api.minimax.cn` + `MiniMax-M3` + `max_completion_tokens`（非 max_tokens）
+   + `thinking:{type:"disabled"}`（默认 adaptive 太慢）+ AbortSignal.timeout），新调用点
+   照抄，不许自创参数组合。
+4. 本仓库单测跑法是 `npm run test:unit`（node:test），**不是 vitest**——`npx vitest run`
+   会把 node:test 文件全数报错，勿被误导。
+
+

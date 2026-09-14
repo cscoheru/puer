@@ -625,6 +625,23 @@ cd /opt/puer-hub && docker compose -f docker-compose.yml -f docker-compose.overr
 
 **部署后发现的第四层问题（Next standalone 静态缓存）**：backfill 生成的 27 个视频文件已落盘（容器/宿主 bind 均在）、DB videoUrl 已写，但 HTTP 404；同目录启动前写入的旧视频 200。根因：**Next standalone 启动时缓存 public 目录清单，运行期新写入的文件静态 serve 404 直到下次容器重启**——这不仅影响 cron 视频，也影响每次部署重启后的用户新上传图片（上传成功但立即 404，直到下次部署才可见）。修复：新增 `src/app/uploads/[...path]/route.ts` 兜底路由——public 静态命中优先（旧文件不受影响），静态 miss 落到 route handler 直接读磁盘返回（路径字符白名单 + 防 `..` 穿越 + MIME 表 + immutable 缓存头），保证新文件立即可访问。容器随本修复重启后，backfill 视频同时进入静态清单。
 
+## R27：AI 自动任务全量 DeepSeek → MiniMax M3（commit 7b84793 / 9104e05，2026-09-14）
+
+**背景**：DeepSeek 用量枯竭（402 Insufficient Balance），auto-boost-new 每 3h 的 AI 回复自 09-13 起全部失败（`/var/log/puer-auto.log` 实证 `reply failed ... DeepSeek 402`）。R25 只切了 `src/lib` 三处（moderation/xhs/adapt），`scripts/` 自动任务管线漏切。
+
+**修复范围**（6 个 AI 调用点 + 执行环境）：
+- `scripts/lib/post-helpers.mjs`：`generateContent`（茶记改写）切 MiniMax M3；
+- `scripts/auto-reply.mjs`：自动回复切 MiniMax M3；
+- `scripts/auto-boost-new.mjs`：新帖助推回复（原 `deepseek-v4-flash`）切 MiniMax M3；
+- `scripts/lib/publish-helpers.mjs`：YT/FB 发布文案生成切 MiniMax M3（任务本身 08-11 用户已暂停）；
+- `scripts/auto-convert.mjs`（legacy）：import 与 key 检查同步；
+- 参数模式统一照抄 R25 已验证的 `moderation.ts` MiniMax 参考：`api.minimax.cn` + `MiniMax-M3` + `max_completion_tokens` + `thinking disabled` + 60s timeout。
+
+**连带找回的丢失修复**：服务器 `cron-task.sh` 的 auto-post docker-exec 修复（R26 做在服务器上但未回传 git）已被 R26b 的 rsync 覆盖回滚——auto-post 退回宿主机 tsx 直跑、且 adapt=on 却只透传 DEEPSEEK_API_KEY（茶记 AI 改写静默降级 verbatim）。本次在 git 里正式落地：auto-post 分支 `docker exec -e DATABASE_URL -e MINIMAX_API_KEY ...` 容器内跑；auto-reply/auto-vote/auto-boost-new 保持宿主机直跑（仅 DB+AI 调用，无文件路径依赖）。
+
+**部署与验证**：rsync 7 文件到宿主机（`/app/scripts` 多为单文件 bind 即时生效；未挂载的 publish/auto-boost 脚本 `docker cp` 补进容器）；容器内 MiniMax 真调用返回正常；手动实跑 `cron-task.sh auto-boost-new`：3 帖 +13 votes + **4 条 MiniMax 回复**（402 时期恒 0 回复），公网 `/api/comments` 立即可见。220 单测全过（`npm run test:unit`）。教训沉淀 AGENTS.md R27 节。
+
+
 
 
 
