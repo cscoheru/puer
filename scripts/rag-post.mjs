@@ -24,7 +24,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import {
   MINIMAX_API_KEY, BOARDS, sql, sqlSingle, log, pickRandom, escapeSql,
 } from "./lib/post-helpers.mjs";
@@ -32,6 +32,9 @@ import {
 const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
 const MINIMAX_MODEL = "MiniMax-M3";
 const CHUNKS_FILE = process.env.RAG_CHUNKS_FILE || "/opt/puer-hub/rag-data/knowledge-chunks.jsonl";
+const SKUS_FILE = process.env.RAG_SKUS_FILE || "/opt/puer-hub/rag-data/donghe-skus.jsonl";
+const SKU_IMG_DIR = process.env.RAG_SKU_IMG_DIR || "/opt/puer-hub/rag-data/donghe-images";
+const FORUM_IMG_DIR = process.env.FORUM_IMG_DIR || "/opt/puer-hub/uploads/forum";
 const DAILY_CAP = Number(process.env.RAG_POST_DAILY_CAP || 2);
 const DRY_RUN = process.env.DRY_RUN === "1";
 
@@ -154,6 +157,63 @@ QUESTION:结尾讨论问题一句话`;
   return out;
 }
 
+// ── 茶品配图(donghe SKU 实拍图,图文强相关,不虚构) ───────────────────
+//
+// 从草稿标题+正文提取茶品关键词(唛号/知名品名),在 donghe-skus.jsonl 里
+// 匹配 name,命中则把该 SKU 的实拍图拷到 uploads/forum(公网可访问,
+// R26b uploads 兜底路由保证立即可见),返回 URL 写入 article.images。
+// 渲染层(R26 extractFeedImages)统一读 images 字段,详情页画廊直接生效。
+// 匹配不到就无图草稿——宁缺毋滥,绝不硬凑无关图。
+
+let SKU_INDEX = null;
+
+function loadSkuIndex() {
+  if (SKU_INDEX) return SKU_INDEX;
+  SKU_INDEX = [];
+  try {
+    const lines = readFileSync(SKUS_FILE, "utf8").split("\n").filter(Boolean);
+    for (const line of lines) {
+      try {
+        const s = JSON.parse(line);
+        if (s && s.skuId && s.name) SKU_INDEX.push({ skuId: String(s.skuId), name: String(s.name) });
+      } catch { /* skip */ }
+    }
+  } catch {
+    log(`WARN: sku index unavailable (${SKUS_FILE}) — drafts will go imageless`);
+  }
+  return SKU_INDEX;
+}
+
+function pickSkuImage(title, content) {
+  const skus = loadSkuIndex();
+  if (skus.length === 0) return null;
+  const text = `${title} ${content}`;
+
+  // 候选关键词:唛号优先(区分度最高),其次知名品名
+  const keywords = new Set();
+  for (const m of text.matchAll(/(\d{4})/g)) keywords.add(m[1]);
+  for (const name of ["88青", "大白菜", "孔雀", "老班章", "冰岛", "薄荷塘", "金大益", "轩辕号", "紫大益", "红大益"]) {
+    if (text.includes(name)) keywords.add(name);
+  }
+  if (keywords.size === 0) return null;
+
+  const hits = skus.filter((s) => {
+    for (const k of keywords) if (s.name.includes(k)) return true;
+    return false;
+  });
+  if (hits.length === 0) return null;
+
+  const sku = pickRandom(hits);
+  const src = `${SKU_IMG_DIR}/${sku.skuId}.jpeg`;
+  if (!existsSync(src)) return null;
+  const destName = `rag-${sku.skuId}.jpeg`;
+  const dest = `${FORUM_IMG_DIR}/${destName}`;
+  mkdirSync(FORUM_IMG_DIR, { recursive: true });
+  if (!existsSync(dest)) copyFileSync(src, dest); // 幂等:同 SKU 复用同一张
+  log(`sku image matched: ${sku.name} (${sku.skuId}) -> /uploads/forum/${destName}`);
+  return `/uploads/forum/${destName}`;
+}
+
 // Gate 3: 硬校验,不过即抛
 function validateDraft(d) {
   const title = String(d.title || "").trim();
@@ -165,7 +225,7 @@ function validateDraft(d) {
   return { title, content: String(d.content).trim() };
 }
 
-async function insertDraft({ title, content, question, boardId, authorId, source, hash }) {
+async function insertDraft({ title, content, question, boardId, authorId, source, hash, images }) {
   const id = randomUUID();
   const marker = `<!--rag-post:${hash}-->`;
   let ending = "";
@@ -174,6 +234,10 @@ async function insertDraft({ title, content, question, boardId, authorId, source
   }
   const summaryPlain = content.replace(/<[^>]*>/g, "").slice(0, 160);
   const summary = `${summaryPlain} [素材:${String(source).slice(0, 40)}]`;
+  const imgs = (images || []).filter((u) => /^\/uploads\/forum\/rag-[a-zA-Z0-9-]+\.(jpeg|jpg|png|webp)$/.test(u));
+  const imgsSql = imgs.length
+    ? `ARRAY[${imgs.map((u) => `'${u}'`).join(",")}]::varchar[]`
+    : `ARRAY[]::varchar[]`;
 
   await sql(`
     INSERT INTO articles (
@@ -187,7 +251,7 @@ async function insertDraft({ title, content, question, boardId, authorId, source
       '${boardId}', '${authorId}',
       false, false, 0, 0,
       0, 0, 'draft', 'share',
-      ARRAY['品鉴', '茶友分享']::varchar[], ARRAY[]::varchar[],
+      ARRAY['品鉴', '茶友分享']::varchar[], ${imgsSql},
       NOW(), NOW()
     )
   `);
@@ -234,15 +298,19 @@ async function main() {
       const persona = pickRandom(PERSONAS);
       const d = validateDraft(await generateDraft(chunk, persona));
       const board = boardFor(String(chunk.text) + d.title);
+      // 茶品配图:命中 donghe SKU 则拷实拍图到 uploads/forum 并写入 images
+      const images = [];
+      const imgUrl = pickSkuImage(d.title, d.content);
+      if (imgUrl) images.push(imgUrl);
 
       if (DRY_RUN) {
-        log(`[DRY] ${hash} by ${author.username}(${persona.style}) → ${board.slug}`);
+        log(`[DRY] ${hash} by ${author.username}(${persona.style}) → ${board.slug} images=${images.length}`);
         log(`[DRY] title: ${d.title}`);
         log(`[DRY] content(${d.content.replace(/<[^>]*>/g, "").length}字): ${d.content.replace(/<[^>]*>/g, "").slice(0, 200)}...`);
         ok++;
         continue;
       }
-      const id = await insertDraft({ ...d, boardId: board.id, authorId: author.id, source: chunk.source, hash });
+      const id = await insertDraft({ ...d, boardId: board.id, authorId: author.id, source: chunk.source, hash, images });
       log(`draft created: ${id} "${d.title}" by ${author.username} in ${board.slug} [${chunk.source.slice(0, 50)}]`);
       ok++;
     } catch (e) {
