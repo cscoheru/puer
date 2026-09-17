@@ -1,17 +1,23 @@
 /**
- * rag-post.mjs — RAG-grounded draft generator (R28).
+ * rag-post.mjs — RAG-grounded draft generator (R28 → R28d).
  *
  * 每日从「茶问」同一份 RAG 语料 (rag-data/knowledge-chunks.jsonl, 973 条真实
- * 公众号茶文) 选一篇未用过的素材 → 随机活跃老用户主笔 → MiniMax M3 人设化
+ * 公众号茶文) 选一篇未用过的素材 → MiniMax M3 识别品牌/茶品 → 查 teas 表
+ * 找 teaId → 从该 tea 关联的 tasting_notes 选"加权综合分"最高的茶记 →
+ * 取该茶记的 images[] + videoUrl → 随机活跃老用户主笔 → MiniMax M3 人设化
  * 改写成论坛帖 → 硬校验 → 写入 status='draft' 草稿,进 /admin/drafts 后台
  * 人工审核后才发布。绝不直接发布。
+ *
+ * R28d 切换: 旧管线用关键词匹配 donghe-skus.jsonl 命中过度错配(811 个 SKU
+ *   随机挑,生成的「熟茶老五样里的7262」无图);新管线用茶记质量排序,
+ *   1686 条茶记 1587 条有图,任何 auto 出的帖子至少 1 张图。
  *
  * 防盲目创作五道闸:
  *   1. 幂等: content 埋 <!--rag-post:{srcHash}--> marker,同一篇素材永不复用;
  *   2. 接地: prompt 附素材原文,要求只基于素材展开,不虚构年份/价格/数字;
  *   3. 校验: 标题 10-40 字、正文(strip HTML)150-1000 字、禁 <img>、禁 AI 自曝;
  *   4. 日上限: RAG_POST_DAILY_CAP (默认 2),当日已有足够 rag 草稿则跳过;
- *   5. fail-safe: 单篇任何失败(检索/生成/校验/写库)只跳过不写半成品。
+ *   5. fail-safe: 单篇任何失败(检索/识别/生成/校验/写库)只跳过不写半成品。
  *
  * Environment:
  *   DATABASE_URL        — PostgreSQL connection (cron-task.sh 提供)
@@ -24,7 +30,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import {
   MINIMAX_API_KEY, BOARDS, sql, sqlSingle, log, pickRandom, escapeSql,
 } from "./lib/post-helpers.mjs";
@@ -32,9 +38,6 @@ import {
 const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
 const MINIMAX_MODEL = "MiniMax-M3";
 const CHUNKS_FILE = process.env.RAG_CHUNKS_FILE || "/opt/puer-hub/rag-data/knowledge-chunks.jsonl";
-const SKUS_FILE = process.env.RAG_SKUS_FILE || "/opt/puer-hub/rag-data/donghe-skus.jsonl";
-const SKU_IMG_DIR = process.env.RAG_SKU_IMG_DIR || "/opt/puer-hub/rag-data/donghe-images";
-const FORUM_IMG_DIR = process.env.FORUM_IMG_DIR || "/opt/puer-hub/uploads/forum";
 const DAILY_CAP = Number(process.env.RAG_POST_DAILY_CAP || 2);
 const DRY_RUN = process.env.DRY_RUN === "1";
 
@@ -157,61 +160,83 @@ QUESTION:结尾讨论问题一句话`;
   return out;
 }
 
-// ── 茶品配图(donghe SKU 实拍图,图文强相关,不虚构) ───────────────────
+// ── 茶品识别 + 茶记质量选图 (R28d) ──────────────────────────────
 //
-// 从草稿标题+正文提取茶品关键词(唛号/知名品名),在 donghe-skus.jsonl 里
-// 匹配 name,命中则把该 SKU 的实拍图拷到 uploads/forum(公网可访问,
-// R26b uploads 兜底路由保证立即可见),返回 URL 写入 article.images。
-// 渲染层(R26 extractFeedImages)统一读 images 字段,详情页画廊直接生效。
-// 匹配不到就无图草稿——宁缺毋滥,绝不硬凑无关图。
+// 旧管线 (R28): 用正则 /(\d{4})/g 抓标题年份+唛号去 SKU name 匹配。
+//   实测「熟茶老五样里的7262」命中 811 个 SKU 随机错配,生成的帖子无图。
+// 新管线 (R28d): 用 MiniMax 从 chunk 文本识别品牌+茶品 → 查 teas 表得 teaId
+//   → 按"加权综合分 = ln(正文长度)*2 + 图数*1.5 + 视频奖励5"选最优茶记
+//   → 直接拿该茶记的 images[] + videoUrl 写入帖子。
+//   图片路径直接用 tasting_notes.images 里的 /uploads/evernote/... 已是公网
+//   URL,零拷贝(已验证 curl 200)。识别失败/无茶记则降级无图草稿。
 
-let SKU_INDEX = null;
+async function identifyTea(chunk) {
+  const material = String(chunk.text || "").slice(0, 800);
+  const prompt = `从下面这段茶文中,提取出讨论的核心茶品。
+返回格式(独占两行,不要 JSON / 不要 markdown 代码块 / 不要额外解释):
+TEA_BRAND:品牌(大益/下关/陈升号/老同志/福今/雨林/澜沧古古等,其他常见品牌也可)
+TEA_NAME:茶品名(唛号或品名,如 7262/7572/7542/金大益/紫大益)
 
-function loadSkuIndex() {
-  if (SKU_INDEX) return SKU_INDEX;
-  SKU_INDEX = [];
-  try {
-    const lines = readFileSync(SKUS_FILE, "utf8").split("\n").filter(Boolean);
-    for (const line of lines) {
-      try {
-        const s = JSON.parse(line);
-        if (s && s.skuId && s.name) SKU_INDEX.push({ skuId: String(s.skuId), name: String(s.name) });
-      } catch { /* skip */ }
-    }
-  } catch {
-    log(`WARN: sku index unavailable (${SKUS_FILE}) — drafts will go imageless`);
-  }
-  return SKU_INDEX;
+素材来源:${chunk.source}
+素材正文(前 800 字):${material}
+
+要求:
+- 如果素材讨论的是通用知识(无具体茶品),品牌/茶品名都写 NONE
+- 茶品名只取核心唛号或品名,不要带年份/批次`;
+
+  const res = await fetch(MINIMAX_BASE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${MINIMAX_API_KEY}` },
+    body: JSON.stringify({
+      model: MINIMAX_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_completion_tokens: 200,
+      thinking: { type: "disabled" },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`identifyTea MiniMax ${res.status}`);
+  const text = (await res.json()).choices?.[0]?.message?.content || "";
+  const grab = (tag) => {
+    const m = text.match(new RegExp(`^${tag}:\\s*(.+?)$`, "m"));
+    return m ? m[1].trim() : "";
+  };
+  const brand = grab("TEA_BRAND");
+  const name = grab("TEA_NAME");
+  if (!brand || brand === "NONE" || !name) return null;
+
+  // teas 表查:brand + (name 模糊 OR aliases 命中)
+  const rows = await sqlSingle(`
+    SELECT t.id, t.name FROM teas t
+    LEFT JOIN unnest(t.aliases) AS a ON TRUE
+    WHERE t."deletedAt" IS NULL
+      AND t.brand = '${escapeSql(brand)}'
+      AND (t.name ILIKE '%${escapeSql(name)}%' OR a = '${escapeSql(name)}')
+    ORDER BY length(t.name) DESC
+    LIMIT 5
+  `);
+  return rows[0]?.id || null;
 }
 
-function pickSkuImage(title, content) {
-  const skus = loadSkuIndex();
-  if (skus.length === 0) return null;
-  const text = `${title} ${content}`;
-
-  // 候选关键词:唛号优先(区分度最高),其次知名品名
-  const keywords = new Set();
-  for (const m of text.matchAll(/(\d{4})/g)) keywords.add(m[1]);
-  for (const name of ["88青", "大白菜", "孔雀", "老班章", "冰岛", "薄荷塘", "金大益", "轩辕号", "紫大益", "红大益"]) {
-    if (text.includes(name)) keywords.add(name);
-  }
-  if (keywords.size === 0) return null;
-
-  const hits = skus.filter((s) => {
-    for (const k of keywords) if (s.name.includes(k)) return true;
-    return false;
-  });
-  if (hits.length === 0) return null;
-
-  const sku = pickRandom(hits);
-  const src = `${SKU_IMG_DIR}/${sku.skuId}.jpeg`;
-  if (!existsSync(src)) return null;
-  const destName = `rag-${sku.skuId}.jpeg`;
-  const dest = `${FORUM_IMG_DIR}/${destName}`;
-  mkdirSync(FORUM_IMG_DIR, { recursive: true });
-  if (!existsSync(dest)) copyFileSync(src, dest); // 幂等:同 SKU 复用同一张
-  log(`sku image matched: ${sku.name} (${sku.skuId}) -> /uploads/forum/${destName}`);
-  return `/uploads/forum/${destName}`;
+// 加权:ln(正文长度)*2 + 图数*1.5 + 视频奖励5
+async function pickTopTastingNoteMedia(teaId) {
+  const rows = await sqlSingle(`
+    SELECT id, images, "videoUrl",
+      length(content) AS clen,
+      COALESCE(jsonb_array_length(images), 0) AS inum,
+      ln(GREATEST(length(content), 1)) * 2.0
+        + COALESCE(jsonb_array_length(images), 0) * 1.5
+        + CASE WHEN "videoUrl" IS NOT NULL AND "videoUrl" <> '' THEN 5.0 ELSE 0 END
+        AS quality
+    FROM tasting_notes
+    WHERE "teaId" = '${escapeSql(teaId)}'
+      AND images IS NOT NULL
+      AND COALESCE(jsonb_array_length(images), 0) > 0
+    ORDER BY quality DESC, length(content) DESC
+    LIMIT 1
+  `);
+  return rows[0] || null;
 }
 
 // Gate 3: 硬校验,不过即抛
@@ -225,7 +250,7 @@ function validateDraft(d) {
   return { title, content: String(d.content).trim() };
 }
 
-async function insertDraft({ title, content, question, boardId, authorId, source, hash, images }) {
+async function insertDraft({ title, content, question, boardId, authorId, source, hash, images, videoUrl }) {
   const id = randomUUID();
   const marker = `<!--rag-post:${hash}-->`;
   let ending = "";
@@ -234,10 +259,14 @@ async function insertDraft({ title, content, question, boardId, authorId, source
   }
   const summaryPlain = content.replace(/<[^>]*>/g, "").slice(0, 160);
   const summary = `${summaryPlain} [素材:${String(source).slice(0, 40)}]`;
-  const imgs = (images || []).filter((u) => /^\/uploads\/forum\/rag-[a-zA-Z0-9-]+\.(jpeg|jpg|png|webp)$/.test(u));
+  // R28d: 接受 tasting_notes.images 路径 /uploads/evernote/... 与旧路径 /uploads/forum/rag-...
+  const imgs = (images || []).filter((u) =>
+    typeof u === "string" && /^\/uploads\/(evernote|forum\/rag)-[a-zA-Z0-9._-]+\.(jpeg|jpg|png|webp)$/i.test(u)
+  );
   const imgsSql = imgs.length
     ? `ARRAY[${imgs.map((u) => `'${u}'`).join(",")}]::varchar[]`
     : `ARRAY[]::varchar[]`;
+  const videoSql = videoUrl ? `'${escapeSql(String(videoUrl))}'` : `NULL`;
 
   await sql(`
     INSERT INTO articles (
@@ -245,13 +274,13 @@ async function insertDraft({ title, content, question, boardId, authorId, source
       "boardId", "authorId",
       "isPinned", "isEssence", "replyCount", "viewCount",
       "upvotes", "downvotes", status, flair,
-      tags, images, "createdAt", "updatedAt"
+      tags, images, "videoUrl", "createdAt", "updatedAt"
     ) VALUES (
       '${id}', 'discussion', '${escapeSql(title)}', '${escapeSql(content)}${ending}${marker}', '${escapeSql(summary)}',
       '${boardId}', '${authorId}',
       false, false, 0, 0,
       0, 0, 'draft', 'share',
-      ARRAY['品鉴', '茶友分享']::varchar[], ${imgsSql},
+      ARRAY['品鉴', '茶友分享']::varchar[], ${imgsSql}, ${videoSql},
       NOW(), NOW()
     )
   `);
@@ -298,20 +327,38 @@ async function main() {
       const persona = pickRandom(PERSONAS);
       const d = validateDraft(await generateDraft(chunk, persona));
       const board = boardFor(String(chunk.text) + d.title);
-      // 茶品配图:命中 donghe SKU 则拷实拍图到 uploads/forum 并写入 images
+
+      // R28d: MiniMax 识别茶品 → teas 表 → 茶记质量选图视频
+      let teaId = null;
+      try {
+        teaId = await identifyTea(chunk);
+        if (teaId) log(`identified tea: ${teaId} for "${d.title}"`);
+      } catch (e) {
+        log(`identifyTea failed: ${e.message.slice(0, 100)}`);
+      }
+
       const images = [];
-      const imgUrl = pickSkuImage(d.title, d.content);
-      if (imgUrl) images.push(imgUrl);
+      let videoUrl = null;
+      if (teaId) {
+        const top = await pickTopTastingNoteMedia(teaId);
+        if (top) {
+          if (Array.isArray(top.images)) images.push(...top.images);
+          if (top.videoUrl) videoUrl = top.videoUrl;
+          log(`tasting-note media: note=${top.id} images=${top.inum} video=${videoUrl ? "yes" : "no"} quality=${Number(top.quality).toFixed(1)}`);
+        } else {
+          log(`no tasting-note with images for teaId=${teaId} — draft will go imageless`);
+        }
+      }
 
       if (DRY_RUN) {
-        log(`[DRY] ${hash} by ${author.username}(${persona.style}) → ${board.slug} images=${images.length}`);
+        log(`[DRY] ${hash} by ${author.username}(${persona.style}) → ${board.slug} images=${images.length} video=${videoUrl ? "yes" : "no"}`);
         log(`[DRY] title: ${d.title}`);
         log(`[DRY] content(${d.content.replace(/<[^>]*>/g, "").length}字): ${d.content.replace(/<[^>]*>/g, "").slice(0, 200)}...`);
         ok++;
         continue;
       }
-      const id = await insertDraft({ ...d, boardId: board.id, authorId: author.id, source: chunk.source, hash, images });
-      log(`draft created: ${id} "${d.title}" by ${author.username} in ${board.slug} [${chunk.source.slice(0, 50)}]`);
+      const id = await insertDraft({ ...d, boardId: board.id, authorId: author.id, source: chunk.source, hash, images, videoUrl });
+      log(`draft created: ${id} "${d.title}" by ${author.username} in ${board.slug} images=${images.length} video=${videoUrl ? "yes" : "no"} [${chunk.source.slice(0, 50)}]`);
       ok++;
     } catch (e) {
       log(`draft failed for ${hash} (${chunk.source?.slice(0, 40)}): ${e.message}`);
