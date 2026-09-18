@@ -357,6 +357,16 @@ async function main() {
         ok++;
         continue;
       }
+
+      // R28d 注释承诺: 任何 auto 出的帖子至少 1 张图.
+      // 验证: 若 images=[] 且 videoUrl=NULL, skip 而非写无图草稿.
+      // 避免 /admin/drafts 后台被无图草稿污染人工审核队列.
+      // 已知代价: skip 不写 marker, 同一 chunk 下次 cron 可能被重选
+      // (chunks=857 / cap=2 / Day 一次最多浪费 2 个 API 调用).
+      if (images.length === 0 && !videoUrl) {
+        log(`skip ${hash} - no media (would violate R28d promise, chunk will be retried tomorrow)`);
+        continue;
+      }
       const id = await insertDraft({ ...d, boardId: board.id, authorId: author.id, source: chunk.source, hash, images, videoUrl });
       log(`draft created: ${id} "${d.title}" by ${author.username} in ${board.slug} images=${images.length} video=${videoUrl ? "yes" : "no"} [${chunk.source.slice(0, 50)}]`);
       ok++;
