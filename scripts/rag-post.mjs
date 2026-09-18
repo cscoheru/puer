@@ -261,7 +261,7 @@ async function insertDraft({ title, content, question, boardId, authorId, source
   const summary = `${summaryPlain} [素材:${String(source).slice(0, 40)}]`;
   // R28d: 接受 tasting_notes.images 路径 /uploads/evernote/... 与旧路径 /uploads/forum/rag-...
   const imgs = (images || []).filter((u) =>
-    typeof u === "string" && /^\/uploads\/(evernote|forum\/rag)-[a-zA-Z0-9._-]+\.(jpeg|jpg|png|webp)$/i.test(u)
+    typeof u === "string" && /^\/uploads\/(evernote\/[a-zA-Z0-9._-]+|forum\/rag-[a-zA-Z0-9._-]+)\.(jpe?g|png|webp)$/i.test(u)
   );
   const imgsSql = imgs.length
     ? `ARRAY[${imgs.map((u) => `'${u}'`).join(",")}]::varchar[]`
