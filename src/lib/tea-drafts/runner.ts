@@ -492,6 +492,8 @@ export async function runTeaDraftRunner(opts: {
       where: {
         source: { in: ["manual", "evernote"] },
         authorId: config.authorId,
+        // R29a: 资料贴 (title 以 "（资料）" 开头) 内容为空 (仅图片占位) 不适合生成 draft, 跳过.
+        title: { not: { startsWith: "（资料）" } },
         ...(noteIds.length > 0 ? { id: { in: noteIds } } : {}),
       },
       orderBy: { createdAt: "desc" },
