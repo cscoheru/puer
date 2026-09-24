@@ -30,8 +30,8 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9005:9000"
-      - "9006:9001"
+      - "127.0.0.1:9005:9000"
+      - "127.0.0.1:9006:9001"
     networks:
       - puer-net
     healthcheck:
@@ -94,7 +94,7 @@ services:
       - ./scripts/auto-reply.mjs:/app/scripts/auto-reply.mjs:ro
       - ./scripts/auto-vote.mjs:/app/scripts/auto-vote.mjs:ro
     ports:
-      - "3002:3000"
+      - "127.0.0.1:3002:3000"
     networks:
       - puer-net
 
