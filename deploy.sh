@@ -24,7 +24,10 @@ readonly -a WS_CONTEXT=(
 )
 readonly -a PROTECTED_PATTERNS=(
   '.env' '.env.*' '*/.env' '*/.env.*'
-  'uploads' 'uploads/*' '*/uploads' '*/uploads/*'
+  # Anchored to the upload data dirs on purpose: a bare '*/uploads/*' also matches
+  # src/app/uploads/[...path]/route.ts, a real source file, which made every build
+  # fail with "protected path entered build context" since 3fdb699 (R26b).
+  'uploads' 'uploads/*' 'public/uploads' 'public/uploads/*'
   'backups' 'backups/*' '*/backups' '*/backups/*'
   '.serena' '.serena/*' '*/.serena' '*/.serena/*'
   'src/generated' 'src/generated/*' '*/src/generated' '*/src/generated/*'
@@ -199,8 +202,11 @@ overlay_path_allowed() {
 
 validate_overlay_path() {
   local service="$1" path="$2" normalized="$path"
-  [[ -n "$path" && "$path" != /* && "$path" != *'..'* && "$path" != *$'\n'* ]] ||
+  [[ -n "$path" && "$path" != /* && "$path" != *$'\n'* ]] ||
     fail "unsafe overlay path: $path"
+  # Traversal is '..' as a whole segment. Matching the substring '..' anywhere also
+  # rejects Next.js catch-all segments such as '[...path]' (src/app/uploads/[...path]).
+  case "/$path/" in *'/../'*) fail "unsafe overlay path (traversal): $path" ;; esac
   is_protected_path "$path" && fail "protected overlay path: $path"
   overlay_path_allowed "$service" "$path" || fail "overlay path is outside the service allowlist: $path"
   if [[ "$service" == ws ]]; then
