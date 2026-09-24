@@ -12,6 +12,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import { parseMarket } from "@/lib/market-info";
+import { TEA_TYPE_LABELS, normalizeTeaType } from "@/lib/tea-query";
+import { loadFacets } from "@/lib/tea-landing-server";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +33,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { id } = await params;
   const tea = await prisma.tea.findFirst({
     where: { id, deletedAt: null },
-    select: { name: true, brand: true, year: true, type: true, description: true, coverImage: true },
+    select: { name: true, brand: true, year: true, type: true, description: true, coverImage: true, isClassic: true },
   });
   if (!tea) return { title: "茶品未找到" };
+  // P2-R23 茶品库绝对隐藏：非经典（私人档案）仅 admin 可访问。正文 `:74` 会 notFound()，
+  // 但 metadata 是随 404 响应体的 RSC payload 一起下发的 —— 不在这里也拦一道，
+  // 未登录者就能从 404 的 HTML 里直接读到茶名/厂牌/年份。可见 <head> 会回退到根 layout，
+  // 所以 Google 看不到，但原始 HTML 谁都能提取。
+  if (!tea.isClassic && (await auth())?.user?.role !== "admin") {
+    return { title: "茶品未找到", robots: { index: false, follow: false } };
+  }
   const teaType = tea.type === "raw" ? "生茶" : "熟茶";
   // P2-R11 SEO：年份+生熟+「普洱茶档案」进 title——茶友搜索习惯是
   // 「2003 大益 7542 生茶」这类精确词，档案页是承接这些长尾词的落地页。
@@ -72,7 +81,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
   // P2-R23 茶品库绝对隐藏：非经典茶档案仅 admin 可访问（经典茶详情页是 classics 流量承接页，保持公开）
   if (!tea || (!isAdmin && !tea.isClassic)) notFound();
 
-  const [tastingNotes, articles] = await Promise.all([
+  const [tastingNotes, articles, facets] = await Promise.all([
     prisma.tastingNote.findMany({
       where: { teaId: id },
       orderBy: { createdAt: "desc" },
@@ -95,6 +104,10 @@ export default async function TeaDetailPage({ params }: PageProps) {
       include: articleIncludes,
       orderBy: { createdAt: "desc" },
     }).catch(() => [] as ArticleWithRelations[]),
+    // P1-3：品牌/生熟面包屑的"该 hub 是否建页"判定必须与落地页**同源**，否则闸门必然漂移。
+    // 教训：原先本地算 `brandTeaCount >= LANDING_MIN_TEAS`，漏掉了 loadFacets 里的
+    // 「未知」排除 → 28 款 brand="未知" 的经典茶挂出指向 /tea/brand/未知 的 404 面包屑。
+    loadFacets(),
   ]);
 
   // P2-R2 经典普洱：品鉴全文仍 admin-only（私人笔记），
@@ -178,8 +191,41 @@ export default async function TeaDetailPage({ params }: PageProps) {
   const heroImgAbs = absImageUrl(heroImgSrc);
   const teaTypeLabel = tea.type === "raw" ? "生茶" : "熟茶";
 
+  // P1-3：可见面包屑与 BreadcrumbList JSON-LD 同源（不造假层级）。
+  // 恢复 /tea 一级（P2-R23 曾因茶品库隐藏而删）。
+  // 品牌/生熟两级只在「对应 hub 真的建了页」时才挂 —— 判据直接取自 loadFacets()，
+  // 与 /tea/brand|type/[x] 的 notFound 闸门是同一份数据，不可能再产生 404 内链。
+  const normalizedType = normalizeTeaType(tea.type);
+  const typeHub =
+    normalizedType && facets.types.some((t) => t.key === normalizedType) ? normalizedType : null;
+  const crumbs: { name: string; path: string }[] = [
+    { name: "品茶论坛", path: "/forum" },
+    { name: "茶品库", path: "/tea" },
+    ...(facets.brands.some((b) => b.brand === tea.brand)
+      ? [{ name: `${tea.brand}普洱茶`, path: `/tea/brand/${encodeURIComponent(tea.brand)}` }]
+      : []),
+    ...(typeHub ? [{ name: TEA_TYPE_LABELS[typeHub], path: `/tea/type/${typeHub}` }] : []),
+    { name: tea.name, path: `/tea/${id}` },
+  ];
+
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-8 lg:px-16 py-6 md:py-10">
+      {/* Breadcrumb JSON-LD（P1-3：可见 nav 早已存在但缺结构化数据，富摘要拿不到层级） */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: safeJsonLdStringify({
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: crumbs.map((c, i) => ({
+              "@type": "ListItem",
+              position: i + 1,
+              name: c.name,
+              item: `https://puer.im${c.path}`,
+            })),
+          }),
+        }}
+      />
       {/* Product JSON-LD（P2-R11：image + aggregateRating 提升图片收录与富摘要） */}
       <script
         type="application/ld+json"
@@ -207,17 +253,18 @@ export default async function TeaDetailPage({ params }: PageProps) {
           }),
         }}
       />
-      {/* Breadcrumb — P2-R23：去掉「茶品库」入口（茶品库仅 admin 可见，对用户绝对隐藏） */}
-      <nav className="text-xs md:text-sm text-stone-400 mb-4">
-        <Link href="/forum" className="hover:text-amber-700 transition">品茶论坛</Link>
-        {tea.isClassic && (
-          <>
-            <span className="mx-2">/</span>
-            <Link href="/forum/classics" className="hover:text-amber-700 transition">经典普洱</Link>
-          </>
-        )}
-        <span className="mx-2">/</span>
-        <span className="text-stone-600">{tea.name}</span>
+      {/* Breadcrumb（P1-3：恢复「茶品库」一级；茶品库已公开，不再是死链） */}
+      <nav aria-label="面包屑" className="text-xs md:text-sm text-stone-400 mb-4">
+        {crumbs.map((c, i) => (
+          <span key={c.path}>
+            {i > 0 && <span className="mx-2">/</span>}
+            {i === crumbs.length - 1 ? (
+              <span className="text-stone-600">{c.name}</span>
+            ) : (
+              <Link href={c.path} className="hover:text-amber-700 transition">{c.name}</Link>
+            )}
+          </span>
+        ))}
       </nav>
 
       {/* Header */}

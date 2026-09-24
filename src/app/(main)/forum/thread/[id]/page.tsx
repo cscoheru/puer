@@ -166,6 +166,30 @@ export default async function ThreadPage({ params }: PageProps) {
             url: `https://puer.im/forum/thread/${id}`,
             description: article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 200),
             ...(threadCoverImg ? { image: [threadCoverImg] } : {}),
+            // P1-4：互动量进结构化数据——Google 用 commentCount/interactionStatistic
+            // 判断讨论页活跃度（DiscussionForum 类富摘要的输入之一）
+            commentCount: article._count.comments,
+            ...(article.viewCount > 0
+              ? { interactionStatistic: [
+                  {
+                    "@type": "InteractionCounter",
+                    interactionType: { "@type": "CommentAction" },
+                    userInteractionCount: article._count.comments,
+                  },
+                  {
+                    "@type": "InteractionCounter",
+                    interactionType: { "@type": "LikeAction" },
+                    // 用 _count.likes（点赞）而非 upvotes：upvotes 是与 downvotes
+                    // 配对的论坛投票分，语义上不对应 schema.org 的 LikeAction。
+                    userInteractionCount: article._count.likes,
+                  },
+                  {
+                    "@type": "InteractionCounter",
+                    interactionType: { "@type": "ReadAction" },
+                    userInteractionCount: article.viewCount,
+                  },
+                ] }
+              : {}),
           }),
         }}
       />

@@ -416,7 +416,7 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
         <div className="flex items-center gap-2 mb-1.5 min-w-0">
           <Link href={`/user/${article.author.id}`} className="shrink-0">
             {article.author.avatar ? (
-              <img src={article.author.avatar} alt="" loading="lazy" className="w-8 h-8 rounded-full object-cover" />
+              <img src={article.author.avatar} alt="" width={32} height={32} loading="lazy" decoding="async" className="w-8 h-8 rounded-full object-cover" />
             ) : (
               <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold text-sm">
                 {article.author.username[0]}
@@ -495,7 +495,7 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
       {!effectiveVideoUrl && article.coverImage && (!article.images || article.images.length === 0) && (
         <Link href={`/forum/thread/${article.id}`} className="block border-t border-stone-100 bg-stone-50">
           <div className="aspect-[4/3]">
-            <img src={article.coverImage} alt="" decoding="async" loading="lazy" className="w-full h-full object-cover" />
+            <img src={article.coverImage} alt="" width={400} height={300} decoding="async" loading="lazy" className="w-full h-full object-cover" />
           </div>
         </Link>
       )}
@@ -570,10 +570,10 @@ function ImageCarousel({ images, articleId }: { images: string[]; articleId: str
       <div className="aspect-[4/3] relative overflow-hidden">
         {/* 只渲染当前图片:避免一次性加载帖子全部图片(原 map 渲染所有 img 用 opacity 切换,导致每帖N图全加载)。
             下一张用隐藏 img 预加载,使轮播切换更流畅。 */}
-        <img key={idx} src={images[idx]} alt="" decoding="async" loading="lazy"
+        <img key={idx} src={images[idx]} alt="" width={400} height={300} decoding="async" loading="lazy"
           className="absolute inset-0 w-full h-full object-cover" />
         {images.length > 1 && (
-          <img src={images[(idx + 1) % images.length]} alt="" aria-hidden="true" loading="lazy"
+          <img src={images[(idx + 1) % images.length]} alt="" aria-hidden="true" width={400} height={300} loading="lazy"
             className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
         )}
         {/* Nav arrows */}

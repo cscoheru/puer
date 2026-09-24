@@ -4,7 +4,10 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import ForumSidebar from "@/components/forum-sidebar";
 import LatestPosts from "@/components/latest-posts";
+import { TeaThumb } from "@/components/tea/tea-thumb";
+import { TeaList } from "@/components/tea/tea-list";
 import { parseMarket } from "@/lib/market-info";
+import { sortByHeat, teaListSelect, type TeaListRow } from "@/lib/tea-query";
 
 export const metadata: Metadata = {
   title: "经典普洱 · 品牌吧 - 大益吧/下关吧/福今吧",
@@ -37,61 +40,6 @@ async function loadBars(): Promise<BarConfig[]> {
   return DEFAULT_BARS.map((b) => ({ key: b.key, label: b.label, icon: b.icon, brands: [...b.brands] }));
 }
 
-/** 茶品热度：品鉴数为主 + 评分加权 + 行情快照/跟进帖加成 */
-function heatScore(t: {
-  tastingNoteCount: number;
-  avgRating: number | null;
-  marketInfo: unknown;
-  _count?: { articles: number };
-}) {
-  return (
-    t.tastingNoteCount * 10 +
-    (t.avgRating ?? 0) * 2 +
-    (t.marketInfo ? 3 : 0) +
-    (t._count?.articles || 0)
-  );
-}
-
-const teaSelect = {
-  id: true,
-  name: true,
-  brand: true,
-  year: true,
-  batch: true,
-  type: true,
-  coverImage: true,
-  gallery: true, // P2-R6：列表缩略图 fallback 到图库第一张
-  avgRating: true,
-  tastingNoteCount: true,
-  marketInfo: true,
-  updatedAt: true,
-  _count: { select: { articles: true } },
-  // P2-R6：封面/图库皆空时，fallback 到最近品鉴笔记的图片（Evernote 导入茶记是主要图源）
-  tastingNotes: {
-    select: { images: true },
-    orderBy: { createdAt: "desc" as const },
-    take: 3,
-  },
-} as const;
-
-/** P2-R6 图片预览三级链：正面封面 → 图库第一张 → 最近品鉴笔记第一图，无图 🍵 */
-function firstTeaImage(tea: {
-  coverImage: string | null;
-  gallery: unknown;
-  tastingNotes?: { images: unknown }[];
-}): string | null {
-  if (tea.coverImage) return tea.coverImage;
-  const gallery = Array.isArray(tea.gallery) ? (tea.gallery as unknown[]) : [];
-  const galImg = gallery.find((u) => typeof u === "string" && u.length > 0);
-  if (galImg) return galImg as string;
-  for (const n of tea.tastingNotes ?? []) {
-    const imgs = Array.isArray(n.images) ? (n.images as unknown[]) : [];
-    const first = imgs.find((u) => typeof u === "string" && u.length > 0);
-    if (first) return first as string;
-  }
-  return null;
-}
-
 export default async function ClassicsPage({
   searchParams,
 }: {
@@ -116,7 +64,7 @@ export default async function ClassicsPage({
   // 各吧茶品数 + 热门池（左侧widget）+ 近期有品鉴更新的茶（用于"更新中"标记）
   const [grouped, hotPool, recentNotes] = await Promise.all([
     prisma.tea.groupBy({ by: ["brand"], where: { isClassic: true, deletedAt: null }, _count: { _all: true } }).catch(() => []),
-    prisma.tea.findMany({ where: { isClassic: true, deletedAt: null }, orderBy: { tastingNoteCount: "desc" }, take: 60, select: teaSelect }).catch(() => []),
+    prisma.tea.findMany({ where: { isClassic: true, deletedAt: null }, orderBy: { tastingNoteCount: "desc" }, take: 60, select: teaListSelect }).catch(() => []),
     prisma.tastingNote.findMany({ orderBy: { createdAt: "desc" }, take: 40, distinct: ["teaId"], select: { teaId: true, createdAt: true } }).catch(() => []),
   ]);
 
@@ -130,13 +78,13 @@ export default async function ClassicsPage({
     // eslint-disable-next-line react-hooks/purity
     recentNotes.filter((n) => Date.now() - new Date(n.createdAt).getTime() < 30 * 86400_000).map((n) => n.teaId),
   );
-  const hotTeas = [...hotPool].sort((a, b) => heatScore(b) - heatScore(a)).slice(0, 10);
+  const hotTeas = sortByHeat(hotPool).slice(0, 10);
 
   const [teas, totalCount] = await Promise.all([
-    prisma.tea.findMany({ where, orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }], take: 120, select: teaSelect }).catch(() => []),
+    prisma.tea.findMany({ where, orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }], take: 120, select: teaListSelect }).catch(() => []),
     prisma.tea.count({ where }).catch(() => 0),
   ]);
-  teas.sort((a, b) => heatScore(b) - heatScore(a));
+  const rankedTeas = sortByHeat(teas);
 
   const barLabel = bar ? bar.label : barKey === "other" ? "其他吧" : "全部茶品";
   const barDesc = bar
@@ -256,7 +204,7 @@ export default async function ClassicsPage({
             </div>
 
             {teas.length > 0 ? (
-              <TeaList teas={teas} recentIds={recentIds} />
+              <TeaList teas={rankedTeas} recentIds={recentIds} />
             ) : (
               <div className="text-center py-16 border border-dashed border-stone-200 rounded-lg bg-white">
                 <p className="text-stone-300 text-lg mb-1">🏵️</p>
@@ -276,24 +224,8 @@ export default async function ClassicsPage({
   );
 }
 
-type ClassicTeaRow = {
-  id: string;
-  name: string;
-  brand: string;
-  year: number;
-  batch: string | null;
-  type: string;
-  coverImage: string | null;
-  gallery: unknown; // P2-R6：Json 图片数组，缩略图 fallback
-  tastingNotes: { images: unknown }[]; // P2-R6：最近 3 篇品鉴（图源 fallback）
-  avgRating: number | null;
-  tastingNoteCount: number;
-  marketInfo: unknown;
-  _count: { articles: number };
-};
-
 /** 左侧热门茶品 widget：≤10 款，按热度排序，近 30 天有新品鉴的打绿点 */
-function HotTeasWidget({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: Set<string> }) {
+function HotTeasWidget({ teas, recentIds }: { teas: TeaListRow[]; recentIds: Set<string> }) {
   return (
     <aside className="w-60 shrink-0 hidden lg:block">
       <div className="sticky top-20 space-y-3">
@@ -337,85 +269,5 @@ function HotTeasWidget({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: 
         </div>
       </div>
     </aside>
-  );
-}
-
-/** P2-R6 统一缩略图：正面封面优先，缺省图库第一张，无图 🍵 占位 */
-function TeaThumb({
-  tea,
-  className = "w-14 h-14",
-  icon = "text-2xl",
-  rounded = "rounded-lg",
-}: {
-  tea: Pick<ClassicTeaRow, "coverImage" | "gallery" | "tastingNotes" | "name">;
-  className?: string;
-  icon?: string;
-  rounded?: string;
-}) {
-  const img = firstTeaImage(tea);
-  return (
-    <div className={`${className} ${rounded} overflow-hidden bg-gradient-to-br from-amber-50 to-stone-100 shrink-0`}>
-      {img ? (
-        <img src={img} alt={tea.name} loading="lazy" className="w-full h-full object-cover" />
-      ) : (
-        <div className={`w-full h-full flex items-center justify-center ${icon}`}>🍵</div>
-      )}
-    </div>
-  );
-}
-
-/** 吧内茶品列表行：封面缩略 + 档案信息 + 行情价，热度已排序 */
-function TeaList({ teas, recentIds }: { teas: ClassicTeaRow[]; recentIds: Set<string> }) {
-  return (
-    <div className="space-y-2">
-      {teas.map((tea) => {
-        const market = parseMarket(tea.marketInfo);
-        return (
-          <Link
-            key={tea.id}
-            href={`/tea/${tea.id}`}
-            className="flex items-center gap-3 p-3 bg-white rounded-xl border border-stone-200 hover:border-amber-300 hover:shadow-sm transition group"
-          >
-            <TeaThumb tea={tea} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-medium text-stone-800 text-sm truncate group-hover:text-amber-800 transition">
-                  {tea.name}
-                </h3>
-                {recentIds.has(tea.id) && (
-                  <span className="text-[0.625rem] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full">更新中</span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">{tea.brand}</span>
-                <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded">
-                  {tea.year}{tea.batch ? `-${tea.batch}` : ""}
-                </span>
-                <span className={`text-[0.625rem] px-1.5 py-0.5 rounded ${tea.type === "raw" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                  {tea.type === "raw" ? "生" : "熟"}
-                </span>
-              </div>
-              <p className="text-xs text-stone-400 mt-1.5">
-                {tea.tastingNoteCount > 0 ? `${tea.tastingNoteCount} 篇品鉴` : "建档中"}
-                {tea.avgRating != null && ` · ★${tea.avgRating.toFixed(1)}`}
-                {tea._count.articles > 0 && ` · ${tea._count.articles} 条跟进`}
-                {market?.price && ` · ${market.price}`}
-              </p>
-            </div>
-            <div className="shrink-0 text-right hidden sm:block">
-              {market ? (
-                <>
-                  <p className="text-sm font-semibold text-amber-800">{market.price}</p>
-                  <p className="text-[0.625rem] text-stone-300 mt-0.5">{market.source || "东和茶库"}</p>
-                </>
-              ) : (
-                <p className="text-[0.625rem] text-stone-300">暂无行情</p>
-              )}
-              <p className="text-[0.625rem] text-amber-700 group-hover:translate-x-0.5 transition mt-1.5">查看档案 ›</p>
-            </div>
-          </Link>
-        );
-      })}
-    </div>
   );
 }

@@ -76,7 +76,7 @@ type ArticleRow = {
  * 茶记自动帖（tasting-draft）的图片在独立 images 字段、content 纯文字，
  * 旧逻辑只从 content 提取导致这类帖子在 feed 全部无图、无轮播、无封面。
  */
-function extractFeedImages(a: { content: string; images: string[] | null }): {
+export function extractFeedImages(a: { content: string; images: string[] | null }): {
   coverImage: string | null;
   images: string[];
 } {

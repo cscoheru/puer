@@ -1,0 +1,54 @@
+# Puêr (puer.im)
+
+> 中文普洱茶社区与茶品档案库。论坛收录生普/熟普品鉴交流、仓储转化讨论与茶友问答；
+> 茶品库收录 152 款经典普洱茶档案（大益、下关、福今、黎明八角亭、今大福等厂牌，
+> 1990s–2010s 各年份生茶与熟茶），每款含品种档案、历年品鉴转化记录、口感评分与行情快照。
+
+站点语言：简体中文。内容以用户与茶友生产的品鉴记录为主，非营销页。
+
+## 核心入口
+
+- [普洱茶论坛](https://puer.im/forum)：生普/熟普品鉴交流、仓储讨论、茶友问答
+- [经典普洱 · 品牌吧](https://puer.im/forum/classics)：按厂牌分吧的经典茶品档案
+- [普洱茶库](https://puer.im/tea)：全部经典茶品档案索引
+- [茶品交换](https://puer.im/exchange)：茶友间以茶换茶
+
+## 分类索引
+
+- [生普洱茶档案](https://puer.im/tea/type/raw)：生普（未渥堆发酵，自然转化）经典茶品
+- [熟普洱茶档案](https://puer.im/tea/type/ripe)：熟普（渥堆发酵）经典茶品
+- [大益普洱茶档案](https://puer.im/tea/brand/%E5%A4%A7%E7%9B%8A)：原勐海茶厂，7542/7572 等标杆唛号
+- [下关普洱茶档案](https://puer.im/tea/brand/%E4%B8%8B%E5%85%B3)：沱茶形制与烟香风格代表厂牌
+- [福今普洱茶档案](https://puer.im/tea/brand/%E7%A6%8F%E4%BB%8A)：班章料与大白菜系列
+- [今大福普洱茶档案](https://puer.im/tea/brand/%E4%BB%8A%E5%A4%A7%E7%A6%8F)：延续班章路线的大福系列
+- [黎明八角亭普洱茶档案](https://puer.im/tea/brand/%E9%BB%8E%E6%98%8E%E5%85%AB%E8%A7%92%E4%BA%AD)：黎明茶厂经典唛号
+
+## 年份索引
+
+- [1997 年普洱茶](https://puer.im/tea/year/1997)
+- [1998 年普洱茶](https://puer.im/tea/year/1998)
+- [1999 年普洱茶](https://puer.im/tea/year/1999)
+- [2001 年普洱茶](https://puer.im/tea/year/2001)
+- [2003 年普洱茶](https://puer.im/tea/year/2003)
+- [2004 年普洱茶](https://puer.im/tea/year/2004)
+- [2005 年普洱茶](https://puer.im/tea/year/2005)
+- [2006 年普洱茶](https://puer.im/tea/year/2006)
+- [2010 年普洱茶](https://puer.im/tea/year/2010)
+
+## 论坛板块
+
+- [普洱醇香](https://puer.im/forum/puer)：普洱生熟茶品鉴与讨论
+- [经典普洱](https://puer.im/forum/classics)：经典厂牌档案与转化跟进
+- [黑茶雅韵](https://puer.im/forum/heicha)：黑茶（含六堡、茯砖等）
+- [习茶问道](https://puer.im/forum/knowledge)：仓储、工艺、历史等知识性讨论
+- [茶市风云](https://puer.im/forum/trade)：行情与市场观察
+- [茶器清心](https://puer.im/forum/teacup)：茶器与冲泡器具
+- [茶水人生](https://puer.im/forum/water)：日常茶生活
+
+## 说明
+
+- 品鉴笔记的完整正文为茶友私人记录，需登录且受作者可见性设置限制，不对外公开；
+  公开可见的是茶品档案层的聚合信息（品种信息、评分聚合、转化时间线摘要、行情快照）。
+- 帖子页含 `Article` / `VideoObject` / `BreadcrumbList` 结构化数据；
+  茶品页含 `Product` / `Brand` / `aggregateRating` / `BreadcrumbList`。
+- [站点地图](https://puer.im/sitemap.xml) · [robots.txt](https://puer.im/robots.txt)

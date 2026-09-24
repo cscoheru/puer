@@ -171,7 +171,7 @@ export default async function ForumSidebar() {
                     {i + 1}
                   </span>
                   {tea.thumb ? (
-                    <img src={tea.thumb} alt="" loading="lazy" className="w-7 h-7 rounded object-cover shrink-0 border border-amber-200/60" />
+                    <img src={tea.thumb} alt="" width={28} height={28} loading="lazy" decoding="async" className="w-7 h-7 rounded object-cover shrink-0 border border-amber-200/60" />
                   ) : (
                     <span className="w-7 h-7 rounded bg-white/70 border border-amber-200/60 shrink-0 flex items-center justify-center text-sm">🍵</span>
                   )}
@@ -191,9 +191,9 @@ export default async function ForumSidebar() {
 
         {/* 社区 — 版块列表 */}
         <div className="bg-white border border-stone-200 rounded-lg p-3">
-          <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 px-1">
+          <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 px-1">
             社区
-          </h3>
+          </h2>
           <div className="space-y-0.5">
             {boards.map((board) => (
               <Link

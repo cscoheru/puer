@@ -60,6 +60,10 @@ next-env.d.ts
 /evernote_export/
 /export_images.log
 
+# GSC / 站点分析导出（含查询词、曝光、点击、覆盖率数据）。
+# 本仓库是 public，这些是站点的私有搜索数据，不入库；方案文档里按本地路径引用即可。
+/seo/
+
 # promo site build output
 /docs/promo/.next/
 

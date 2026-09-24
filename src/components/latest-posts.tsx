@@ -68,7 +68,7 @@ export default async function LatestPosts() {
       <div className="sticky top-20">
         <div className="bg-white border border-stone-200 rounded-lg overflow-hidden">
           <div className="px-3 py-2 bg-stone-50 border-b border-stone-200 sticky top-0">
-            <h3 className="text-xs font-bold text-stone-600 uppercase tracking-wider">最新帖子</h3>
+            <h2 className="text-xs font-bold text-stone-600 uppercase tracking-wider">最新帖子</h2>
           </div>
           <div className="divide-y divide-stone-100 max-h-[calc(100vh-12rem)] overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "#d6d3d1 transparent" }}>
             {enriched.map((post) => (
@@ -80,7 +80,7 @@ export default async function LatestPosts() {
                 {/* Thumbnail */}
                 {post.thumb ? (
                   <div className="w-12 h-12 rounded-lg bg-stone-100 overflow-hidden shrink-0 mt-0.5">
-                    <img src={post.thumb} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    <img src={post.thumb} alt="" width={48} height={48} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                   </div>
                 ) : post.videoUrl ? (
                   <div className="w-12 h-12 rounded-lg bg-black overflow-hidden shrink-0 mt-0.5 relative flex items-center justify-center">

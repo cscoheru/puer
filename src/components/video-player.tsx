@@ -99,6 +99,13 @@ export default function VideoPlayer({ src, className = "", feed = false, onVideo
       <video
         ref={videoRef}
         src={videoSrc}
+        // P1-5：feed 模式下 src 由 IntersectionObserver 延迟注入、preload=none，
+        // 无显式尺寸时浏览器拿不到固有宽高 → 元数据到达后卡片高度突变（CLS）。
+        // 给出占位尺寸；CSS(w-full/max-h) 仍决定实际渲染尺寸。
+        // 注意：slideshow-video.ts 产出的是 720×720 正方形，这里写 16:9 只是
+        // 「把一次跳变换成另一次更小的跳变」，并非消除 —— 见方案文档修正 2 的补记。
+        width={640}
+        height={360}
         preload={feed ? "none" : "metadata"}
         playsInline
         muted

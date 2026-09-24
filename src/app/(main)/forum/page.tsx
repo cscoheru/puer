@@ -52,17 +52,27 @@ export default async function ForumPage(props: {
   });
 
   return (
-    <div className="flex gap-4 md:gap-6 px-2 md:px-4 max-w-screen-2xl mx-auto">
-      <ForumSidebar />
-      <div className="flex-1 min-w-0">
-        <ForumFeed
-          articles={feedArticles}
-          boards={boards.map((b) => ({ id: b.id, name: b.name, slug: b.slug, icon: b.icon }))}
-          currentUserId={session?.user?.id}
-          tab={tab}
-        />
+    <div className="max-w-screen-2xl mx-auto px-2 md:px-4">
+      {/* P0-3：/forum 子树此前零个 h1，爬虫拿不到页面主题。此 h1 同时是页面
+          可见标题，与 metadata.title 语义一致（不堆词）。 */}
+      <div className="pt-4 pb-1">
+        <h1 className="text-lg md:text-xl font-serif font-bold text-stone-800">普洱茶论坛</h1>
+        <p className="text-xs md:text-sm text-stone-500 mt-1">
+          生普/熟普品鉴交流、大益等经典中老期茶档案、仓储行情讨论与茶友问答。
+        </p>
       </div>
-      <LatestPosts />
+      <div className="flex gap-4 md:gap-6 pt-2">
+        <ForumSidebar />
+        <div className="flex-1 min-w-0">
+          <ForumFeed
+            articles={feedArticles}
+            boards={boards.map((b) => ({ id: b.id, name: b.name, slug: b.slug, icon: b.icon }))}
+            currentUserId={session?.user?.id}
+            tab={tab}
+          />
+        </div>
+        <LatestPosts />
+      </div>
     </div>
   );
 }

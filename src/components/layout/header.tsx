@@ -35,6 +35,11 @@ export default function Header() {
           <Link href="/forum" className="px-3 py-1.5 text-sm text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition">
             {_("论坛")}
           </Link>
+          {/* P1-1：/tea 公开后必须进全站导航 —— 否则"聚合入口"只靠面包屑和 sitemap
+              到达，内链图谱建不起来，152 个茶页仍拿不到权重与抓取路径 */}
+          <Link href="/tea" className="px-3 py-1.5 text-sm text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition">
+            {_("茶品库")}
+          </Link>
           <Link href="/exchange" className="px-3 py-1.5 text-sm text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition">
             {_("互换大厅")}
           </Link>
@@ -137,6 +142,7 @@ export default function Header() {
           <nav className="px-4 py-3 space-y-1">
             <Link href="/forum" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🏠 {_("首页")}</Link>
             <Link href="/forum/classics" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🏵️ {_("经典普洱")}</Link>
+            <Link href="/tea" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">📚 {_("茶品库")}</Link>
             <Link href="/exchange" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🤝 {_("互换大厅")}</Link>
             <Link href="/sessions" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🍵 {_("云喝茶")}</Link>
             <Link href="/ask" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🫖 {_("茶问")}</Link>
