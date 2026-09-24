@@ -338,3 +338,103 @@ sitemap 是 `force-dynamic`，`lastModified` 恒等于抓取时刻 → Google �
 - **百度/中文搜索**：`robots.ts` 只针对 `*`，无 Baiduspider 专门配置；站点是中文站但只有 Google 数据。是否需要 百度站长平台 验证 + 主动推送，值得单独评估（可能比 Google 更容易拿到中文流量）
 - **`/uploads/videos/` 用 `Accept-Ranges bytes` 但 `uploads/[...path]/route.ts:49` 设 `Accept-Ranges: none`** —— 两套路径行为不一致，视频拖动进度条在兜底路由下会失败
 
+
+---
+
+## 十、部署状态：回滚点已就绪，部署被 SSH 阻断（2026-09-24 19:25 CST）
+
+**生产未发生任何变更，`puer.im` 仍运行 `ef5d8e8`（2026-09-13 镜像），站点健康**
+（`/forum` 200，`/ask` 200/1.15s）。本次部署**尚未执行**。
+
+### 回滚点（3 个，均已建立并验证）
+
+| 回滚点 | 位置 | 验证 |
+|---|---|---|
+| git tag | `deployed-20260924-pre-seo` → `ef5d8e8`，已推 origin | ✓ |
+| DB 全量转储 | `puer-hk:/opt/puer-hub/backups/puerhub-pre-seo-20260924T110920Z.dump` | `pg_restore -l` 38 表，含 articles(477 COPY 行)/teas/tasting_notes/users/site_daily_stats ✓ |
+| 镜像 tag | `puer-hk`: `puer-hub-app:pre-deploy-20260924` → `sha256:1b45384c…` | ✓ |
+
+uploads 另有每日 03:17 全量备份（最新 2026-09-24，465MB）；nginx 配置在
+`/opt/puer-hub/backups/nginx-puer-1790247407.conf` 且已入库 `deploy/nginx/`。
+deploy.sh 在 activate 失败时会自动写 `app.rollback.override.yml` 并回滚。
+
+### 阻断原因：SSH 到 puer-hk 握手超时
+
+- 现象：`ssh puer-hk` 超时；但 `nc -z 207.57.134.99 16921` **TCP 可连通**，ICMP 41ms 正常。
+  即端口开放、SSH 协议握手卡住 —— 指向 sshd 侧（反向 DNS 卡顿 / sshd 过载 / fail2ban 软封）。
+- 处置：按 AGENTS.md R26b 规则 1，同类命令超时 2 次即停止重试；站点健康故不动生产。
+- 恢复后直接续做下面的步骤即可。
+
+### 关键结论：**本地构建不可能成功**，必须服务器端 build
+
+- 本机 colima 是 **aarch64**，产出 arm64 镜像；生产服务器是 **x86_64**，
+  `puer-hub-app:latest` 是 **amd64/linux**。架构不匹配，本地镜像根本跑不起来。
+- 本地 `.releases/` 里 9/1 的遗留镜像实测就是 `arm64/linux`。
+- 且 colima 构建容器内 DNS 不通（`getaddrinfo EAI_AGAIN binaries.prisma.sh`），
+  `npx prisma generate` 无法下载引擎。
+- 这解释了 `releases/20260913T034500Z-ef5d8e8/` 为何是空目录 —— 上次线上部署走的
+  就是既有的「服务器端 build 绕道」（见记忆 `puer-hub-deploy-fallback`）。
+
+### 待执行步骤（SSH 恢复后）
+
+构建上下文可由 HEAD 复现（= APP_CONTEXT 从工作树拷贝，排除 `public/uploads` 与
+`src/generated`；deploy.sh 的 `copy_entry` 即为该语义）。已完成并核对：
+
+- `/tmp/puer-ctx-app`：336 文件，与 `./deploy.sh plan` 的期望清单**逐条一致**
+  （baseline 326 ∪ overlay 30 − 已删的 `src/app/page.tsx`）；已清掉 2 个 `.DS_Store`。
+- `/tmp/puer-ctx-app.tar.gz` sha256 `143e164e20699e8355e7e74301a07bd04ac2421681724177872df3a62a3eda12`
+- `/tmp/release-plan.txt`（含 336 行 context sha256 清单，格式与 `write_release_plan` 一致）
+
+```bash
+RID=20260924T110948Z-1d31783
+# 1+2. 上传上下文（tar 与 release-plan.txt 已备好）
+ssh puer-hk "mkdir -p /opt/puer-hub/releases/$RID/build-context"
+scp /tmp/puer-ctx-app.tar.gz /tmp/release-plan.txt "puer-hk:/opt/puer-hub/releases/$RID/"
+ssh puer-hk "cd /opt/puer-hub/releases/$RID && tar -xzf puer-ctx-app.tar.gz -C build-context && rm -f puer-ctx-app.tar.gz"
+
+# 3. 服务器端 build（后台 + 日志落地，勿 sleep 轮询）
+ssh puer-hk "cd /opt/puer-hub/releases/$RID/build-context && nohup bash -c 'docker build --tag puer-hub-app:$RID . > /tmp/build-$RID.log 2>&1; echo EXIT=\$? >> /tmp/build-$RID.log' >/dev/null 2>&1 &"
+
+# 4. 生成发布产物（activate 要求 app.image.tar + .sha256）
+ssh puer-hk "cd /opt/puer-hub/releases/$RID && docker image save --output app.image.tar puer-hub-app:$RID && sha256sum app.image.tar > app.image.tar.sha256"
+
+# 5. activate —— 必须传【两个】compose 文件，否则丢掉 9 个 bind mount（含全部 uploads）
+PUER_REMOTE_COMPOSE_FILES=/opt/puer-hub/docker-compose.yml:/opt/puer-hub/docker-compose.override.yml \
+  ./deploy.sh activate app $RID --confirm-activate
+```
+
+第 5 步的 compose 文件链是**硬性要求**：线上 `puer-hub-app` 容器由
+`docker-compose.yml` + `docker-compose.override.yml` 两个文件创建，9 个 bind mount
+（`/opt/puer-hub/uploads/* → /app/public/uploads/*`、`scripts/*.mjs`、`src/lib/tea-drafts`）
+都写在主 compose 里。只传主文件会让 `compose up` 重创容器并丢掉全部挂载 ——
+用户图片与视频会立刻从站点消失。已用 `docker compose config` 从 3 个不同 cwd
+验证相对路径恒解析为 `/opt/puer-hub/uploads/...`。
+
+验证脚本已写好：`/tmp/puer-verify.sh`（8 组检查，含 `/` 200、`/tea` 及 16 个聚合页、
+sitemap loc 与 `image:image`、结构化数据、uploads 缓存与 5 条安全头、查询参数容错、`/ask`）。
+
+### 本次部署携带的全部改动（须向用户说明）
+
+本次发布是 **21 个提交的完整 HEAD**（R24–R28e + SEO P0/P1），不只是 SEO ——
+因为 `extractFeedImages()` 在 `ef5d8e8` 中尚不存在，SE0 改动依赖其所在的 R26 工作，
+**无法**做成只含我方文件的局部 overlay。发布后另有两个提交（`fd33d25`、`fecc07e`）
+不属镜像内容（deploy.sh / compose 均不在 APP_CONTEXT 内）。
+
+### 顺带修复的两处问题（已提交并推送）
+
+1. **`fd33d25` deploy.sh 自 9/13 起对本仓库不可用**：`3fdb699`（R26b）新增的源码文件
+   `src/app/uploads/[...path]/route.ts` 被 `PROTECTED_PATTERNS` 的 `*/uploads/*` 误判为
+   protected；`validate_overlay_path` 又用子串判穿越（`*'..'*`），而 catch-all 目录名
+   `[...path]` 字面含 `..`。两处均改为精确语义。此前无部署，故潜伏未现。
+2. **`fecc07e` 服务器端口加固未回传 git**：服务器的 `docker-compose.yml` 早已把
+   MinIO(9005/9006) 与 app(3002) 改为只绑 `127.0.0.1`，仓库里却仍是 `0.0.0.0`
+   （`ss -lntp` 确认线上是加固版）。按 R27 规则 1 回写，回写后 sha256 与服务器一致。
+
+### 审查过但**决定不动**的漂移
+
+- `scripts/deploy-standby.sh`：服务器仍是 `DEEPSEEK_API_KEY`，git 已改 `MINIMAX_API_KEY`。
+  但该变量在脚本第 23 行赋值后**从未被使用**（死配置），且这是给全新服务器用的
+  standby provisioning 脚本、不在生产部署路径上 —— 改动无收益，仅记录。
+- `scripts/` 下 114 个 tracked 文件中 113 个与 git 一致，说明 R26/R28 的脚本修复
+  确实已在服务器上；`src/lib/tea-drafts`（被 host 挂载覆盖的目录）20 个文件也全一致，
+  故挂载不会遮蔽本次镜像内的改动。
