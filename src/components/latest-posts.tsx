@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { visibleArticleWhere } from "@/lib/article-visibility";
+import { extractFeedImages } from "@/lib/forum-feed-server";
 
 function timeAgo(date: Date) {
   const diff = Date.now() - date.getTime();
@@ -44,6 +45,8 @@ export default async function LatestPosts() {
       downvotes: true,
       replyCount: true,
       content: true,
+      // P2-R26：茶记自动帖图片存独立 images 字段（content 纯文字），select 必须带上
+      images: true,
       videoUrl: true,
       board: { select: { slug: true, name: true } },
       author: { select: { id: true, username: true, avatar: true, level: true } },
@@ -51,16 +54,20 @@ export default async function LatestPosts() {
   });
   } catch {}
 
-  // Extract first image from content for thumbnail;
-  // for video posts without images in content, derive thumbnail from videoUrl
+  // P2-R26：缩略图 = content 内联 <img> ∪ article.images 字段（统一走 extractFeedImages）。
+  // 茶记自动帖（tasting-draft）只写 images 字段，content 纯文字——旧 content-only 正则
+  // 会让这类帖子在右侧「最新帖子」栏全部无图。视频帖保留 videoUrl 派生缩略图兜底。
   const enriched = posts.map((p) => {
-    const imgThumb = (p.content || "").match(/<img[^>]+src="([^">]+)"/)?.[1] || null;
-    let videoThumb = null;
-    if (!imgThumb && p.videoUrl) {
+    const { coverImage } = extractFeedImages({
+      content: p.content || "",
+      images: (p.images as string[] | null) || null,
+    });
+    let videoThumb: string | null = null;
+    if (!coverImage && p.videoUrl) {
       const videoId = p.videoUrl.split("/").pop()?.replace(".mp4", "");
       if (videoId) videoThumb = `/uploads/videos/${videoId}.jpg`;
     }
-    return { ...p, thumb: imgThumb || videoThumb };
+    return { ...p, thumb: coverImage || videoThumb };
   });
 
   return (
