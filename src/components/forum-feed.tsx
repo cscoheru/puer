@@ -457,6 +457,12 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
                 {flairDef.label}
               </span>
             )}
+            {/* V1-R5：经典普洱帖徽章 — 让用户识别哪些帖子属于经典茶区 */}
+            {article.board?.slug === "classics" && (
+              <span className="text-[0.625rem] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-full font-medium" title="经典普洱">
+                🏵️ 经典
+              </span>
+            )}
             {article.isEssence && <span className="text-xs" title="精华">⭐</span>}
             {article.isPinned && <span className="text-xs" title="置顶">📌</span>}
             {article.status && article.status !== "published" && (

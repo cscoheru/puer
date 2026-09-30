@@ -85,6 +85,33 @@ export function extractFeedImages(a: { content: string; images: string[] | null 
   return { coverImage: merged[0] ?? null, images: merged };
 }
 
+/**
+ * V1-R5：classics 帖子筛选 — 品鉴帖（auto-post 含图）/ 已互动跟进帖放行；
+ * 孤儿跟进帖（classics + teaId + 0 回复 + 0 图片）排除，避免噪音刷屏。
+ */
+function passesClassicsFilter(a: ArticleRow): boolean {
+  if (!a.board || a.board.slug !== "classics") return true;
+  if (!a.teaId) return true; // classics 吧但无关联茶品（如吧务贴），放行
+  if ((a.replyCount || 0) >= 1) return true; // 已互动跟进帖
+  if (Array.isArray(a.images) && a.images.length > 0) return true; // auto-post 茶记
+  if (/<img[^>]+src=/i.test(a.content || "")) return true; // 老帖 content 内联图
+  return false;
+}
+
+/**
+ * V1-R5 多样性保护：单页 feed 中 classics 帖占比 ≤ cap，超出移至末尾（仍在页内，仅视觉降权）。
+ */
+function applyClassicsCap(rows: ArticleRow[], cap = 0.3): ArticleRow[] {
+  if (rows.length === 0) return rows;
+  const isClassics = (a: ArticleRow) => a.board?.slug === "classics";
+  const classicsCount = rows.filter(isClassics).length;
+  const maxClassics = Math.max(1, Math.floor(rows.length * cap));
+  if (classicsCount <= maxClassics) return rows;
+  const classics = rows.filter(isClassics);
+  const nonClassics = rows.filter((a) => !isClassics(a));
+  return [...nonClassics, ...classics.slice(0, maxClassics), ...classics.slice(maxClassics)];
+}
+
 async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedArticleDTO[]> {
   const voteMap = new Map<string, number>();
   if (userId && rows.length > 0) {
@@ -129,11 +156,8 @@ export async function fetchForumFeed(opts: {
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const limit = Math.max(1, Math.min(300, Math.floor(opts.limit ?? 60)));
 
-  // P2-R5：经典普洱跟进帖（classics 吧 + 关联茶品）不进主 feed——内容为
-  // 多篇茶记聚合、无视频/轮播，与普通帖风格差异大；仅在茶品档案/经典普洱
-  // 区内浏览。升级为正式帖（promotedHomeAt 非空）后才进入首页 feed。
-  // P2-R24：另放行「作者本人的待审帖」（仅作者自己可见，卡片标「审核中」）——
-  // 否则 AI 审核故障（fail-closed）期间作者发完帖在 feed 完全找不到，误以为发布失败。
+  // V1-R5 解除：classics 帖不再 SQL 层硬排除，全量抓取后做 post-filter。
+  // V1-R24：作者本人待审帖放行（仅作者自己可见）保留不变。
   // 注：visibleArticleWhere 返回值自带 status/OR 键，嵌套条件必须走 AND 合并。
   const wherePublished = {
     boardId: { not: null },
@@ -142,13 +166,6 @@ export async function fetchForumFeed(opts: {
         OR: [
           visibleArticleWhere(opts.userId ?? undefined),
           ...(opts.userId ? [{ status: "pending_review" as const, authorId: opts.userId }] : []),
-        ],
-      },
-      {
-        OR: [
-          { teaId: null },
-          { board: { slug: { not: "classics" } } },
-          { promotedHomeAt: { not: null } },
         ],
       },
     ],
@@ -166,7 +183,7 @@ export async function fetchForumFeed(opts: {
       select: articleSelect,
     });
     hasMore = fetched.length > limit;
-    rows = fetched.slice(0, limit) as unknown as ArticleRow[];
+    rows = (fetched.filter(passesClassicsFilter) as ArticleRow[]).slice(0, limit);
   } else {
     // ── v4 windowed hot ranking（与 forum/page.tsx 原实现一致）────────
     const WINDOW_HOURS: Record<string, number> = { day: 24, week: 168, month: 720 };
@@ -191,6 +208,8 @@ export async function fetchForumFeed(opts: {
       });
 
     let raw = await fetchWindow(WINDOW_HOURS[tab]);
+    // V1-R5：post-filter 排除孤儿跟进帖（classics + 0 回复 + 无图）
+    raw = raw.filter(passesClassicsFilter);
     if (tab === "day") {
       for (const h of [48, 72]) {
         if (raw.filter((a) => !a.hotOverride).length >= 8) break;
@@ -234,7 +253,7 @@ export async function fetchForumFeed(opts: {
     hasMore = paged.hasMore;
   }
 
-  return { articles: await toDTO(rows, opts.userId), hasMore };
+  return { articles: await toDTO(applyClassicsCap(rows), opts.userId), hasMore };
 }
 
 /** v4 热榜打分 + 分页 + 归档续读（day/week/month tab 专用） */
@@ -281,8 +300,10 @@ async function hotRankAndPage(opts: {
 
   // Personalization seed: user ID (if logged in) + current date —
   // each user sees a different ordering, same user sees it stable within a day
-  const dayBucket = Math.floor(Date.now() / 86400000);
-  const seedStr = (userId || "anon") + ":" + dayBucket;
+  // V1-1.5 分层轮转：seed 改 hourBucket，排序每小时重排一次；保留 tierFactor 三层权重
+  // 让 top 5 稳、中段抖、尾段重排；用户多次刷新可见不同顺序。
+  const hourBucket = Math.floor(Date.now() / 3600000);
+  const seedStr = (userId || "anon") + ":" + hourBucket;
   let seed = 0;
   for (let i = 0; i < seedStr.length; i++) { seed = ((seed << 5) - seed) + seedStr.charCodeAt(i); seed |= 0; }
   seed = Math.abs(seed);
@@ -345,13 +366,15 @@ async function hotRankAndPage(opts: {
     ],
   };
   const fetchArchive = async (skip: number, take: number) =>
-    prisma.article.findMany({
-      where: archiveWhere,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take,
-      select: articleSelect,
-    });
+    prisma.article
+      .findMany({
+        where: archiveWhere,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+        select: articleSelect,
+      })
+      .then((rows) => rows.filter(passesClassicsFilter));
 
   if (offset < combined.length) {
     // P2-R19：热榜窗口不足一页时自动「归档续读」填满 limit。周/日窗口帖量

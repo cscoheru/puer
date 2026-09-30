@@ -1,15 +1,13 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import Link from "next/link";
-import type { Metadata } from "next";
 import ForumSidebar from "@/components/forum-sidebar";
 import LatestPosts from "@/components/latest-posts";
-import { TeaThumb } from "@/components/tea/tea-thumb";
 import { TeaList } from "@/components/tea/tea-list";
-import { parseMarket } from "@/lib/market-info";
-import { sortByHeat, teaListSelect, type TeaListRow } from "@/lib/tea-query";
+import { sortByHeat, teaListSelect } from "@/lib/tea-query";
+import { extractFeedImages } from "@/lib/forum-feed-server";
 
-export const metadata: Metadata = {
+export const metadata = {
   title: "经典普洱 · 品牌吧 - 大益吧/下关吧/福今吧",
   description:
     "经典普洱品牌吧：按品牌分吧的经典茶品档案与转化跟进。大益吧、下关吧、福今吧、今大福吧、黎明吧、兴海吧，每个吧展示该品牌经典茶品（按热度排序），茶友可持续发布跟进帖。",
@@ -46,11 +44,10 @@ export default async function ClassicsPage({
   searchParams: Promise<{ bar?: string; type?: string; q?: string }>;
 }) {
   const params = await searchParams;
-  const session = await auth(); // P2-R6：发布新经典按钮仅 Lv.2+（与创建茶品 API 同权限）
+  const session = await auth(); // P2-R6：发布新经典按钮仅 Lv.2+
   const barKey = params.bar || "all";
   const type = params.type || "";
   const search = params.q || "";
-  // P2-R13：品牌吧配置从 DB 加载（管理员可在 /admin/classics 编辑），空表回退默认
   const bars = await loadBars();
   const knownBrands: string[] = bars.flatMap((b) => [...b.brands]);
   const bar = bars.find((b) => b.key === barKey) || null;
@@ -61,11 +58,50 @@ export default async function ClassicsPage({
   if (type) where.type = type;
   if (search) where.name = { contains: search, mode: "insensitive" } as const;
 
-  // 各吧茶品数 + 热门池（左侧widget）+ 近期有品鉴更新的茶（用于"更新中"标记）
-  const [grouped, hotPool, recentNotes] = await Promise.all([
+  // 并行查询：茶品分组 + 主列表 + 最近活动流
+  const [grouped, teas, totalCount, recentArticles, classicsBoard] = await Promise.all([
     prisma.tea.groupBy({ by: ["brand"], where: { isClassic: true, deletedAt: null }, _count: { _all: true } }).catch(() => []),
-    prisma.tea.findMany({ where: { isClassic: true, deletedAt: null }, orderBy: { tastingNoteCount: "desc" }, take: 60, select: teaListSelect }).catch(() => []),
-    prisma.tastingNote.findMany({ orderBy: { createdAt: "desc" }, take: 40, distinct: ["teaId"], select: { teaId: true, createdAt: true } }).catch(() => []),
+    prisma.tea.findMany({ where, orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }], take: 120, select: teaListSelect }).catch(() => []),
+    prisma.tea.count({ where }).catch(() => 0),
+    // V1: 最近活动 = classics 吧最新 20 帖（含未互动的跟进帖——这里不是 feed，是档案目录的活动流）
+    prisma.board
+      .findUnique({ where: { slug: "classics" }, select: { id: true } })
+      .then((b) =>
+        b
+          ? prisma.article.findMany({
+              where: { boardId: b.id, status: "published" },
+              orderBy: { createdAt: "desc" },
+              take: 20,
+              select: {
+                id: true,
+                title: true,
+                upvotes: true,
+                replyCount: true,
+                createdAt: true,
+                images: true,
+                content: true,
+                flair: true,
+                teaId: true,
+                tea: { select: { id: true, name: true, brand: true } },
+                author: { select: { username: true } },
+              },
+            })
+          : [],
+      )
+      .catch(() => [] as Array<{
+        id: string;
+        title: string;
+        upvotes: number;
+        replyCount: number;
+        createdAt: Date;
+        images: string[] | null;
+        content: string;
+        flair: string | null;
+        teaId: string | null;
+        tea: { id: string; name: string; brand: string } | null;
+        author: { username: string };
+      }>),
+    prisma.board.findUnique({ where: { slug: "classics" }, select: { id: true } }).catch(() => null),
   ]);
 
   const brandCount = new Map(grouped.map((g) => [g.brand, g._count._all]));
@@ -73,17 +109,6 @@ export default async function ClassicsPage({
   const otherCount = countForBar([...knownBrands]) === 0 ? 0 : grouped.reduce((s, g) => s + g._count._all, 0) - countForBar([...knownBrands]);
   const totalClassic = grouped.reduce((s, g) => s + g._count._all, 0);
 
-  const recentIds = new Set(
-    // 服务端组件中读取时钟属于正常行为；react-hooks/purity 规则误报
-    // eslint-disable-next-line react-hooks/purity
-    recentNotes.filter((n) => Date.now() - new Date(n.createdAt).getTime() < 30 * 86400_000).map((n) => n.teaId),
-  );
-  const hotTeas = sortByHeat(hotPool).slice(0, 10);
-
-  const [teas, totalCount] = await Promise.all([
-    prisma.tea.findMany({ where, orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }], take: 120, select: teaListSelect }).catch(() => []),
-    prisma.tea.count({ where }).catch(() => 0),
-  ]);
   const rankedTeas = sortByHeat(teas);
 
   const barLabel = bar ? bar.label : barKey === "other" ? "其他吧" : "全部茶品";
@@ -99,25 +124,22 @@ export default async function ClassicsPage({
     <div className="flex gap-4 md:gap-6 px-2 md:px-4 max-w-screen-2xl mx-auto py-4">
       <ForumSidebar />
       <div className="flex-1 min-w-0">
-        {/* Page header */}
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg p-4 md:p-5 mb-4">
-          <div className="flex items-center gap-2.5 mb-1.5 flex-wrap">
-            <span className="text-2xl">🏵️</span>
-            <h1 className="text-xl md:text-2xl font-serif font-bold text-amber-900">经典普洱 · 品牌吧</h1>
-            {/* P2-R6：「发布新经典」= 创建茶品档案并入选经典普洱吧（Lv.2+）；
-                跟进帖入口在每个茶品档案页内（所有登录用户可发） */}
-            {(session?.user?.level ?? 0) >= 2 && (
-              <Link
-                href="/encyclopedia/new?classic=1"
-                className="ml-auto px-3 py-1.5 text-xs md:text-sm rounded-lg bg-amber-800 text-white hover:bg-amber-900 transition font-medium"
-              >
-                ✨ 发布新经典
-              </Link>
-            )}
-          </div>
-          <p className="text-xs md:text-sm text-stone-600 leading-relaxed">
-            按品牌分吧的经典茶品档案与转化跟进（共 {totalClassic} 款）：品种档案、历年品鉴转化档案、东和行情快照与茶友跟进讨论。进入茶品页即可发布跟进帖更新近况。
-          </p>
+        {/* Page header — V1 减肥为 1 行 */}
+        <div className="flex items-center gap-2.5 mb-3 px-1 flex-wrap">
+          <span className="text-2xl shrink-0">🏵️</span>
+          <h1 className="text-lg md:text-xl font-serif font-bold text-amber-900">
+            经典普洱 <span className="text-stone-400 font-normal text-sm">· 共 {totalClassic} 款</span>
+          </h1>
+          {/* P2-R6：「发布新经典」= 创建茶品档案并入选经典普洱吧（Lv.2+）；
+              跟进帖入口在每个茶品档案页内（所有登录用户可发） */}
+          {(session?.user?.level ?? 0) >= 2 && (
+            <Link
+              href="/encyclopedia/new?classic=1"
+              className="ml-auto px-3 py-1.5 text-xs md:text-sm rounded-lg bg-amber-800 text-white hover:bg-amber-900 transition font-medium"
+            >
+              ✨ 发布新经典
+            </Link>
+          )}
         </div>
 
         {/* 吧导航（横向滚动 pills） */}
@@ -144,52 +166,15 @@ export default async function ClassicsPage({
           })}
         </div>
 
-        {/* 移动端热门茶品横滑条（P2-R5：替代桌面侧栏 widget 的移动可达性） */}
-        {hotTeas.length > 0 && (
-          <div className="lg:hidden mb-4">
-            <h3 className="text-xs font-semibold text-stone-500 mb-2 px-0.5">🔥 热门茶品 · 最近更新</h3>
-            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
-              {hotTeas.map((t, i) => {
-                const market = parseMarket(t.marketInfo);
-                return (
-                  <Link
-                    key={t.id}
-                    href={`/tea/${t.id}`}
-                    className="snap-start shrink-0 w-32 bg-white border border-stone-200 rounded-xl p-2.5 hover:border-amber-300 transition"
-                  >
-                    <TeaThumb tea={t} className="w-full h-20 mb-2" icon="text-3xl" rounded="rounded-lg" />
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-[0.625rem] font-bold tabular-nums ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>{i + 1}</span>
-                      <p className="text-xs text-stone-700 font-medium leading-tight line-clamp-2 min-h-[2em]">
-                        {recentIds.has(t.id) && (
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-0.5 align-middle" title="近30天有新品鉴" />
-                        )}
-                        {t.name}
-                      </p>
-                    </div>
-                    <p className="text-[0.625rem] text-stone-400 mt-1.5 leading-snug">
-                      {t.tastingNoteCount > 0 ? `${t.tastingNoteCount} 篇品鉴` : "建档中"}
-                    </p>
-                    {market?.price && (
-                      <p className="text-[0.6875rem] font-semibold text-amber-800 mt-0.5">{market.price}</p>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         <div className="flex gap-4">
-          {/* 左侧：热门茶品 widget（桌面显示；≤10 款，最近更新打绿点） */}
-          <HotTeasWidget teas={hotTeas} recentIds={recentIds} />
-
           {/* 主区：当前吧的茶品列表（热度排序） */}
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
               <div>
-                <h2 className="text-lg font-serif font-bold text-stone-800">{barLabel}</h2>
-                <p className="text-xs text-stone-400 mt-0.5">{barDesc} · 共 {totalCount} 款{totalCount > 120 ? "（显示前 120）" : ""}</p>
+                <h2 className="text-base font-serif font-bold text-stone-800">{barLabel}</h2>
+                <p className="text-xs text-stone-400 mt-0.5">
+                  {barDesc} · 共 {totalCount} 款{totalCount > 120 ? "（显示前 120）" : ""}
+                </p>
               </div>
               <form method="GET" className="flex flex-wrap gap-2">
                 {barKey !== "all" && <input type="hidden" name="bar" value={barKey} />}
@@ -203,8 +188,8 @@ export default async function ClassicsPage({
               </form>
             </div>
 
-            {teas.length > 0 ? (
-              <TeaList teas={rankedTeas} recentIds={recentIds} />
+            {rankedTeas.length > 0 ? (
+              <TeaList teas={rankedTeas} />
             ) : (
               <div className="text-center py-16 border border-dashed border-stone-200 rounded-lg bg-white">
                 <p className="text-stone-300 text-lg mb-1">🏵️</p>
@@ -217,6 +202,9 @@ export default async function ClassicsPage({
               </div>
             )}
           </div>
+
+          {/* 右栏：最近活动流（桌面显示） */}
+          <RecentActivityPanel articles={recentArticles} boardId={classicsBoard?.id} />
         </div>
       </div>
       <LatestPosts />
@@ -224,48 +212,83 @@ export default async function ClassicsPage({
   );
 }
 
-/** 左侧热门茶品 widget：≤10 款，按热度排序，近 30 天有新品鉴的打绿点 */
-function HotTeasWidget({ teas, recentIds }: { teas: TeaListRow[]; recentIds: Set<string> }) {
+/** 右栏最近活动流：classics 吧最新 20 帖，每条卡片链接到帖子详情。
+ *  桌面 lg+ 显示（≥1024px）；移动端隐藏避免与 LatestPosts 重复 */
+function RecentActivityPanel({
+  articles,
+  boardId,
+}: {
+  articles: Array<{
+    id: string;
+    title: string;
+    upvotes: number;
+    replyCount: number;
+    createdAt: Date;
+    images: string[] | null;
+    content: string;
+    flair: string | null;
+    teaId: string | null;
+    tea: { id: string; name: string; brand: string } | null;
+    author: { username: string };
+  }>;
+  boardId?: string;
+}) {
   return (
-    <aside className="w-60 shrink-0 hidden lg:block">
-      <div className="sticky top-20 space-y-3">
-        <div className="bg-white border border-stone-200 rounded-lg p-3">
-          <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 px-1">
-            🔥 热门茶品 · 最近更新
-          </h3>
-          <div className="space-y-1">
-            {teas.map((t, i) => {
-              const market = parseMarket(t.marketInfo);
-              return (
-                <Link
-                  key={t.id}
-                  href={`/tea/${t.id}`}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-amber-50 transition group"
-                >
-                  <span className={`w-5 text-center text-xs font-bold tabular-nums ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>
-                    {i + 1}
-                  </span>
-                  <TeaThumb tea={t} className="w-8 h-8" icon="text-base" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-stone-700 truncate group-hover:text-amber-800 transition">
-                      {recentIds.has(t.id) && (
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1 align-middle" title="近30天有新品鉴" />
-                      )}
-                      {t.name}
-                    </p>
-                    <p className="text-[0.625rem] text-stone-400">
-                      {t.tastingNoteCount > 0 ? `${t.tastingNoteCount} 篇品鉴` : "建档中"}
-                      {market?.price && ` · ${market.price}`}
-                    </p>
-                  </div>
-                </Link>
-              );
-            })}
+    <aside className="w-72 shrink-0 hidden lg:block">
+      <div className="sticky top-20">
+        <div className="bg-white border border-stone-200 rounded-lg overflow-hidden">
+          <div className="px-3 py-2.5 border-b border-stone-100 flex items-center justify-between">
+            <h3 className="text-xs font-semibold text-stone-700 flex items-center gap-1.5">
+              <span>📌</span>
+              <span>最近活动</span>
+            </h3>
+            {boardId && (
+              <Link href={`/forum/classics`} className="text-[0.6875rem] text-amber-700 hover:text-amber-800">
+                更多 ›
+              </Link>
+            )}
           </div>
-        </div>
-        <div className="bg-white border border-stone-200 rounded-lg p-3 text-xs text-stone-500 leading-relaxed">
-          <p className="font-medium text-stone-600 mb-1">如何在吧里跟进？</p>
-          <p>点击茶品进入档案页，顶部「发布跟进帖」即可为该茶添加近况（转化观察、行情见闻、开汤记录）。档案创建者与茶友均可更新。</p>
+          {articles.length === 0 ? (
+            <div className="px-3 py-8 text-center text-stone-400 text-xs">暂无活动</div>
+          ) : (
+            <div className="divide-y divide-stone-100 max-h-[70vh] overflow-y-auto overscroll-contain">
+              {articles.map((a) => {
+                const { coverImage } = extractFeedImages({ content: a.content, images: a.images });
+                const isTastingDraft = !a.teaId && a.images && a.images.length > 0; // 茶记自动帖
+                return (
+                  <Link
+                    key={a.id}
+                    href={`/forum/thread/${a.id}`}
+                    className="flex gap-2 p-2.5 hover:bg-amber-50/50 transition group"
+                  >
+                    {coverImage ? (
+                      <img
+                        src={coverImage}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="w-12 h-12 rounded object-cover shrink-0 border border-stone-100"
+                      />
+                    ) : (
+                      <span className="w-12 h-12 rounded bg-stone-100 shrink-0 flex items-center justify-center text-lg">
+                        {isTastingDraft ? "📝" : a.teaId ? "💬" : "🍵"}
+                      </span>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-stone-700 leading-snug line-clamp-2 group-hover:text-amber-800 transition">
+                        {a.title}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[0.625rem] text-stone-400">
+                        {a.tea && <span className="truncate">{a.tea.name}</span>}
+                        {a.replyCount > 0 && <span>💬 {a.replyCount}</span>}
+                        {a.upvotes > 0 && <span>▲ {a.upvotes}</span>}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </aside>

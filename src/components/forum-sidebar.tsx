@@ -107,13 +107,25 @@ export default async function ForumSidebar() {
   try { session = await auth(); } catch {}
   let boards: Array<{ id: string; name: string; slug: string; icon: string | null; threadCount: number }> = [];
   let hotClassicTeas: SidebarTea[] = [];
+  let recentClassicPosts: Array<{ id: string; title: string; replyCount: number; createdAt: Date }> = [];
   try {
-    [boards, hotClassicTeas] = await Promise.all([
+    [boards, hotClassicTeas, recentClassicPosts] = await Promise.all([
       prisma.board.findMany({
         orderBy: { sortOrder: "asc" },
         select: { id: true, name: true, slug: true, icon: true, threadCount: true },
       }),
       loadHotClassicTeas(12),
+      // V1：最近 2 条 classics 帖 — 让侧栏入口不只是茶品目录，还能直接进帖子
+      (async () => {
+        const board = await prisma.board.findUnique({ where: { slug: "classics" }, select: { id: true } }).catch(() => null);
+        if (!board) return [];
+        return prisma.article.findMany({
+          where: { boardId: board.id, status: "published" },
+          orderBy: { createdAt: "desc" },
+          take: 2,
+          select: { id: true, title: true, replyCount: true, createdAt: true },
+        });
+      })(),
     ]);
   } catch {}
 
@@ -183,6 +195,27 @@ export default async function ForumSidebar() {
                       {tea.tastingNoteCount > 0 ? `${tea.tastingNoteCount} 篇品鉴` : "建档中"}
                     </p>
                   </div>
+                </Link>
+              ))}
+            </div>
+          )}
+          {/* V1：最近 2 条 classics 帖 — 让侧栏入口不只是茶品目录，还能直接进帖子 */}
+          {recentClassicPosts.length > 0 && (
+            <div className="px-2 pb-2 pt-1 border-t border-amber-200/60 space-y-0.5">
+              <p className="text-[0.625rem] font-semibold text-amber-800 uppercase tracking-wider px-0.5 mb-0.5">
+                💬 最近经典帖
+              </p>
+              {recentClassicPosts.map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/forum/thread/${p.id}`}
+                  className="block px-1.5 py-1 rounded text-xs text-stone-700 hover:bg-amber-100/60 hover:text-amber-800 transition leading-snug line-clamp-2"
+                  title={p.title}
+                >
+                  {p.title}
+                  {p.replyCount > 0 && (
+                    <span className="ml-1 text-[0.625rem] text-stone-400">💬 {p.replyCount}</span>
+                  )}
                 </Link>
               ))}
             </div>
