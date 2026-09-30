@@ -25,6 +25,10 @@ const AI_TIMEOUT_MS = 8000;
 const PUBLISH_CONFIDENCE = 0.7;
 const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
 const MINIMAX_MODEL = "MiniMax-M3";
+// lilith tailnet LLM fallback: MiniMax quota 打满时切本地 GPU
+const LILITH_URL = process.env.LILITH_LLM_URL || "http://lilith:11434/v1/chat/completions";
+const LILITH_MODEL = process.env.LILITH_LLM_MODEL || "qwen2.5:7b";
+const LILITH_TIMEOUT_MS = 15_000; // tailnet DERP 转发有延迟，给足余量
 
 // ─── 本地敏感词缓存(60s)── 调用方在提交链路,需低延迟、低 DB 压力 ───────────────
 let keywordCache: { rows: { keyword: string; category: string }[]; ts: number } = {
@@ -120,10 +124,11 @@ export async function screenContent(text: string): Promise<ModResult> {
   }
 }
 
-// ─── MiniMax 调用(OpenAI 兼容;timeout 取自 lib/sitemap-ping.ts)──
+// ─── AI 调用(MiniMax 优先, lilith tailnet LLM 兜底) ──────────────────────────
 // MiniMax-M3 默认开 adaptive thinking(先思考再答),审核链路低延迟,
 // 显式 disabled 让其直接输出 JSON;response_format json_object 若网关
 // 不识别会忽略,prompt 已强约束只返回 JSON,解析失败由上层 catch 兜底。
+// Ollama (lilith) 用 max_tokens 而非 max_completion_tokens,无需 Authorization。
 async function classifyByAI(
   text: string
 ): Promise<{ category: string; confidence: number; reason: string }> {
@@ -140,26 +145,62 @@ ${text.slice(0, 4000)}
 
 只返回 JSON,不要任何解释:{"category":"normal|adult|gambling|drug|political|investment","confidence":0到1的小数,"reason":"不超过30字的中文理由"}`;
 
-  const res = await fetch(MINIMAX_URL, {
+  // 1. MiniMax 优先
+  try {
+    return await callLLM(prompt, MINIMAX_URL, MINIMAX_MODEL, {
+      apiKey: process.env.MINIMAX_API_KEY,
+      maxTokensKey: "max_completion_tokens",
+      thinkingDisabled: true,
+      timeoutMs: AI_TIMEOUT_MS,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    // 只对配额/限流类错误 fallback 到 lilith;网络错误直接 fail-closed
+    const isQuotaError = /429|402|2056|quota|exceed|insufficient/i.test(msg);
+    if (!isQuotaError) throw e;
+    // 2. lilith tailnet LLM 兜底
+    return await callLLM(prompt, LILITH_URL, LILITH_MODEL, {
+      maxTokensKey: "max_tokens",
+      timeoutMs: LILITH_TIMEOUT_MS,
+    });
+  }
+}
+
+interface LLMCallOpts {
+  apiKey?: string;
+  maxTokensKey: "max_tokens" | "max_completion_tokens";
+  thinkingDisabled?: boolean;
+  timeoutMs: number;
+}
+
+async function callLLM(
+  prompt: string,
+  url: string,
+  model: string,
+  opts: LLMCallOpts
+): Promise<{ category: string; confidence: number; reason: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
+
+  const body: Record<string, unknown> = {
+    model,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0,
+    [opts.maxTokensKey]: 200,
+    response_format: { type: "json_object" },
+  };
+  if (opts.thinkingDisabled) body.thinking = { type: "disabled" };
+
+  const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.MINIMAX_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MINIMAX_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      max_completion_tokens: 200,
-      thinking: { type: "disabled" },
-      response_format: { type: "json_object" },
-    }),
-    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(opts.timeoutMs),
   });
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
-    throw new Error(`MiniMax ${res.status}: ${err.slice(0, 200)}`);
+    throw new Error(`LLM ${res.status}: ${err.slice(0, 200)}`);
   }
 
   const data = await res.json();
