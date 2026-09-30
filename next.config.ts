@@ -20,6 +20,16 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      // 用户进入 puer.im 直接进论坛 — 不再走营销首页（V1 改版）
+      {
+        source: "/",
+        destination: "/forum",
+        permanent: true, // 308 永久重定向
+      },
+    ];
+  },
 };
 
 export default nextConfig;
