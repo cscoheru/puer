@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { useLocale } from "@/i18n/context";
 
 interface Moderator {
   id: string;
@@ -12,6 +13,8 @@ interface Moderator {
 
 export default function BoardModerator({ boardSlug }: { boardSlug: string }) {
   const { data: session } = useSession();
+  // Rendered under the board header on both /forum/[slug] and its /tw mirror.
+  const { _ } = useLocale();
   const [mods, setMods] = useState<Moderator[]>([]);
   const [showApply, setShowApply] = useState(false);
   const [teaAge, setTeaAge] = useState("");
@@ -54,14 +57,14 @@ export default function BoardModerator({ boardSlug }: { boardSlug: string }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setMsg({ ok: true, text: "申请已提交，等待管理员审核" });
+        setMsg({ ok: true, text: _("申请已提交，等待管理员审核") });
         setShowApply(false);
         setMyStatus("pending");
       } else {
-        setMsg({ ok: false, text: data.error || "提交失败" });
+        setMsg({ ok: false, text: data.error || _("提交失败") });
       }
     } catch {
-      setMsg({ ok: false, text: "网络错误" });
+      setMsg({ ok: false, text: _("网络错误") });
     } finally {
       setApplying(false);
     }
@@ -72,7 +75,7 @@ export default function BoardModerator({ boardSlug }: { boardSlug: string }) {
       {/* Moderator list */}
       {mods.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-stone-500 mb-2">
-          <span>版主：</span>
+          <span>{_("版主：")}</span>
           {mods.map((m) => (
             <Link
               key={m.id}
@@ -99,22 +102,22 @@ export default function BoardModerator({ boardSlug }: { boardSlug: string }) {
           onClick={() => setShowApply(!showApply)}
           className="text-xs text-amber-600 hover:text-amber-800 transition"
         >
-          {showApply ? "取消申请" : "📋 申请版主"}
+          {showApply ? _("取消申请") : `📋 ${_("申请版主")}`}
         </button>
       )}
 
       {myStatus === "pending" && (
-        <span className="text-xs text-amber-600">⏳ 版主申请审核中</span>
+        <span className="text-xs text-amber-600">⏳ {_("版主申请审核中")}</span>
       )}
       {myStatus === "rejected" && (
-        <span className="text-xs text-red-500">❌ 申请未通过，可重新申请</span>
+        <span className="text-xs text-red-500">❌ {_("申请未通过，可重新申请")}</span>
       )}
 
       {/* Apply form */}
       {showApply && (
         <form onSubmit={handleApply} className="mt-2 p-3 bg-stone-50 border border-stone-200 rounded-lg space-y-2 max-w-md">
           <div>
-            <label className="block text-xs text-stone-500 mb-0.5">普洱茶龄（年）</label>
+            <label className="block text-xs text-stone-500 mb-0.5">{_("普洱茶龄（年）")}</label>
             <input
               type="number"
               value={teaAge}
@@ -127,14 +130,14 @@ export default function BoardModerator({ boardSlug }: { boardSlug: string }) {
             />
           </div>
           <div>
-            <label className="block text-xs text-stone-500 mb-0.5">申请理由</label>
+            <label className="block text-xs text-stone-500 mb-0.5">{_("申请理由")}</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               required
               rows={3}
               className="w-full border border-stone-300 rounded px-2 py-1.5 text-sm resize-none"
-              placeholder="说说你对这个版块的理解和你打算如何管理..."
+              placeholder={_("说说你对这个版块的理解和你打算如何管理...")}
             />
           </div>
           {msg && (
@@ -145,7 +148,7 @@ export default function BoardModerator({ boardSlug }: { boardSlug: string }) {
             disabled={applying}
             className="text-xs bg-amber-600 text-white px-3 py-1.5 rounded hover:bg-amber-700 transition disabled:opacity-50"
           >
-            {applying ? "提交中..." : "提交申请"}
+            {applying ? _("提交中...") : _("提交申请")}
           </button>
         </form>
       )}

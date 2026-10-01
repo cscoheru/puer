@@ -32,11 +32,30 @@ const SKIP_ANCESTORS = new Set([
   "textarea",
 ]);
 
-const MAX_CACHE = 500;
-const cache = new Map<string, string>();
+// Two caches, not one. `convertText` is called with short, high-churn strings
+// (every label, title and metadata field on every render) while
+// `convertPostHtml` is called with whole articles — one entry can be hundreds of
+// kilobytes. Sharing a single 500-entry FIFO meant a burst of label lookups
+// could evict every cached article body, and one long article could evict most
+// of the labels; both paths then re-ran opencc + cheerio at full cost. Splitting
+// them gives each path a budget sized to its own entry cost.
+const MAX_TEXT_CACHE = 500;
+const MAX_HTML_CACHE = 100;
+const textCache = new Map<string, string>();
+const htmlCache = new Map<string, string>();
 
 function key(input: string): string {
   return createHash("sha256").update("s2tw:").update(input).digest("hex").slice(0, 32);
+}
+
+/** FIFO eviction (Map preserves insertion order). */
+function store(cache: Map<string, string>, k: string, value: string, max: number): string {
+  if (cache.size >= max) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(k, value);
+  return value;
 }
 
 /** Plain-text conversion. Use for metadata title/description and JSON-LD fields. */
@@ -45,16 +64,9 @@ export function convertText(input: string | null | undefined): string {
   const s = String(input);
   if (!s) return "";
   const k = key(s);
-  const hit = cache.get(k);
+  const hit = textCache.get(k);
   if (hit !== undefined) return hit;
-  const out = converter(s);
-  // FIFO eviction at MAX_CACHE (Map preserves insertion order).
-  if (cache.size >= MAX_CACHE) {
-    const oldest = cache.keys().next().value;
-    if (oldest) cache.delete(oldest);
-  }
-  cache.set(k, out);
-  return out;
+  return store(textCache, k, converter(s), MAX_TEXT_CACHE);
 }
 
 /** HTML conversion. Walks the DOM and converts text nodes only when none of
@@ -65,7 +77,7 @@ export function convertPostHtml(html: string | null | undefined): string {
   const h = String(html);
   if (!h) return "";
   const k = key(h);
-  const hit = cache.get(k);
+  const hit = htmlCache.get(k);
   if (hit !== undefined) return hit;
 
   // Wrap in a sentinel root so we can recover the original fragment even when
@@ -77,13 +89,7 @@ export function convertPostHtml(html: string | null | undefined): string {
   // Serialize back. cheerio's `.html()` may re-encode some entities; this is
   // safe for our downstream consumer (ForumContent via dangerouslySetInnerHTML
   // goes through sanitizeHtml which normalizes anyway).
-  const result = $("#__root").html() ?? "";
-  if (cache.size >= MAX_CACHE) {
-    const oldest = cache.keys().next().value;
-    if (oldest) cache.delete(oldest);
-  }
-  cache.set(k, result);
-  return result;
+  return store(htmlCache, k, $("#__root").html() ?? "", MAX_HTML_CACHE);
 }
 
 type AnyNode = {

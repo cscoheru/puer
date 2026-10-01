@@ -2,12 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Logo from "@/components/logo";
 import SearchBar from "@/components/search-bar";
 import UserMenu from "@/components/user-menu";
 import { useLocale } from "@/i18n/context";
+import { twHref, localeSwitch } from "@/i18n/translations";
 
 export default function Header() {
   const { data: session } = useSession();
@@ -17,9 +18,30 @@ export default function Header() {
   const [mobileFocused, setMobileFocused] = useState(false);
   const mobileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
-  const { _, locale, toggle } = useLocale();
+  const pathname = usePathname();
+  const { _, locale, setLocale } = useLocale();
 
   const closeMenu = () => setMenuOpen(false);
+
+  /**
+   * Switching language navigates wherever both languages have an address, and
+   * only falls back to flipping the cookie on pages with no counterpart. The
+   * decision itself lives in `localeSwitch()` so it can be unit-tested; see
+   * that function for why the URL and the cookie each own one side of /tw.
+   *
+   * Query/hash are read from `window` rather than `useSearchParams()` so the
+   * hook count stays fixed and no Suspense boundary is needed above the
+   * header; this handler only ever runs in the browser.
+   */
+  const switchLocale = () => {
+    const suffix = window.location.search + window.location.hash;
+    const next = localeSwitch(pathname, locale);
+    // Set the state *before* navigating: the provider is never remounted, so
+    // leaving /tw/... without this would render the simplified page with the
+    // traditional locale still frozen in state.
+    setLocale(next.locale);
+    if (next.href !== null) router.push(next.href + suffix);
+  };
 
   // 茶记入口仅管理员可见(原 level>=2 与 /tasting 页面 role 判定不一致,统一为 admin)
   const showLevelLinks = session?.user?.role === "admin";
@@ -32,7 +54,10 @@ export default function Header() {
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-1 ml-2">
-          <Link href="/forum" className="px-3 py-1.5 text-sm text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition">
+          {/* Only forum routes are wrapped: `/tea`, `/exchange`, `/sessions`,
+              `/ask`, `/tasting` have no traditional mirror, so twHref would
+              hand back the same path anyway. */}
+          <Link href={twHref(locale, "/forum")} className="px-3 py-1.5 text-sm text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition">
             {_("论坛")}
           </Link>
           {/* P1-1：/tea 公开后必须进全站导航 —— 否则"聚合入口"只靠面包屑和 sitemap
@@ -64,9 +89,9 @@ export default function Header() {
         {/* User menu + locale toggle — right aligned on desktop */}
         <div className="hidden md:flex items-center gap-2">
           <button
-            onClick={toggle}
+            onClick={switchLocale}
             className="text-xs px-2 py-1 rounded border border-stone-300 text-stone-500 hover:border-amber-400 hover:text-amber-600 transition"
-            aria-label="切换语言"
+            aria-label={_("切换语言")}
           >
             <span suppressHydrationWarning>{locale === "zh-TW" ? "简体" : "繁體"}</span>
           </button>
@@ -86,10 +111,10 @@ export default function Header() {
                   onFocus={() => setMobileFocused(true)}
                   onBlur={() => setMobileFocused(false)}
                   onKeyDown={(e) => { if (e.key === "Enter" && mobileQuery.trim()) { setMobileSearchOpen(false); router.push(`/forum/search?q=${encodeURIComponent(mobileQuery.trim())}`); } }}
-                  placeholder="搜索帖子..." autoFocus
+                  placeholder={_("搜索帖子...")} autoFocus
                   className="w-full pl-9 pr-10 py-2 text-sm bg-stone-100 border border-stone-200 rounded-full outline-none text-stone-700 placeholder:text-stone-400 transition"
                 />
-                <button onClick={() => { setMobileSearchOpen(false); setMobileQuery(""); }} className="absolute right-1.5 p-1.5 text-stone-400 hover:text-stone-600 rounded-full hover:bg-stone-200 transition" aria-label="关闭搜索">
+                <button onClick={() => { setMobileSearchOpen(false); setMobileQuery(""); }} className="absolute right-1.5 p-1.5 text-stone-400 hover:text-stone-600 rounded-full hover:bg-stone-200 transition" aria-label={_("关闭搜索")}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
                 </button>
               </div>
@@ -107,7 +132,7 @@ export default function Header() {
               </Link>
               <button onClick={() => { setMobileSearchOpen(true); setTimeout(() => mobileInputRef.current?.focus(), 100); }}
                 className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 hover:text-amber-700 transition"
-                aria-label="搜索">
+                aria-label={_("搜索")}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
                 </svg>
@@ -115,7 +140,7 @@ export default function Header() {
               <UserMenu />
               <button onClick={() => setMenuOpen(!menuOpen)}
                 className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-600 -mr-2"
-                aria-label={menuOpen ? "关闭菜单" : "打开菜单"}>
+                aria-label={menuOpen ? _("关闭菜单") : _("打开菜单")}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
                   {menuOpen ? <path d="M6 6l12 12M6 18L18 6" /> : <><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></>}
                 </svg>
@@ -133,14 +158,14 @@ export default function Header() {
           </div>
           <div className="px-4 pt-2 flex items-center justify-between">
             <button
-              onClick={toggle}
+              onClick={switchLocale}
               className="text-xs px-2 py-1 rounded border border-stone-300 text-stone-500 hover:border-amber-400 hover:text-amber-600 transition"
             >
               <span suppressHydrationWarning>{locale === "zh-TW" ? "简体" : "繁體"}</span>
             </button>
           </div>
           <nav className="px-4 py-3 space-y-1">
-            <Link href="/forum" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🏠 {_("首页")}</Link>
+            <Link href={twHref(locale, "/forum")} onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🏠 {_("首页")}</Link>
             <Link href="/forum/classics" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🏵️ {_("经典普洱")}</Link>
             <Link href="/tea" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">📚 {_("茶品库")}</Link>
             <Link href="/exchange" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-700 hover:bg-amber-50 transition min-h-[44px] flex items-center">🤝 {_("互换大厅")}</Link>

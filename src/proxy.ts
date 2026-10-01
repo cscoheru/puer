@@ -8,10 +8,14 @@
  */
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isTwPath } from "@/i18n/translations";
 
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const isTw = pathname === "/tw" || pathname.startsWith("/tw/");
+  // Shared with the client provider (src/i18n/context.tsx) so the server's
+  // <html lang> and the client's forced locale can never disagree about which
+  // paths are traditional.
+  const isTw = isTwPath(pathname);
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-puer-locale", isTw ? "zh-TW" : "zh-CN");
   return NextResponse.next({ request: { headers: requestHeaders } });

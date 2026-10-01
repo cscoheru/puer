@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useLocale } from "@/i18n/context";
 
 interface Props {
   articleId: string;
 }
 
 export default function FollowThreadButton({ articleId }: Props) {
+  // Above the `!session.user` early return — hooks cannot be conditional.
+  const { _ } = useLocale();
   const [session, setSession] = useState<{ user?: { id?: string } } | null>(null);
   const [following, setFollowing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -55,7 +58,7 @@ export default function FollowThreadButton({ articleId }: Props) {
           : "border-stone-300 text-stone-600 hover:border-amber-300 hover:text-amber-700"
       }`}
     >
-      {loading ? "..." : following ? "已关注" : "关注帖子"}
+      {loading ? "..." : following ? _("已关注") : _("关注帖子")}
     </button>
   );
 }

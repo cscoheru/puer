@@ -3,20 +3,31 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { extractFeedImages } from "@/lib/forum-feed-server";
+import { convertText } from "@/lib/s2t";
+import { t, twHref } from "@/i18n/translations";
+import type { Locale } from "@/i18n/translations";
+import { resolveRequestLocale } from "@/lib/locale-server";
 
-function timeAgo(date: Date) {
+function timeAgo(date: Date, locale: string) {
   const diff = Date.now() - date.getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "刚刚";
-  if (mins < 60) return `${mins} 分钟前`;
+  if (mins < 1) return t("刚刚", locale);
+  if (mins < 60) return `${mins} ${t("分钟前", locale)}`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return `${hours} ${t("小时前", locale)}`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} 天前`;
-  return date.toLocaleDateString("zh-CN");
+  if (days < 30) return `${days} ${t("天前", locale)}`;
+  return date.toLocaleDateString(locale === "zh-TW" ? "zh-TW" : "zh-CN");
 }
 
-export default async function LatestPosts() {
+export default async function LatestPosts({ locale: forcedLocale }: { locale?: Locale } = {}) {
+  // See forum-sidebar.tsx: a missing prop means "this request's language", not
+  // a hardcoded one, so the sidebar cannot disagree with the header and feed.
+  const locale: Locale = forcedLocale ?? (await resolveRequestLocale());
+  // 与 forum-sidebar.tsx 同一套分工：外壳文案走 zhCNtoTW 对照表，DB 里取出的
+  // 标题/版块名走 s2tw 词典（本组件是 server component，convertText 可用）。
+  const cv = (s: string) => (locale === "zh-TW" ? convertText(s) : s);
+
   const session = await auth();
   let posts: any[] = [];
   try {
@@ -75,13 +86,13 @@ export default async function LatestPosts() {
       <div className="sticky top-20">
         <div className="bg-white border border-stone-200 rounded-lg overflow-hidden">
           <div className="px-3 py-2 bg-stone-50 border-b border-stone-200 sticky top-0">
-            <h2 className="text-xs font-bold text-stone-600 uppercase tracking-wider">最新帖子</h2>
+            <h2 className="text-xs font-bold text-stone-600 uppercase tracking-wider">{t("最新帖子", locale)}</h2>
           </div>
           <div className="divide-y divide-stone-100 max-h-[calc(100vh-12rem)] overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "#d6d3d1 transparent" }}>
             {enriched.map((post) => (
               <Link
                 key={post.id}
-                href={`/forum/thread/${post.id}`}
+                href={twHref(locale, `/forum/thread/${post.id}`)}
                 className="flex gap-2 px-3 py-2.5 hover:bg-stone-50 transition group"
               >
                 {/* Thumbnail */}
@@ -98,12 +109,12 @@ export default async function LatestPosts() {
                 {/* Text */}
                 <div className="min-w-0 flex-1">
                   <p className="text-xs text-stone-700 group-hover:text-amber-800 leading-snug line-clamp-2 font-medium">
-                    {post.title}
+                    {cv(post.title)}
                   </p>
                   <div className="flex items-center gap-1 mt-1 text-[0.625rem] text-stone-400">
                     <span>{post.author.username}</span>
                     <span>·</span>
-                    <span suppressHydrationWarning>{timeAgo(post.createdAt)}</span>
+                    <span suppressHydrationWarning>{timeAgo(post.createdAt, locale)}</span>
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 text-[0.625rem] text-stone-400">
                     <span>👍 {post.upvotes}</span>
@@ -111,7 +122,7 @@ export default async function LatestPosts() {
                     {post.board && (
                       <>
                         <span>·</span>
-                        <span className="text-stone-400">{post.board.name}</span>
+                        <span className="text-stone-400">{cv(post.board.name)}</span>
                       </>
                     )}
                   </div>

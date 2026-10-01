@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { visibleArticleWhere } from "@/lib/article-visibility";
+import { convertText } from "@/lib/s2t";
 
 /**
  * 论坛 feed 共享数据层（P2-R3 移动端懒加载）。
@@ -29,6 +30,41 @@ export interface FeedArticleDTO {
   board: { slug: string; name: string } | null;
   author: { id: string; username: string; avatar: string | null; level: number; followerCount: number; karma: number };
   initialVote: number;
+}
+
+/**
+ * Converts the DB-sourced text of a feed article to traditional Chinese.
+ *
+ * This has to run on the server, and it has to run *before* the article crosses
+ * into `ForumFeed`. That component is a client component, so the article is
+ * serialized into the RSC payload and rendered as-is; `convertText` carries a
+ * server-only guard (it pulls ~30 KB of opencc + cheerio) and therefore cannot
+ * be reached from there. The two halves of the app meet at that boundary —
+ * `t()` from the zhCNtoTW map works on either side, `convertText` works only on
+ * the server — and an unconverted field crossing it fails silently: there is no
+ * type error, the page just renders simplified text inside traditional chrome.
+ * That is exactly how `/tw/forum` shipped with a simplified feed.
+ *
+ * Fields deliberately left alone:
+ *   - `author.username` — an identifier, not prose. Converting it would break
+ *     the link between the rendered name and the account.
+ *   - `coverImage` / `images` / `videoUrl` — URLs.
+ *   - `flair` — the flairs in `forum-constants.ts` are already keys in the
+ *     zhCNtoTW map, so they are translated client-side via `_()`.
+ */
+export function toTraditionalFeed(articles: FeedArticleDTO[]): FeedArticleDTO[] {
+  return articles.map((a) => ({
+    ...a,
+    title: convertText(a.title),
+    content: convertText(a.content),
+    board: a.board ? { ...a.board, name: convertText(a.board.name) } : a.board,
+  }));
+}
+
+/** Board names for the feed's board filter — the same client-boundary rule as
+ *  {@link toTraditionalFeed}. `slug` stays untouched: it is the URL. */
+export function toTraditionalBoards<T extends { name: string }>(boards: T[]): T[] {
+  return boards.map((b) => ({ ...b, name: convertText(b.name) }));
 }
 
 const articleSelect = {

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
+import { useLocale } from "@/i18n/context";
 
 interface Notification {
   id: string;
@@ -15,6 +16,9 @@ interface Notification {
 
 export default function UserMenu() {
   const { data: session } = useSession();
+  // Hook before the logged-out early return below — the menu renders on both
+  // /forum and /tw/forum, so its chrome has to follow the reader's language.
+  const { _ } = useLocale();
   const [notifOpen, setNotifOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -51,13 +55,13 @@ export default function UserMenu() {
     return (
       <div className="flex items-center gap-2">
         <Link href="/login" className="text-sm text-stone-600 hover:text-amber-800 transition min-h-[44px] flex items-center px-2">
-          登录
+          {_("登录")}
         </Link>
         <Link
           href="/register"
           className="text-sm bg-amber-800 text-white px-4 py-2 rounded-lg hover:bg-amber-900 transition min-h-[44px] flex items-center"
         >
-          注册
+          {_("注册")}
         </Link>
       </div>
     );
@@ -70,7 +74,7 @@ export default function UserMenu() {
         <button
           onClick={() => { setNotifOpen(!notifOpen); setMenuOpen(false); }}
           className="relative p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 hover:text-amber-700 transition rounded-lg hover:bg-stone-100"
-          aria-label="通知"
+          aria-label={_("通知")}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -86,10 +90,10 @@ export default function UserMenu() {
         {notifOpen && (
           <div className="absolute right-0 mt-1 w-80 bg-white border border-stone-200 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
             <div className="px-4 py-2.5 border-b border-stone-100">
-              <h3 className="text-sm font-semibold text-stone-700">通知</h3>
+              <h3 className="text-sm font-semibold text-stone-700">{_("通知")}</h3>
             </div>
             {notifications.length === 0 ? (
-              <p className="text-xs text-stone-400 text-center py-8">暂无通知</p>
+              <p className="text-xs text-stone-400 text-center py-8">{_("暂无通知")}</p>
             ) : (
               notifications.map((n) => (
                 <Link
@@ -144,28 +148,28 @@ export default function UserMenu() {
                 onClick={() => setMenuOpen(false)}
                 className="block px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition"
               >
-                个人主页
+                {_("个人主页")}
               </Link>
               <Link
                 href="/favorites"
                 onClick={() => setMenuOpen(false)}
                 className="block px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition"
               >
-                收藏
+                {_("收藏")}
               </Link>
               <Link
                 href="/settings"
                 onClick={() => setMenuOpen(false)}
                 className="block px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition"
               >
-                设置
+                {_("设置")}
               </Link>
               <hr className="my-1 border-stone-100" />
               <button
                 onClick={() => signOut()}
                 className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-stone-50 transition"
               >
-                退出登录
+                {_("退出登录")}
               </button>
             </div>
           </div>

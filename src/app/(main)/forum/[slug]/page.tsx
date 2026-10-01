@@ -6,7 +6,8 @@ import VoteButton from "@/components/vote-button";
 import ForumSidebar from "@/components/forum-sidebar";
 import LatestPosts from "@/components/latest-posts";
 import BoardModerator from "@/components/board-moderator";
-import { visibleArticleWhere } from "@/lib/article-visibility";
+import { loadBoardThreads } from "@/lib/board-threads";
+import { extractFeedImages } from "@/lib/forum-feed-server";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import type { Metadata } from "next";
 
@@ -17,6 +18,17 @@ interface PageProps {
   searchParams: Promise<{ page?: string; sort?: string }>;
 }
 
+/**
+ * `Math.max(1, parseInt(x))` is not a guard: parseInt yields NaN for garbage
+ * and Math.max(1, NaN) is NaN, which reaches Prisma's `skip` as NaN and 500s
+ * the page. The upper bound keeps a crafted `?page=99999999999` from
+ * overflowing Prisma's 32-bit `skip`. Mirrors the TW board page.
+ */
+function parsePage(raw: string | undefined): number {
+  const n = parseInt(raw || "1", 10);
+  return Number.isSafeInteger(n) && n > 0 && n <= 10000 ? n : 1;
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const board = await prisma.board.findUnique({ where: { slug }, select: { name: true, description: true } });
@@ -25,118 +37,44 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: `${board.name}版块`,
     description: board.description || `${board.name} — 普洱茶论坛版块`,
     keywords: [board.name, "普洱茶", "品茶", "茶友交流"],
-    alternates: { canonical: `/forum/${slug}` },
+    // 与 /forum 同一套三向 hreflang。canonical 留在简体（DB 权威版本）。
+    alternates: {
+      canonical: `/forum/${slug}`,
+      languages: {
+        "zh-Hans-CN": `/forum/${slug}`,
+        "zh-Hant-TW": `/tw/forum/${slug}`,
+        "x-default": `/forum/${slug}`,
+      },
+    },
   };
-}
-
-const ITEMS_PER_PAGE = 20;
-
-const threadSelect = {
-  id: true, title: true, content: true, videoUrl: true,
-  upvotes: true, downvotes: true, replyCount: true, viewCount: true,
-  isPinned: true, isEssence: true, hotOverride: true, hotSortOrder: true,
-  createdAt: true, lastRepliedAt: true,
-  author: { select: { id: true, username: true, avatar: true } },
-} as const;
-
-function applyHotRank<T extends {
-  id: string; upvotes: number; downvotes: number; replyCount: number;
-  viewCount: number; videoUrl: string | null; content: string;
-  createdAt: Date; lastRepliedAt: Date | null;
-}>(
-  threads: T[],
-  sessionUserId?: string,
-): (T & { _hotScore: number; _finalScore: number })[] {
-  const now = Date.now();
-  const scored = threads.map((t) => {
-    const net = Math.max(0, t.upvotes - t.downvotes);
-    const coverImage = t.content.match(/<img[^>]+src="([^">]+)"/)?.[1] || null;
-    const score = Math.log1p(net) * 6 + Math.log1p(t.replyCount) * 4 + Math.log1p(Math.min(t.viewCount, 1000)) * 0.2;
-    const boost = (t.videoUrl || coverImage) ? 1.3 : 1;
-    const age = Math.min((now - new Date(t.lastRepliedAt || t.createdAt).getTime()) / 3600000, 720);
-    const timeBonus = 1 + 0.3 / (1 + age / 48);
-    return { ...t, _coverImage: coverImage, _hotScore: score * boost * timeBonus };
-  });
-
-  scored.sort((a, b) => b._hotScore - a._hotScore);
-
-  // Per-user personalization jitter
-  const dayBucket = Math.floor(Date.now() / 86400000);
-  const seedStr = (sessionUserId || "anon") + ":" + dayBucket;
-  let seed = 0;
-  for (let i = 0; i < seedStr.length; i++) { seed = ((seed << 5) - seed) + seedStr.charCodeAt(i); seed |= 0; }
-  seed = Math.abs(seed);
-
-  const topN = Math.min(5, scored.length);
-  return scored
-    .map((a, i) => {
-      let h = seed;
-      for (let j = 0; j < a.id.length; j++) { h = ((h << 5) - h) + a.id.charCodeAt(j); h |= 0; }
-      const jitter = 1 + (Math.abs(h) % 41) / 100 * (i < topN ? 1.0 : i < topN + 10 ? 0.6 : 0.3);
-      return { ...a, _finalScore: a._hotScore * jitter };
-    })
-    .sort((a, b) => b._finalScore - a._finalScore);
 }
 
 export default async function BoardPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
-  const { page: pageStr, sort } = await searchParams;
-  const page = Math.max(1, parseInt(pageStr || "1"));
+  const { page: pageStr, sort: rawSort } = await searchParams;
+  const page = parsePage(pageStr);
+  // Only "latest" is a meaningful non-default sort; anything else is the hot
+  // ranking. Normalising keeps junk out of the pagination links below.
+  const sort = rawSort === "latest" ? "latest" : undefined;
   const session = await auth();
 
   const board = await prisma.board.findUnique({ where: { slug } });
   if (!board) notFound();
 
-  const threadWhere = { boardId: board.id, ...visibleArticleWhere(session?.user?.id) };
-  const total = await prisma.article.count({ where: threadWhere });
+  // 查询 + 热榜打分 + 分页全部在 lib 里，/tw/forum/[slug] 调同一个函数，
+  // 保证两个 URL 下的排序和分页完全一致（见 lib/board-threads.ts 注释）。
+  const { threads, total, totalPages, voteMap } = await loadBoardThreads({
+    boardId: board.id,
+    page,
+    sort,
+    userId: session?.user?.id,
+  });
 
-  let threads: Awaited<ReturnType<typeof prisma.article.findMany<{ select: typeof threadSelect }>>>;
-
-  if (sort === "latest") {
-    threads = await prisma.article.findMany({
-      where: threadWhere,
-      orderBy: { lastRepliedAt: "desc" as const },
-      skip: (page - 1) * ITEMS_PER_PAGE,
-      take: ITEMS_PER_PAGE,
-      select: threadSelect,
-    });
-  } else {
-    // Hot ranking: fetch all, score, then paginate
-    const all = await prisma.article.findMany({
-      where: threadWhere,
-      take: 100,
-      select: threadSelect,
-    });
-    // Fetch pinned posts separately (may be outside the recent 100)
-    const pinnedRows = await prisma.article.findMany({
-      where: { ...threadWhere, hotOverride: "pinned" },
-      select: threadSelect,
-    });
-    const pinnedIds = new Set(pinnedRows.map((t) => t.id));
-    const manualPinned = pinnedRows
-      .concat(all.filter((t) => pinnedIds.has(t.id)))
-      .filter((t, i, arr) => arr.findIndex((b) => b.id === t.id) === i)
-      .sort((a, b) => ((b as { hotSortOrder: number | null }).hotSortOrder || 0) - ((a as { hotSortOrder: number | null }).hotSortOrder || 0));
-    const eligible = all.filter((t) => !(t as { hotOverride: string | null }).hotOverride);
-    const ranked = applyHotRank(eligible, session?.user?.id);
-    const merged = [
-      ...manualPinned.map((t) => ({ ...t, _hotScore: Infinity, _finalScore: Infinity } as typeof ranked[0])),
-      ...ranked,
-    ];
-    const start = (page - 1) * ITEMS_PER_PAGE;
-    threads = merged.slice(start, start + ITEMS_PER_PAGE);
-  }
-
-  const voteMap = new Map<string, number>();
-  if (session?.user?.id && threads.length > 0) {
-    const votes = await prisma.vote.findMany({
-      where: { userId: session.user.id, refId: { in: threads.map((t) => t.id) } },
-      select: { refId: true, value: true },
-    });
-    votes.forEach((v) => voteMap.set(v.refId, v.value));
-  }
-
-  const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+  // Carries the active sort across pages. The previous inline form emitted the
+  // suffix whenever the sort was *not* "latest" — which dropped 最新 on page 2
+  // (the reader silently got the hot ranking back) and produced
+  // `&sort=undefined` when no sort was set at all.
+  const sortSuffix = sort ? `&sort=${sort}` : "";
 
   return (
     <div className="flex gap-4 md:gap-6 px-2 md:px-4 max-w-screen-2xl mx-auto py-4">
@@ -181,7 +119,11 @@ export default async function BoardPage({ params, searchParams }: PageProps) {
         {threads.length > 0 ? (
           <div className="divide-y divide-stone-100 bg-white border border-stone-200 rounded-lg overflow-hidden">
             {threads.map((thread) => {
-              const coverImage = (thread.content || "").match(/<img[^>]+src="([^">]+)"/)?.[1] || null;
+              // R26：content ∪ images 字段（茶记自动帖的图只在 images 里）
+              const { coverImage } = extractFeedImages({
+                content: thread.content || "",
+                images: thread.images ?? null,
+              });
               const plainText = (thread.content || "").replace(/<[^>]*>/g, "").trim().slice(0, 120);
               const timeAgo = ((d: Date) => {
                 const diff = Date.now() - d.getTime();
@@ -244,12 +186,12 @@ export default async function BoardPage({ params, searchParams }: PageProps) {
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-2 mt-6">
-            {page > 1 && <Link href={`/forum/${slug}?page=${page - 1}${sort !== "latest" ? `&sort=${sort}` : ""}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">上一页</Link>}
+            {page > 1 && <Link href={`/forum/${slug}?page=${page - 1}${sortSuffix}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">上一页</Link>}
             {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => i + 1).map((p) => (
-              <Link key={p} href={`/forum/${slug}?page=${p}${sort !== "latest" ? `&sort=${sort}` : ""}`}
+              <Link key={p} href={`/forum/${slug}?page=${p}${sortSuffix}`}
                 className={`px-2.5 py-1.5 text-xs rounded border transition ${p === page ? "bg-amber-800 text-white border-amber-800" : "border-stone-300 text-stone-600 hover:border-amber-300"}`}>{p}</Link>
             ))}
-            {page < totalPages && <Link href={`/forum/${slug}?page=${page + 1}${sort !== "latest" ? `&sort=${sort}` : ""}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">下一页</Link>}
+            {page < totalPages && <Link href={`/forum/${slug}?page=${page + 1}${sortSuffix}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">下一页</Link>}
           </div>
         )}
       </div>

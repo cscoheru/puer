@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useLocale } from "@/i18n/context";
 
 interface VoteButtonProps {
   refId: string;
@@ -14,6 +15,9 @@ interface VoteButtonProps {
 export default function VoteButton({
   refId, type, initialUpvotes, initialDownvotes, initialValue, size = "md",
 }: VoteButtonProps) {
+  // VoteButton renders in the thread list of both /forum/[slug] and its /tw/
+  // mirror, so its tooltips and the login hint must follow the reader.
+  const { _ } = useLocale();
   const [value, setValue] = useState(initialValue);
   const [upvotes, setUpvotes] = useState(initialUpvotes);
   const [downvotes, setDownvotes] = useState(initialDownvotes);
@@ -80,7 +84,7 @@ export default function VoteButton({
             : "text-stone-400 hover:bg-stone-100 hover:text-orange-400"
           }
           ${pending ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
-        title="推荐"
+        title={_("推荐")}
       >
         <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill={value === 1 ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 19V5" />
@@ -107,7 +111,7 @@ export default function VoteButton({
             : "text-stone-400 hover:bg-stone-100 hover:text-blue-400"
           }
           ${pending ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
-        title="不推荐"
+        title={_("不推荐")}
       >
         <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill={value === -1 ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 5v14" />
@@ -121,7 +125,7 @@ export default function VoteButton({
           href="/login"
           className="absolute -top-8 left-1/2 -translate-x-1/2 bg-stone-800 text-white text-xs px-2.5 py-1 rounded shadow-lg whitespace-nowrap z-50 hover:bg-stone-700"
         >
-          登录后投票
+          {_("登录后投票")}
           <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-stone-800 rotate-45" />
         </a>
       )}

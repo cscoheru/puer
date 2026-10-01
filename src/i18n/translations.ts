@@ -36,6 +36,35 @@ const zhCNtoTW: Record<string, string> = {
   "退出登录": "退出登錄",
   "登录": "登錄",
   "注册": "註冊",
+  // 通知面板：这三个字符串只出现在 user-menu.tsx，那个组件同时渲染在
+  // /forum 和 /tw/forum 两种页面下，所以必须走本表（详见下方 forum feed 段注释）。
+  "通知": "通知",
+  "暂无通知": "暫無通知",
+
+  // 关注 / 投票（follow-thread-button.tsx / vote-button.tsx）
+  "已关注": "已關注",
+  "关注帖子": "關注帖子",
+  "推荐": "推薦",
+  "不推荐": "不推薦",
+  "登录后投票": "登錄後投票",
+
+  // 版主申请（board-moderator.tsx）
+  "版主：": "版主：",
+  "申请版主": "申請版主",
+  "取消申请": "取消申請",
+  "版主申请审核中": "版主申請審核中",
+  "申请未通过，可重新申请": "申請未通過，可重新申請",
+  "申请已提交，等待管理员审核": "申請已提交，等待管理員審核",
+  "普洱茶龄（年）": "普洱茶齡（年）",
+  "申请理由": "申請理由",
+  "提交申请": "提交申請",
+  "提交中...": "提交中...",
+  "提交失败": "提交失敗",
+  "说说你对这个版块的理解和你打算如何管理...": "說說你對這個版塊的理解和你打算如何管理...",
+
+  // 用户悬停卡（author-hover.tsx）
+  "声望": "聲望",
+  "茶龄": "茶齡",
 
   // Common actions
   "搜索": "搜索",
@@ -77,6 +106,12 @@ const zhCNtoTW: Record<string, string> = {
   "发布帖子": "發佈帖子",
   "写评论": "寫評論",
   "查看详情": "查看詳情",
+  // 帖子 flair（src/lib/forum-constants.ts）——卡片和详情页都会渲染
+  "开汤": "開湯",
+  "请教": "請教",
+  "讨论": "討論",
+  "晒茶": "曬茶",
+  "原创": "原創",
 
   // Tasting notes
   "外形": "外形",
@@ -171,7 +206,200 @@ const zhCNtoTW: Record<string, string> = {
   "服务器错误": "服務器錯誤",
   "网络错误": "網絡錯誤",
   "请重试": "請重試",
+
+  // Forum feed (论坛列表 / 版块页共用外壳文案)
+  // 说明：这些字符串由 forum-feed.tsx 等**同时渲染在简繁两种页面**上的组件使用，
+  // 因此必须走本表而非 s2t.convertText —— 后者带 "server-only" 指令，进不了客户端包。
+  "普洱茶论坛": "普洱茶論壇",
+  "展开全文 ▼": "展開全文 ▼",
+  "📅 本周": "📅 本週",
+  "💎 精华": "💎 精華",
+  "还没有精华帖": "還沒有精華帖",
+  "暂无最新帖子": "暫無最新帖子",
+  "今天还没有帖子，看看本周热榜吧": "今天還沒有帖子，看看本週熱榜吧",
+  "暂无帖子": "暫無帖子",
+  "正在加载更多…": "正在加載更多…",
+  "上滑/滚动加载更多 ↓": "上滑/滾動加載更多 ↓",
+  "— 到底了，去经典普洱茶吧逛逛 —": "— 到底了，去經典普洱茶吧逛逛 —",
+  "审核中": "審核中",
+  "审核通过后对所有人可见": "審核通過後對所有人可見",
+  "个帖子": "個帖子",
+  "上一页": "上一頁",
+  "下一页": "下一頁",
+  "页": "頁",
+  "版块未找到": "版塊未找到",
+
+  // Forum sidebar
+  "新建社区": "新建社區",
+  "社区": "社區",
+  "建档中": "建檔中",
+  "篇品鉴": "篇品鑑",
+  "热点茶品 · 动态更新": "熱點茶品 · 動態更新",
+  "💬 最近经典帖": "💬 最近經典帖",
+  "关于 PuEr": "關於 PuEr",
+  "广告合作": "廣告合作",
+  "帮助": "幫助",
+  "社区规则": "社區規則",
+  "隐私政策": "隱私政策",
+  "用户协议": "用戶協議",
+
+  // Header / a11y
+  "切换语言": "切換語言",
+  "关闭搜索": "關閉搜索",
+  "关闭菜单": "關閉菜單",
+  "打开菜单": "打開菜單",
 };
+
+/**
+ * Forum paths that have NO `/tw/` mirror yet.
+ *
+ * `/tw/` currently covers exactly three shapes: the forum index, a board page
+ * (`/forum/<boardSlug>`), and a thread page (`/forum/thread/<id>`). Everything
+ * else under `/forum` — classics, explore, new, search, boards, communities —
+ * exists only on the simplified side and is `robots: disallow` for most of it.
+ * Linking to those from inside the TW tree must stay unprefixed, or the click
+ * lands on a 404.
+ *
+ * `thread` is deliberately absent: `/tw/forum/thread/<id>` is the one
+ * non-board segment that IS mirrored.
+ */
+export const NON_MIRRORED_FORUM_SEGMENTS = new Set([
+  "classics",
+  "new",
+  "explore",
+  "search",
+  "boards",
+  "communities",
+]);
+
+/**
+ * `/tw` and `/tw/...` are the traditional-Chinese tree.
+ *
+ * This is the single source of truth for the predicate. It is deliberately
+ * exported: `src/proxy.ts` (server, sets `x-puer-locale`) and
+ * `src/i18n/context.tsx` (client, forces the provider locale) must agree — if
+ * they drift, the server ships one language's HTML and the client hydrates
+ * with the other's. `i18n-paths.test.ts` pins `isTwPath(p) === (untwHref(p)
+ * !== null)` so the two can never disagree silently.
+ */
+export function isTwPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return pathname === "/tw" || pathname.startsWith("/tw/");
+}
+
+/**
+ * Keep a link inside the traditional-Chinese tree when the target has a TW
+ * mirror.
+ *
+ * Without this, a TW reader who arrives on `/tw/forum` and clicks any post
+ * falls straight back to the simplified site — the mirror would only ever be
+ * one page deep, which is exactly the outcome the `/tw/` project exists to
+ * avoid. Mirrored targets get the `/tw` prefix; everything else (user pages,
+ * tea pages, non-mirrored forum sections, external links) is returned
+ * untouched so we never manufacture a 404.
+ *
+ * The test is a positive allowlist over the mirrored **shapes**, not a
+ * `startsWith("/forum")` prefix test and not a denylist over segment 2. Both of
+ * those fail the same way: they cannot see that a *deeper* path under a
+ * mirrored segment is a different page. `/forum/thread/<id>/edit` is the live
+ * example — a real simplified-only route whose first three segments look
+ * exactly like the mirrored thread shape, so a denylist rewrites it to
+ * `/tw/forum/thread/<id>/edit`, which has no page. Matching the shape (depth
+ * included) is what makes that unreachable.
+ *
+ * Query strings and hashes survive: the shape is read from the pathname part
+ * only, and the prefix is applied to the full original href.
+ */
+export function twHref(locale: string | undefined, href: string): string {
+  if (locale !== "zh-TW") return href;
+  const pathname = href.split(/[?#]/)[0];
+  // Segment-aware, not `startsWith("/forum")` — that would also swallow
+  // "/forums", "/forum-x" and any future sibling route.
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments[0] !== "forum") return href;
+  const mirrored =
+    segments.length === 1 || // /forum
+    (segments.length === 2 && !NON_MIRRORED_FORUM_SEGMENTS.has(segments[1])) || // /forum/<board>
+    (segments.length === 3 && segments[1] === "thread"); // /forum/thread/<id>
+  if (!mirrored) return href;
+  return `/tw${href}`;
+}
+
+/**
+ * Inverse of {@link twHref}: strip the `/tw` prefix, or return `null` when the
+ * path is not inside the traditional tree.
+ *
+ * Used by the language switch to walk *out* of the mirror. A `null` return is
+ * meaningful — it distinguishes "this page has no traditional counterpart, so
+ * flip the chrome instead" from "this page's traditional counterpart is `/`".
+ */
+export function untwHref(pathname: string): string | null {
+  // "/tw/" as well as "/tw": a trailing slash would otherwise slice down to the
+  // empty string, and `router.push("")` is a silent no-op rather than a walk
+  // back to the simplified root.
+  if (pathname === "/tw" || pathname === "/tw/") return "/";
+  if (!pathname.startsWith("/tw/")) return null;
+  return pathname.slice(3);
+}
+
+/**
+ * What the header's language button should do, given where the reader is and
+ * which language they are currently reading.
+ *
+ * Returns the destination (`href: null` = stay put) plus the locale the
+ * cookie-backed state must hold afterwards. Both halves matter: the provider
+ * is mounted once in the root layout and survives soft navigation, so a state
+ * left over from the other tree would render one language's URLs with the
+ * other's chrome.
+ *
+ * The two authorities split at the `/tw` boundary:
+ *
+ * - **Inside `/tw/...` the URL wins.** The reader asked for traditional by
+ *   asking for this page, whatever last month's cookie says, so the button
+ *   targets simplified and walks back out via {@link untwHref}. The state must
+ *   be set too — `initialLocale` was frozen at first paint and will not re-run.
+ * - **Outside it the cookie wins**, and the button targets the *other*
+ *   language, not "the traditional tree". A reader on `/forum` whose cookie
+ *   says zh-TW is already on a simplified URL; for them 简体 means flipping
+ *   back in place, not navigating to a mirror they did not ask for.
+ */
+export function localeSwitch(pathname: string, locale: Locale): { href: string | null; locale: Locale } {
+  const scPath = untwHref(pathname);
+  if (scPath !== null) return { href: scPath, locale: "zh-CN" };
+  if (locale === "zh-TW") return { href: null, locale: "zh-CN" };
+  // Simplified chrome: prefer the real /tw page when the target has a mirror,
+  // otherwise there is nothing to navigate to and the cookie has to carry it.
+  const mirrored = twHref("zh-TW", pathname);
+  if (mirrored !== pathname) return { href: mirrored, locale };
+  return { href: null, locale: "zh-TW" };
+}
+
+/**
+ * What language this request renders in, from the URL's opinion and the reader's
+ * cookie.
+ *
+ * The two sources are **not** symmetric, and getting that wrong is a silent
+ * mixed-language page rather than an error:
+ *
+ * - Inside `/tw/...` the URL forces `zh-TW` — the reader asked for traditional
+ *   by asking for this page, whatever last month's cookie says.
+ * - Outside it the URL has *no* opinion. `src/proxy.ts` stamps `x-puer-locale`
+ *   to "zh-CN" on every non-`/tw` route, so treating the header as a general
+ *   locale would make it non-null everywhere and silently outrank a reader's
+ *   deliberate `zh-TW` cookie. The chrome would then be one language in the
+ *   SSR HTML and another after hydration.
+ *
+ * Same shape as `forcedLocale ?? locale` in src/i18n/context.tsx and the same
+ * rule as src/lib/locale-server.ts, which is the point: both call sites read
+ * through here so there is one definition to get wrong.
+ */
+export function pickLocale(
+  urlLocale: string | null | undefined,
+  cookieLocale: string | null | undefined,
+): Locale | null {
+  if (parseLocale(urlLocale) === "zh-TW") return "zh-TW";
+  return parseLocale(cookieLocale);
+}
 
 export function t(key: string, locale: string): string {
   if (locale !== "zh-TW") return key;
@@ -182,6 +410,15 @@ export const LOCALE_COOKIE = "puer-locale";
 export const DEFAULT_LOCALE = "zh-CN";
 export type Locale = "zh-CN" | "zh-TW";
 
-export function toggleLocale(current: string): Locale {
-  return current === "zh-TW" ? "zh-CN" : "zh-TW";
+/**
+ * Narrows an arbitrary string to a `Locale`, or `null` if it is not one.
+ *
+ * The cookie and the `x-puer-locale` header are both attacker-controllable, and
+ * a bare `as Locale` cast would let a value like "zh-Hant" through — it matches
+ * neither the zh-TW branch nor the map lookup, so the chrome silently degrades
+ * instead of falling back. Every read of a locale from outside the type system
+ * goes through here.
+ */
+export function parseLocale(value: string | null | undefined): Locale | null {
+  return value === "zh-TW" || value === "zh-CN" ? value : null;
 }

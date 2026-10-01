@@ -7,6 +7,8 @@ import VideoPlayer from "@/components/video-player";
 import AuthorHover from "@/components/author-hover";
 import FollowThreadButton from "@/components/follow-thread-button";
 import { getFlair } from "@/lib/forum-constants";
+import { useLocale } from "@/i18n/context";
+import { t, twHref } from "@/i18n/translations";
 
 // ── Read tracking ──────────────────────────────────────────────
 const STORAGE_KEY = "puer_seen_posts";
@@ -65,18 +67,21 @@ interface ForumFeedProps {
   tab: string;
 }
 
-function timeAgo(dateStr: string) {
+function timeAgo(dateStr: string, locale: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "刚刚";
-  if (mins < 60) return `${mins} 分钟前`;
+  if (mins < 1) return t("刚刚", locale);
+  if (mins < 60) return `${mins} ${t("分钟前", locale)}`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return `${hours} ${t("小时前", locale)}`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} 天前`;
-  return new Date(dateStr).toLocaleDateString("zh-CN");
+  if (days < 30) return `${days} ${t("天前", locale)}`;
+  return new Date(dateStr).toLocaleDateString(locale === "zh-TW" ? "zh-TW" : "zh-CN");
 }
 
+// Tab labels stay in simplified here and go through `_()` at the render site —
+// the same array also drives the `?tab=` keys, so translating it in place would
+// couple the URL vocabulary to the display language.
 const TABS = [
   { key: "day", label: "🔥 今日" },
   { key: "week", label: "📅 本周" },
@@ -91,6 +96,7 @@ const TABS = [
 
 /** 帖子文字内容：默认折叠 3 行，可展开/收起（P2-R1：文字置于媒体之前） */
 function CollapsibleText({ text }: { text: string }) {
+  const { _ } = useLocale();
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
   const ref = useRef<HTMLParagraphElement>(null);
@@ -117,7 +123,7 @@ function CollapsibleText({ text }: { text: string }) {
           }}
           className="text-xs text-amber-800 hover:text-amber-900 font-medium mt-0.5"
         >
-          {expanded ? "收起 ▲" : "展开全文 ▼"}
+          {expanded ? _("收起 ▲") : _("展开全文 ▼")}
         </button>
       )}
     </div>
@@ -125,6 +131,7 @@ function CollapsibleText({ text }: { text: string }) {
 }
 
 export default function ForumFeed({ articles, boards, currentUserId, tab }: ForumFeedProps) {
+  const { _, locale } = useLocale();
   const [mounted, setMounted] = useState(false);
   // Read tracking: reorder to prioritize unseen posts
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
@@ -311,7 +318,11 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
     setLoadingMore(true);
     try {
       const offset = loadedCountRef.current;
-      const res = await fetch(`/api/forum/feed?tab=${encodeURIComponent(tab)}&offset=${offset}&limit=10`);
+      // `locale` must travel with the request: the server has no other way to
+      // know this card is destined for /tw/forum, and the conversion can only
+      // happen there (see /api/forum/feed). Without it, lazily-loaded cards
+      // would come back simplified while the SSR'd ones are traditional.
+      const res = await fetch(`/api/forum/feed?tab=${encodeURIComponent(tab)}&offset=${offset}&limit=10&locale=${encodeURIComponent(locale)}`);
       if (!res.ok) throw new Error("feed fetch failed");
       const d = (await res.json()) as { articles?: FeedArticle[]; hasMore?: boolean };
       const incoming = d.articles || [];
@@ -327,7 +338,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
       loadGuardRef.current = false;
       setLoadingMore(false);
     }
-  }, [tab, hasMore, orderedBase, extraArticles]);
+  }, [tab, hasMore, orderedBase, extraArticles, locale]);
 
   // P2-R10：懒加载不再限移动端——桌面端热榜窗口（质量门槛）耗尽后
   // 同样需要归档续读，否则首屏仅几条（如 week 窗口）就"拉不到底"。
@@ -351,14 +362,14 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/forum?tab=${t.key}`}
+            href={twHref(locale, `/forum?tab=${t.key}`)}
             className={`px-3 py-2.5 text-sm font-medium border-b-2 transition -mb-px min-h-[44px] flex items-center ${
               tab === t.key
                 ? "border-amber-700 text-amber-900"
                 : "border-transparent text-stone-500 hover:text-stone-700 hover:border-stone-300"
             }`}
           >
-            {t.label}
+            {_(t.label)}
           </Link>
         ))}
       </div>
@@ -371,12 +382,12 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
           </p>
           <p className="text-stone-500 text-sm">
             {tab === "essence"
-              ? "还没有精华帖"
+              ? _("还没有精华帖")
               : tab === "latest"
-                ? "暂无最新帖子"
+                ? _("暂无最新帖子")
                 : tab === "day"
-                  ? "今天还没有帖子，看看本周热榜吧"
-                  : "暂无帖子"}
+                  ? _("今天还没有帖子，看看本周热榜吧")
+                  : _("暂无帖子")}
           </p>
         </div>
       ) : (
@@ -393,7 +404,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
           {/* 懒加载哨兵：进入视口即拉取下一页（P2-R10 起桌面/移动通用） */}
           {items.length > 0 && (
             <div ref={sentinelRef} className="py-6 text-center text-xs text-stone-400">
-              {loadingMore ? "正在加载更多…" : hasMore ? "上滑/滚动加载更多 ↓" : "— 到底了，去经典普洱茶吧逛逛 —"}
+              {loadingMore ? _("正在加载更多…") : hasMore ? _("上滑/滚动加载更多 ↓") : _("— 到底了，去经典普洱茶吧逛逛 —")}
             </div>
           )}
         </div>
@@ -403,6 +414,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
 }
 
 function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; currentUserId?: string; isNew?: boolean }) {
+  const { _, locale } = useLocale();
   const [videoFailed, setVideoFailed] = useState(false);
   const effectiveVideoUrl = videoFailed ? null : article.videoUrl;
   const flairDef = getFlair(article.flair);
@@ -438,11 +450,11 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
               }}
             />
             <span aria-hidden>·</span>
-            <span suppressHydrationWarning>{timeAgo(article.createdAt)}</span>
+            <span suppressHydrationWarning>{timeAgo(article.createdAt, locale)}</span>
             {article.board && (
               <>
                 <span aria-hidden>·</span>
-                <Link href={`/forum/${article.board.slug}`} className="text-stone-500 hover:text-amber-700 font-medium">
+                <Link href={twHref(locale, `/forum/${article.board.slug}`)} className="text-stone-500 hover:text-amber-700 font-medium">
                   {article.board.name}
                 </Link>
               </>
@@ -450,24 +462,24 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
           </div>
           <div className="ml-auto flex items-center gap-1 shrink-0">
             {isNew && (
-              <span className="text-[0.625rem] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium">新</span>
+              <span className="text-[0.625rem] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium">{_("新")}</span>
             )}
             {flairDef && (
               <span className={`inline-flex items-center px-1.5 py-0.5 text-[0.625rem] leading-none font-medium rounded-full ${flairDef.color}`}>
-                {flairDef.label}
+                {_(flairDef.label)}
               </span>
             )}
             {/* V1-R5：经典普洱帖徽章 — 让用户识别哪些帖子属于经典茶区 */}
             {article.board?.slug === "classics" && (
-              <span className="text-[0.625rem] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-full font-medium" title="经典普洱">
-                🏵️ 经典
+              <span className="text-[0.625rem] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-full font-medium" title={_("经典普洱")}>
+                🏵️ {_("经典")}
               </span>
             )}
-            {article.isEssence && <span className="text-xs" title="精华">⭐</span>}
-            {article.isPinned && <span className="text-xs" title="置顶">📌</span>}
+            {article.isEssence && <span className="text-xs" title={_("精华")}>⭐</span>}
+            {article.isPinned && <span className="text-xs" title={_("置顶")}>📌</span>}
             {article.status && article.status !== "published" && (
-              <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-500 text-white rounded-full font-medium" title="审核通过后对所有人可见">
-                ⏳ 审核中
+              <span className="text-[0.625rem] px-1.5 py-0.5 bg-stone-500 text-white rounded-full font-medium" title={_("审核通过后对所有人可见")}>
+                ⏳ {_("审核中")}
               </span>
             )}
           </div>
@@ -475,7 +487,7 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
 
         {/* 行2：标题独占整行 */}
         <Link
-          href={`/forum/thread/${article.id}`}
+          href={twHref(locale, `/forum/thread/${article.id}`)}
           className="block text-sm md:text-base font-semibold text-stone-800 hover:text-amber-800 leading-snug"
         >
           {article.title}
@@ -499,7 +511,7 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
         <ImageCarousel images={article.images} articleId={article.id} />
       )}
       {!effectiveVideoUrl && article.coverImage && (!article.images || article.images.length === 0) && (
-        <Link href={`/forum/thread/${article.id}`} className="block border-t border-stone-100 bg-stone-50">
+        <Link href={twHref(locale, `/forum/thread/${article.id}`)} className="block border-t border-stone-100 bg-stone-50">
           <div className="aspect-[4/3]">
             <img src={article.coverImage} alt="" width={400} height={300} decoding="async" loading="lazy" className="w-full h-full object-cover" />
           </div>
@@ -517,14 +529,14 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
           size="sm"
         />
         <Link
-          href={`/forum/thread/${article.id}`}
+          href={twHref(locale, `/forum/thread/${article.id}`)}
           className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition"
-          title="评论"
+          title={_("评论")}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
-          {article.replyCount > 0 ? article.replyCount : "评论"}
+          {article.replyCount > 0 ? article.replyCount : _("评论")}
         </Link>
         <div className="ml-auto">
           <FollowThreadButton articleId={article.id} />
@@ -536,6 +548,7 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
 
 /** Image carousel with auto-play (pauses on hover) and manual navigation */
 function ImageCarousel({ images, articleId }: { images: string[]; articleId: string }) {
+  const { locale } = useLocale();
   const [idx, setIdx] = useState(0);
   const [paused, setPaused] = useState(false);
 
@@ -571,7 +584,7 @@ function ImageCarousel({ images, articleId }: { images: string[]; articleId: str
   }, []);
 
   return (
-    <Link href={`/forum/thread/${articleId}`} className="block border-t border-stone-100 bg-stone-50 relative"
+    <Link href={twHref(locale, `/forum/thread/${articleId}`)} className="block border-t border-stone-100 bg-stone-50 relative"
       onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
       <div className="aspect-[4/3] relative overflow-hidden">
         {/* 只渲染当前图片:避免一次性加载帖子全部图片(原 map 渲染所有 img 用 opacity 切换,导致每帖N图全加载)。

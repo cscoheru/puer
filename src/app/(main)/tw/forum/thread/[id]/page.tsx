@@ -14,6 +14,7 @@ import { canViewArticleDetail } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import { firstImageFromHtml } from "@/lib/seo-image";
 import { convertText, convertPostHtml } from "@/lib/s2t";
+import { twHref } from "@/i18n/translations";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -68,6 +69,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: twTitle,
     description: twDesc,
     type: "article",
+    // Explicit, or the TW document inherits Next's `zh_CN` default and
+    // contradicts its own hreflang cluster.
+    locale: "zh_TW",
     publishedTime: article.createdAt.toISOString(),
     modifiedTime: article.updatedAt.toISOString(),
     authors: [article.author.username],
@@ -195,11 +199,15 @@ export default async function TwThreadPage({ params }: PageProps) {
       />
       {/* Breadcrumb */}
       <nav className="text-xs md:text-sm text-stone-400 mb-4">
-        <Link href="/tw/forum" className="hover:text-stone-600 transition">{convertText("論壇")}</Link>
+        <Link href={twHref("zh-TW", "/forum")} className="hover:text-stone-600 transition">{convertText("論壇")}</Link>
         {article.board && (
           <>
             <span className="mx-1.5">/</span>
-            <Link href={`/tw/forum/${article.board.slug}`} className="hover:text-stone-600 transition">
+            {/* twHref, not a hand-built `/tw/...` literal: a board whose slug
+                has no mirror (e.g. `classics`, which is the curated landing
+                page on the SC side) must stay unprefixed, and that rule lives
+                in one place. */}
+            <Link href={twHref("zh-TW", `/forum/${article.board.slug}`)} className="hover:text-stone-600 transition">
               {twBoardName}
             </Link>
           </>

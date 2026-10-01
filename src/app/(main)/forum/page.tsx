@@ -15,7 +15,16 @@ export const metadata: Metadata = {
     "普洱茶论坛", "普洱论坛", "普洱茶", "普洱茶社区", "生普", "熟普", "大益", "经典普洱",
     "中老期茶", "品鉴", "茶友交流", "puer tea forum", "puerim",
   ],
-  alternates: { canonical: "/forum" },
+  // hreflang 群：canonical 留在简体（DB 权威版本），繁体镜像见 /tw/forum。
+  // 三向必须成对出现——TW 页发同样的三向，Google 才认这是语言变体而非重复内容。
+  alternates: {
+    canonical: "/forum",
+    languages: {
+      "zh-Hans-CN": "/forum",
+      "zh-Hant-TW": "/tw/forum",
+      "x-default": "/forum",
+    },
+  },
   openGraph: {
     title: "普洱茶论坛 - 生普熟普品鉴 | PuerHub 普洱茶社区",
     description: "生普/熟普品鉴交流、大益等经典中老期茶档案、仓储行情讨论与茶友问答。",

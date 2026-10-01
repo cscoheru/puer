@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useLocale } from "@/i18n/context";
 
 interface AuthorInfo {
   id: string;
@@ -18,6 +19,8 @@ interface AuthorInfo {
 }
 
 function FollowButton({ userId }: { userId: string }) {
+  // Above the `!sessionUserId` early return — hooks cannot be conditional.
+  const { _ } = useLocale();
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [following, setFollowing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -62,12 +65,15 @@ function FollowButton({ userId }: { userId: string }) {
       className="text-xs px-3 py-1 rounded-full border transition"
       style={{ borderColor: following ? "#92400e" : "#d6d3d1", color: following ? "#fff" : "#57534e", backgroundColor: following ? "#92400e" : "transparent" }}
     >
-      {loading ? "..." : following ? "已关注" : "关注"}
+      {loading ? "..." : following ? _("已关注") : _("关注")}
     </button>
   );
 }
 
 export default function AuthorHover({ author }: { author: AuthorInfo }) {
+  // The hover card is rendered from the thread list on both trees, so its
+  // labels follow the reader's language like the rest of the chrome.
+  const { _ } = useLocale();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<"left" | "right">("right");
   const cardRef = useRef<HTMLDivElement>(null);
@@ -126,26 +132,26 @@ export default function AuthorHover({ author }: { author: AuthorInfo }) {
           <div className="space-y-1 text-xs text-stone-500">
             {author.postCount !== undefined && (
               <div className="flex justify-between">
-                <span>帖子</span>
+                <span>{_("帖子")}</span>
                 <span className="font-medium text-stone-700">{author.postCount}</span>
               </div>
             )}
             <div className="flex justify-between">
-              <span>粉丝</span>
+              <span>{_("粉丝")}</span>
               <span className="font-medium text-stone-700">{author.followerCount}</span>
             </div>
             <div className="flex justify-between">
-              <span>声望</span>
+              <span>{_("声望")}</span>
               <span className="font-medium text-stone-700">{author.karma}</span>
             </div>
             {author.teaAge && (
               <div className="flex justify-between">
-                <span>茶龄</span>
+                <span>{_("茶龄")}</span>
                 <span className="font-medium text-stone-700">{author.teaAge}年</span>
               </div>
             )}
             <div className="flex justify-between">
-              <span>加入</span>
+              <span>{_("加入")}</span>
               <span className="font-medium text-stone-700">
                 {author.createdAt ? new Date(author.createdAt).getFullYear() + "年" : ""}
               </span>

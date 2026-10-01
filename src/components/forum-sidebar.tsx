@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { convertText } from "@/lib/s2t";
+import { t, twHref } from "@/i18n/translations";
+import type { Locale } from "@/i18n/translations";
+import { resolveRequestLocale } from "@/lib/locale-server";
 
 export const dynamic = "force-dynamic";
 
@@ -102,7 +106,23 @@ async function loadHotClassicTeas(take = 5): Promise<SidebarTea[]> {
     .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
 }
 
-export default async function ForumSidebar() {
+export default async function ForumSidebar({ locale: forcedLocale }: { locale?: Locale } = {}) {
+  // No prop means "whatever this request is in", not "simplified". Defaulting
+  // to a constant made the sidebar the one part of the page that ignored the
+  // reader's language: on a simplified URL with a zh-TW cookie the header and
+  // the feed rendered traditional while the sidebar stayed simplified.
+  const locale: Locale = forcedLocale ?? (await resolveRequestLocale());
+  // Two different jobs, two different tools:
+  //  - UI chrome ("社区", "发布新帖") goes through the zhCNtoTW map, the same
+  //    table the client components use, so the sidebar and the header can
+  //    never drift apart.
+  //  - Board names, tea names and post titles come out of the database in
+  //    simplified and are not in that map, so they need the real s2tw
+  //    dictionary. Safe here because this is a server component — convertText
+  //    is marked `server-only`.
+  const tr = (key: string) => t(key, locale);
+  const cv = (s: string) => (locale === "zh-TW" ? convertText(s) : s);
+
   let session: { user?: { id?: string } } | null = null;
   try { session = await auth(); } catch {}
   let boards: Array<{ id: string; name: string; slug: string; icon: string | null; threadCount: number }> = [];
@@ -137,20 +157,20 @@ export default async function ForumSidebar() {
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
-              href={item.href}
+              href={twHref(locale, item.href)}
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-stone-600 hover:bg-stone-100 hover:text-stone-800 transition"
             >
               <span className="text-base">{item.icon}</span>
-              <span className="font-medium">{item.label}</span>
+              <span className="font-medium">{tr(item.label)}</span>
             </Link>
           ))}
           {session?.user && (
             <Link
-              href="/forum/new"
+              href={twHref(locale, "/forum/new")}
               className="flex items-center gap-2.5 px-3 py-2 mt-1 rounded-lg text-sm font-medium bg-amber-800 text-white hover:bg-amber-900 transition"
             >
               <span className="text-base">✏️</span>
-              <span>发布新帖</span>
+              <span>{tr("发布新帖")}</span>
             </Link>
           )}
         </nav>
@@ -158,15 +178,15 @@ export default async function ForumSidebar() {
         {/* 经典普洱 — 热点茶品动态榜（P2-R8：按最近品鉴/跟进排序；标题/更多进吧，茶品行进档案页） */}
         <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-lg overflow-hidden hover:border-amber-400 transition">
           <Link
-            href="/forum/classics"
+            href={twHref(locale, "/forum/classics")}
             className="flex items-center gap-2.5 p-3 pb-2 group"
           >
             <span className="text-xl shrink-0">🏵️</span>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-amber-900 group-hover:text-amber-800 transition">
-                经典普洱
+                {tr("经典普洱")}
               </div>
-              <div className="text-[0.6875rem] text-stone-500 truncate">热点茶品 · 动态更新</div>
+              <div className="text-[0.6875rem] text-stone-500 truncate">{tr("热点茶品 · 动态更新")}</div>
             </div>
             <span className="text-[0.6875rem] text-amber-700 group-hover:text-amber-600 shrink-0">更多›</span>
           </Link>
@@ -177,7 +197,7 @@ export default async function ForumSidebar() {
                   key={tea.id}
                   href={`/tea/${tea.id}`}
                   className="flex items-center gap-2 px-1.5 py-1.5 rounded-lg hover:bg-amber-100/60 transition group/tea"
-                  title={tea.name}
+                  title={cv(tea.name)}
                 >
                   <span className={`w-4 text-center text-[0.6875rem] font-bold tabular-nums shrink-0 ${i < 3 ? "text-amber-700" : "text-stone-300"}`}>
                     {i + 1}
@@ -189,10 +209,10 @@ export default async function ForumSidebar() {
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-stone-700 truncate group-hover/tea:text-amber-800 transition leading-tight">
-                      {tea.name}
+                      {cv(tea.name)}
                     </p>
                     <p className="text-[0.625rem] text-stone-400 leading-tight">
-                      {tea.tastingNoteCount > 0 ? `${tea.tastingNoteCount} 篇品鉴` : "建档中"}
+                      {tea.tastingNoteCount > 0 ? `${tea.tastingNoteCount} ${tr("篇品鉴")}` : tr("建档中")}
                     </p>
                   </div>
                 </Link>
@@ -203,16 +223,16 @@ export default async function ForumSidebar() {
           {recentClassicPosts.length > 0 && (
             <div className="px-2 pb-2 pt-1 border-t border-amber-200/60 space-y-0.5">
               <p className="text-[0.625rem] font-semibold text-amber-800 uppercase tracking-wider px-0.5 mb-0.5">
-                💬 最近经典帖
+                {tr("💬 最近经典帖")}
               </p>
               {recentClassicPosts.map((p) => (
                 <Link
                   key={p.id}
-                  href={`/forum/thread/${p.id}`}
+                  href={twHref(locale, `/forum/thread/${p.id}`)}
                   className="block px-1.5 py-1 rounded text-xs text-stone-700 hover:bg-amber-100/60 hover:text-amber-800 transition leading-snug line-clamp-2"
-                  title={p.title}
+                  title={cv(p.title)}
                 >
-                  {p.title}
+                  {cv(p.title)}
                   {p.replyCount > 0 && (
                     <span className="ml-1 text-[0.625rem] text-stone-400">💬 {p.replyCount}</span>
                   )}
@@ -225,17 +245,17 @@ export default async function ForumSidebar() {
         {/* 社区 — 版块列表 */}
         <div className="bg-white border border-stone-200 rounded-lg p-3">
           <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 px-1">
-            社区
+            {tr("社区")}
           </h2>
           <div className="space-y-0.5">
             {boards.map((board) => (
               <Link
                 key={board.id}
-                href={`/forum/${board.slug}`}
+                href={twHref(locale, `/forum/${board.slug}`)}
                 className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 hover:text-stone-800 transition"
               >
                 <span className="text-base shrink-0">{board.icon || "📄"}</span>
-                <span className="truncate">{board.name}</span>
+                <span className="truncate">{cv(board.name)}</span>
                 {board.threadCount > 0 && (
                   <span className="ml-auto text-[0.625rem] text-stone-400">{board.threadCount}</span>
                 )}
@@ -248,13 +268,13 @@ export default async function ForumSidebar() {
         <div className="bg-white border border-stone-200 rounded-lg p-3">
           <div className="space-y-0.5">
             <Link href="/about" className="block px-2 py-1.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 hover:text-stone-800 transition">
-              关于 PuEr
+              {tr("关于 PuEr")}
             </Link>
             <Link href="/advertise" className="block px-2 py-1.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 hover:text-stone-800 transition">
-              广告合作
+              {tr("广告合作")}
             </Link>
             <Link href="/help" className="block px-2 py-1.5 rounded-lg text-sm text-stone-600 hover:bg-stone-100 hover:text-stone-800 transition">
-              帮助
+              {tr("帮助")}
             </Link>
           </div>
         </div>
@@ -262,13 +282,13 @@ export default async function ForumSidebar() {
         {/* 规则与条款 */}
         <div className="px-3 space-y-1">
           <Link href="/rules" className="block text-xs text-stone-400 hover:text-stone-600 transition">
-            社区规则
+            {tr("社区规则")}
           </Link>
           <Link href="/privacy" className="block text-xs text-stone-400 hover:text-stone-600 transition">
-            隐私政策
+            {tr("隐私政策")}
           </Link>
           <Link href="/terms" className="block text-xs text-stone-400 hover:text-stone-600 transition">
-            用户协议
+            {tr("用户协议")}
           </Link>
         </div>
       </div>
