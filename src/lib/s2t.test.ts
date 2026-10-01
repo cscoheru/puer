@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { convertText, convertPostHtml } from "./s2t";
+// Explicit `.ts` extension: `npm run test:unit` runs `node --test` with native
+// type-stripping (no tsx loader), and Node's ESM resolver does not guess
+// extensions. Matches the convention in every other src/lib/*.test.ts.
+import { convertText, convertPostHtml } from "./s2t.ts";
 
 test("convertText: basic SC → TW", () => {
   assert.equal(convertText("推荐"), "推薦");
