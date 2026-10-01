@@ -49,7 +49,18 @@ schema 再动仍会复发。**这条只用于紧急止血,生产发布必须重 
 ./deploy.sh publish app <release-id> --confirm-publish
 
 # 4. activate — 切换到新镜像,带健康检查 + 自动回滚
-PUER_REMOTE_COMPOSE_FILES=/opt/puer-hub/docker-compose.yml \
+#
+#    compose 链必须传【两个】文件,少一个就是生产事故:线上 puer-hub-app 容器
+#    由 docker-compose.yml + docker-compose.override.yml 共同创建,9 个 bind mount
+#    (/opt/puer-hub/uploads/* → /app/public/uploads/*、scripts/*.mjs、
+#    src/lib/tea-drafts) 写在主 compose 里。只传主文件时 compose up 会重创容器并
+#    丢掉全部挂载 —— 用户图片与视频立刻从站点消失。
+#
+#    注意 docker compose 的 -f 会**关闭** docker-compose.override.yml 的自动加载,
+#    所以「只传主文件」并不等于「主文件 + 默认 override」,而是另一份更小的配置。
+#    详见 docs/plans/2026-09-24-seo-geo-optimization.md(已用 docker compose config
+#    从 3 个 cwd 验证相对路径恒解析为 /opt/puer-hub/uploads/...)。
+PUER_REMOTE_COMPOSE_FILES=/opt/puer-hub/docker-compose.yml:/opt/puer-hub/docker-compose.override.yml \
   ./deploy.sh activate app <release-id> --confirm-activate
 
 # 5. (可选) render-activate — 单独看服务器执行脚本
