@@ -77,7 +77,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return {
     title: twTitle,
     description: twDesc,
-    keywords: [...titleWords, ...(article.tags || []), "普洱茶", "品茶"],
+    // Keywords are display-only (Google has ignored meta keywords since 2009),
+    // but a TW document should not carry SC glyphs in it either. Unlike the
+    // title/description above, this field is an array, so convertText has to be
+    // mapped over it — titleWords and tags both come straight from the SC record.
+    keywords: [...titleWords, ...(article.tags || []), "普洱茶", "品茶"].map(convertText),
     alternates: {
       // Canonical points to SC (DB-authoritative copy).
       canonical: `/forum/thread/${id}`,
