@@ -1,8 +1,19 @@
+/**
+ * /tw/forum/thread/[id] — Traditional Chinese mirror of /forum/thread/[id].
+ *
+ * Same DB, same Prisma SELECT, same child components — only the visible text
+ * (title/summary/content/breadcrumb labels) is run through s2t conversion.
+ * canonical stays on /forum/thread/[id] (the authoritative SC version).
+ * JSON-LD on this page is limited to BreadcrumbList; Article/VideoObject are
+ * kept on the SC page only (Google recommends structured data live on the
+ * canonical, not on language alternates).
+ */
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { canViewArticleDetail } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
-import { absImageUrl, firstImageFromHtml } from "@/lib/seo-image";
+import { firstImageFromHtml } from "@/lib/seo-image";
+import { convertText, convertPostHtml } from "@/lib/s2t";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -43,33 +54,32 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       { status: article.status, visibility: article.visibility, authorId: article.authorId },
       { userId: session?.user?.id, isAdmin: session?.user?.role === "admin" },
     );
-  // Hidden (missing, draft, pending, private, archived, or unknown status):
-  // emit no real title/description/OG and tell crawlers not to index. The page
-  // body separately returns notFound(), so no content leaks either.
   if (!article || !viewable) {
-    return { title: "帖子不可见", robots: { index: false, follow: false } };
+    return { title: convertText("帖子不可见"), robots: { index: false, follow: false } };
   }
-  const desc = article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 160) || "查看帖子详情";
-  // P2-R26：封面 fallback 到 article.images（茶记帖 content 无内联图）
+  const desc = article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 160) || "查看帖子詳情";
+  // Convert metadata text for TW SERP snippet. description comes from summary
+  // or content (HTML-stripped); we convert either way so users searching in TW
+  // see a TW snippet.
+  const twTitle = convertText(article.title);
+  const twDesc = convertText(desc);
   const coverImage = firstImageFromHtml(article.content) || article.images?.[0] || null;
   const og: Record<string, unknown> = {
-    title: article.title,
-    description: desc,
+    title: twTitle,
+    description: twDesc,
     type: "article",
     publishedTime: article.createdAt.toISOString(),
     modifiedTime: article.updatedAt.toISOString(),
     authors: [article.author.username],
   };
-  if (coverImage) og.images = [{ url: coverImage, width: 1200, height: 630, alt: article.title }];
+  if (coverImage) og.images = [{ url: coverImage, width: 1200, height: 630, alt: twTitle }];
   const titleWords = article.title.split(/[\s,，、]+/).filter(Boolean).slice(0, 5);
   return {
-    title: article.title,
-    description: desc,
+    title: twTitle,
+    description: twDesc,
     keywords: [...titleWords, ...(article.tags || []), "普洱茶", "品茶"],
-    // P1-tw: canonical stays on SC version (the authoritative copy in DB).
-    // x-default points to SC so users without an explicit preference land here.
-    // The /tw/ mirror declares the same hreflang cluster on its own page.
     alternates: {
+      // Canonical points to SC (DB-authoritative copy).
       canonical: `/forum/thread/${id}`,
       languages: {
         "zh-Hans-CN": `/forum/thread/${id}`,
@@ -81,7 +91,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function ThreadPage({ params }: PageProps) {
+export default async function TwThreadPage({ params }: PageProps) {
   const { id } = await params;
   const session = await auth();
   const headersList = await headers();
@@ -103,9 +113,6 @@ export default async function ThreadPage({ params }: PageProps) {
     },
   }).catch(() => null);
 
-  // Detail-level visibility, fail-closed (same policy as the API GET and
-  // generateMetadata). Checked BEFORE incrementing viewCount so a hidden
-  // article never records a view from a disallowed visitor.
   const viewable =
     !!article &&
     canViewArticleDetail(
@@ -116,7 +123,6 @@ export default async function ThreadPage({ params }: PageProps) {
     notFound();
   }
 
-  // Check initial like/favorite/vote state for current user
   let initialLiked = false;
   let initialFavorited = false;
   let initialVote = 0;
@@ -137,12 +143,10 @@ export default async function ThreadPage({ params }: PageProps) {
     if (vote) initialVote = vote.value;
   }
 
-  // Author post count (for hover card)
   const authorPostCount = await prisma.article.count({
     where: { authorId: article.author.id, status: "published" },
   });
 
-  // Increment view count
   await prisma.article.update({ where: { id }, data: { viewCount: { increment: 1 } } });
 
   const canModerate = !!(session?.user?.role === "admin" || (session?.user && article.board?.id && (
@@ -151,112 +155,55 @@ export default async function ThreadPage({ params }: PageProps) {
     }).catch(() => null)
   )?.status === "approved"));
   const flairDef = getFlair(article.flair);
-  // P2-R11 SEO：帖子首图（绝对化）供 Article/VideoObject JSON-LD 使用
-  // P2-R26：fallback article.images（茶记自动帖图片在独立字段）
-  const threadCoverImg = firstImageFromHtml(article.content) || article.images?.[0] || null;
-
   // P2-R26：茶记帖图片墙 — article.images 中未内联进 content 的部分
   const inlineSrcs = new Set(Array.from(article.content.matchAll(/<img[^>]+src="([^">]+)"/g)).map((m) => m[1]));
   const galleryImages = (article.images ?? []).filter((u) => !inlineSrcs.has(u));
 
+  // Convert everything visible. Author/nickname/board are not converted
+  // (proper nouns / DB identifiers). UI chrome ("帖子"/"編輯" etc.) is left to
+  // the existing I18nProvider + zhCNtoTW map for Phase 1.
+  const twTitle = convertText(article.title);
+  const twContent = convertPostHtml(article.content);
+  const twBoardName = article.board ? convertText(article.board.name) : null;
+  const twFlairLabel = flairDef ? convertText(flairDef.label) : null;
+
   return (
     <div className="max-w-4xl mx-auto px-3 md:px-6 py-4 md:py-8">
-      {/* Article JSON-LD（P2-R11：image 字段让 Google Images 收录帖子首图） */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: safeJsonLdStringify({
-            "@context": "https://schema.org",
-            "@type": "Article",
-            headline: article.title,
-            datePublished: article.createdAt.toISOString(),
-            dateModified: article.updatedAt.toISOString(),
-            author: { "@type": "Person", name: article.author.username },
-            publisher: { "@type": "Organization", name: "Puêr", url: "https://puer.im" },
-            url: `https://puer.im/forum/thread/${id}`,
-            description: article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 200),
-            ...(threadCoverImg ? { image: [threadCoverImg] } : {}),
-            // P1-4：互动量进结构化数据——Google 用 commentCount/interactionStatistic
-            // 判断讨论页活跃度（DiscussionForum 类富摘要的输入之一）
-            commentCount: article._count.comments,
-            ...(article.viewCount > 0
-              ? { interactionStatistic: [
-                  {
-                    "@type": "InteractionCounter",
-                    interactionType: { "@type": "CommentAction" },
-                    userInteractionCount: article._count.comments,
-                  },
-                  {
-                    "@type": "InteractionCounter",
-                    interactionType: { "@type": "LikeAction" },
-                    // 用 _count.likes（点赞）而非 upvotes：upvotes 是与 downvotes
-                    // 配对的论坛投票分，语义上不对应 schema.org 的 LikeAction。
-                    userInteractionCount: article._count.likes,
-                  },
-                  {
-                    "@type": "InteractionCounter",
-                    interactionType: { "@type": "ReadAction" },
-                    userInteractionCount: article.viewCount,
-                  },
-                ] }
-              : {}),
-          }),
-        }}
-      />
-      {/* VideoObject JSON-LD（P2-R11：视频帖进 Google 视频搜索富摘要） */}
-      {article.videoUrl && (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: safeJsonLdStringify({
-              "@context": "https://schema.org",
-              "@type": "VideoObject",
-              name: article.title,
-              description: article.summary || article.content.replace(/<[^>]*>/g, "").slice(0, 200),
-              thumbnailUrl: threadCoverImg ? [threadCoverImg] : undefined,
-              uploadDate: article.createdAt.toISOString(),
-              contentUrl: absImageUrl(article.videoUrl) || undefined,
-              embedUrl: `https://puer.im/forum/thread/${id}`,
-              publisher: { "@type": "Organization", name: "Puêr", url: "https://puer.im" },
-            }),
-          }}
-        />
-      )}
-      {/* BreadcrumbList JSON-LD */}
+      {/* BreadcrumbList JSON-LD — only structured data on /tw/ pages.
+          Article/VideoObject stay on the SC canonical. */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: safeJsonLdStringify({
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
+            inLanguage: "zh-TW",
             itemListElement: [
-              { "@type": "ListItem", position: 1, name: "首页", item: "https://puer.im" },
-              { "@type": "ListItem", position: 2, name: "论坛", item: "https://puer.im/forum" },
+              { "@type": "ListItem", position: 1, name: convertText("首頁"), item: "https://puer.im" },
+              { "@type": "ListItem", position: 2, name: convertText("論壇"), item: "https://puer.im/forum" },
               ...(article.board
-                ? [{ "@type": "ListItem", position: 3, name: article.board.name, item: `https://puer.im/forum/${article.board.slug}` }]
+                ? [{ "@type": "ListItem", position: 3, name: twBoardName ?? article.board.name, item: `https://puer.im/forum/${article.board.slug}` }]
                 : []),
-              { "@type": "ListItem", position: article.board ? 4 : 3, name: article.title, item: `https://puer.im/forum/thread/${id}` },
+              { "@type": "ListItem", position: article.board ? 4 : 3, name: twTitle, item: `https://puer.im/forum/thread/${id}` },
             ],
           }),
         }}
       />
       {/* Breadcrumb */}
       <nav className="text-xs md:text-sm text-stone-400 mb-4">
-        <Link href="/forum" className="hover:text-stone-600 transition">论坛</Link>
+        <Link href="/tw/forum" className="hover:text-stone-600 transition">{convertText("論壇")}</Link>
         {article.board && (
           <>
             <span className="mx-1.5">/</span>
-            <Link href={`/forum/${article.board.slug}`} className="hover:text-stone-600 transition">
-              {article.board.name}
+            <Link href={`/tw/forum/${article.board.slug}`} className="hover:text-stone-600 transition">
+              {twBoardName}
             </Link>
           </>
         )}
       </nav>
 
-      {/* ─── Post ─────────────────────────── */}
       <article className="bg-white border border-stone-200 rounded-lg overflow-hidden">
         <div className="p-4 md:p-6">
-          {/* Author line */}
           <div className="flex items-center gap-2 text-xs text-stone-400 mb-3 flex-wrap">
             <AuthorHover
               author={{
@@ -277,46 +224,40 @@ export default async function ThreadPage({ params }: PageProps) {
             <span className="text-stone-300">·</span>
             <span className="font-mono">#1</span>
             <span className="text-stone-300">·</span>
-            <span>发表于 {new Date(article.createdAt).toLocaleString("zh-CN")}</span>
+            <span>發表於 {new Date(article.createdAt).toLocaleString("zh-TW")}</span>
           </div>
 
-          {/* Badges */}
           {(article.isEssence || article.isPinned || flairDef) && (
             <div className="flex items-center gap-2 mb-3 flex-wrap">
-              {flairDef && (
+              {flairDef && twFlairLabel && (
                 <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${flairDef.color}`}>
-                  {flairDef.label}
+                  {twFlairLabel}
                 </span>
               )}
               {article.isEssence && (
-                <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">精华</span>
+                <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">{convertText("精華")}</span>
               )}
               {article.isPinned && (
-                <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">置顶</span>
+                <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">{convertText("置頂")}</span>
               )}
             </div>
           )}
 
           <h1 className="text-xl md:text-2xl font-bold text-stone-800 mb-4 leading-snug">
-            {article.title}
+            {twTitle}
           </h1>
 
-          {/* Content */}
-          <ForumContent html={article.content} />
+          <ForumContent html={twContent} />
 
-          {/* P2-R26：补充图片墙（茶记帖 images 字段，content 未内联的部分） */}
           <ArticleImageGallery images={galleryImages} />
 
-          {/* Video embed */}
           {article.videoUrl && (
             <div className="mt-4 -mx-2">
               <VideoPlayer src={article.videoUrl} />
             </div>
           )}
 
-          {/* Actions */}
           <div className="mt-6 pt-4 border-t border-stone-200 space-y-3">
-            {/* Row 1: Primary actions */}
             <div className="flex items-center gap-2 md:gap-3">
               <VoteButton
                 refId={id}
@@ -327,13 +268,12 @@ export default async function ThreadPage({ params }: PageProps) {
               />
               <LikeButton articleId={id} initialLiked={initialLiked} initialCount={article._count.likes} />
               <FavoriteButton articleId={id} initialFavorited={initialFavorited} />
-              <ShareButton title={article.title} url={threadUrl} />
+              <ShareButton title={twTitle} url={threadUrl} />
               <FollowThreadButton articleId={id} />
             </div>
 
-            {/* Row 2: Stats + secondary actions */}
             <div className="flex items-center gap-3 text-xs text-stone-400">
-              <span>{article.viewCount} 次查看 · {article._count.comments} 条回复</span>
+              <span>{article.viewCount} {convertText("次查看")} · {article._count.comments} {convertText("條回覆")}</span>
               <span className="flex-1" />
               <ReportButton targetType="article" targetId={id} />
               {session?.user && (session.user.id === article.author.id || session.user.role === "admin") && (
@@ -342,14 +282,13 @@ export default async function ThreadPage({ params }: PageProps) {
                     href={`/forum/thread/${article.id}/edit`}
                     className="px-2.5 py-1.5 border border-stone-300 text-stone-600 rounded hover:bg-stone-50 transition"
                   >
-                    编辑
+                    {convertText("編輯")}
                   </Link>
                   {article.board && (
                     <DeleteThreadButton articleId={article.id} boardSlug={article.board.slug} />
                   )}
                 </>
               )}
-              {/* P2-R5：经典普洱跟进帖「升级到首页」——升级后进入主 feed（作者/管理员/Lv.3+ 可见可操作，API 同校验） */}
               {article.board?.slug === "classics" && article.teaId && session?.user &&
                 (session.user.id === article.author.id || session.user.role === "admin" || session.user.level >= 3) && (
                 <PromoteHomeButton
@@ -361,17 +300,15 @@ export default async function ThreadPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Moderate actions */}
           {canModerate && article.board && (
             <div className="flex items-center gap-3 mt-4 pt-4 border-t border-stone-200">
-              <ModerateButton boardSlug={article.board.slug} articleId={id} action="pin" initialLabel={article.isPinned ? "取消置顶" : "置顶"} />
-              <ModerateButton boardSlug={article.board.slug} articleId={id} action="essence" initialLabel={article.isEssence ? "取消精华" : "精华"} />
+              <ModerateButton boardSlug={article.board.slug} articleId={id} action="pin" initialLabel={article.isPinned ? convertText("取消置頂") : convertText("置頂")} />
+              <ModerateButton boardSlug={article.board.slug} articleId={id} action="essence" initialLabel={article.isEssence ? convertText("取消精華") : convertText("精華")} />
             </div>
           )}
         </div>
       </article>
 
-      {/* Comments / Replies */}
       <CommentSection articleId={id} articleAuthorId={article.author.id} />
     </div>
   );

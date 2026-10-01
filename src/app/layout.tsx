@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 
@@ -47,11 +48,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // P1-tw: proxy.ts (formerly middleware.ts in Next ≤15) sets `x-puer-locale`
+  // so this layout can emit `<html lang="zh-TW">` on /tw/... pages without a
+  // parallel root layout.
+  const headersList = await headers();
+  const headerLocale = headersList.get("x-puer-locale");
+  const lang = headerLocale === "zh-TW" ? "zh-TW" : "zh-CN";
   return (
-    <html lang="zh-CN" className="h-full antialiased">
+    <html lang={lang} className="h-full antialiased">
       <head>
         <script
           type="application/ld+json"
@@ -62,7 +69,7 @@ export default function RootLayout({
               name: "Puêr",
               url: "https://puer.im",
               description: "中老期普洱茶爱好者社区 — 品鉴笔记、茶品百科、茶友交流",
-              inLanguage: "zh-CN",
+              inLanguage: lang,
               potentialAction: {
                 "@type": "SearchAction",
                 target: {
