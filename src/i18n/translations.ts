@@ -392,6 +392,10 @@ export function localeSwitch(pathname: string, locale: Locale): { href: string |
  * Same shape as `forcedLocale ?? locale` in src/i18n/context.tsx and the same
  * rule as src/lib/locale-server.ts, which is the point: both call sites read
  * through here so there is one definition to get wrong.
+ *
+ * Answers *what language the reader is reading*. For *what language the document
+ * is* — `<html lang>`, metadata, hreflang — see {@link pickDocumentLocale},
+ * which must ignore the cookie entirely.
  */
 export function pickLocale(
   urlLocale: string | null | undefined,
@@ -399,6 +403,29 @@ export function pickLocale(
 ): Locale | null {
   if (parseLocale(urlLocale) === "zh-TW") return "zh-TW";
   return parseLocale(cookieLocale);
+}
+
+/**
+ * Which language the *document* is — as opposed to the chrome.
+ *
+ * This is deliberately **not** {@link pickLocale}, and the difference is the
+ * whole point. A reader whose cookie says `zh-TW` may be reading simplified
+ * `/forum` with traditional chrome (their preference), but the document is
+ * still the simplified one: its URL, its hreflang cluster and its body text all
+ * say `zh-Hans-CN`. Letting the cookie reach `<html lang>`, `keywords`, the
+ * social-card text or the WebSite JSON-LD would tell Google that `/forum` is a
+ * traditional-Chinese page — and since `/tw/forum` declares the same content in
+ * `zh-Hant-TW`, the pair stops being a language alternation and becomes two
+ * competing pages for one query.
+ *
+ * So the URL's opinion is the *only* opinion here. `src/proxy.ts` stamps
+ * `x-puer-locale` from the pathname and says nothing else, which is exactly the
+ * force-only signal this wants. On the flip side, `src/app/layout.tsx` must
+ * convert its inherited metadata whenever this returns `zh-TW`, or a `/tw/`
+ * page ships simplified `<meta>` — see the root layout's `generateMetadata`.
+ */
+export function pickDocumentLocale(urlLocale: string | null | undefined): Locale {
+  return parseLocale(urlLocale) === "zh-TW" ? "zh-TW" : DEFAULT_LOCALE;
 }
 
 export function t(key: string, locale: string): string {

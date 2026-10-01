@@ -12,6 +12,7 @@ import {
   isTwPath,
   parseLocale,
   pickLocale,
+  pickDocumentLocale,
   NON_MIRRORED_FORUM_SEGMENTS,
 } from "../i18n/translations.ts";
 import type { Locale } from "../i18n/translations.ts";
@@ -209,6 +210,76 @@ test("pickLocale agrees with the client's forcedLocale ?? locale shape", () => {
       `${pathname} cookie=${cookie} header=${header}`,
     );
   }
+});
+
+// ── pickDocumentLocale: what language the document is, not the reader ───────
+
+test("pickDocumentLocale: the URL alone decides, the cookie is irrelevant", () => {
+  // Regression. A reader with a zh-TW cookie browsing /forum gets traditional
+  // *chrome* (pickLocale), but the document is still the simplified one — its
+  // URL, its hreflang cluster and its body text all say zh-Hans-CN. Letting the
+  // cookie drive <html lang>, keywords or the WebSite JSON-LD would tell Google
+  // that /forum is traditional, and since /tw/forum claims the same content in
+  // zh-Hant-TW the pair stops being a language alternation and becomes two
+  // competing pages for one query.
+  assert.equal(pickDocumentLocale("zh-TW"), "zh-TW");
+  // No cookie parameter at all: this question has no room for one.
+  assert.equal(pickDocumentLocale("zh-CN"), "zh-CN");
+  assert.equal(pickDocumentLocale("zh-Hant"), "zh-CN", "unparseable means simplified, the default");
+  assert.equal(pickDocumentLocale(null), "zh-CN");
+  assert.equal(pickDocumentLocale(undefined), "zh-CN");
+  assert.equal(pickDocumentLocale("garbage"), "zh-CN");
+});
+
+test("pickDocumentLocale agrees with isTwPath, which is what proxy.ts stamps", () => {
+  // The header is derived from the pathname, so these are two views of one
+  // question. If they ever disagree the document claims a language its own URL
+  // contradicts.
+  const corpus = ["/", "/tw", "/tw/", "/tw/forum", "/tw/forum/puer", "/forum", "/forum/puer", "/tea/abc"];
+  for (const pathname of corpus) {
+    const header = isTwPath(pathname) ? "zh-TW" : "zh-CN";
+    assert.equal(pickDocumentLocale(header), header, `${pathname}: document locale must track the URL`);
+  }
+  // ...and an absent header falls back to simplified rather than throwing.
+  assert.equal(pickDocumentLocale(undefined), "zh-CN");
+});
+
+test("pickDocumentLocale and pickLocale diverge exactly where a reader's cookie says zh-TW", () => {
+  // The whole asymmetry in one place. Document = what the page *is* (URL only);
+  // chrome = what the reader is *reading* (URL forces, cookie decides). Neither
+  // is wrong; using one where the other belongs is.
+  assert.deepEqual(
+    [pickDocumentLocale("zh-CN"), pickLocale("zh-CN", "zh-TW")],
+    ["zh-CN", "zh-TW"],
+    "simplified URL, traditional cookie: document SC, chrome TW",
+  );
+  assert.deepEqual(
+    [pickDocumentLocale("zh-TW"), pickLocale("zh-TW", "zh-CN")],
+    ["zh-TW", "zh-TW"],
+    "traditional URL: both agree, the URL wins either way",
+  );
+});
+
+test("root metadata is locale-aware, not a static simplified object", () => {
+  // Structural guard, deliberately: the defect this pins is structural. Next
+  // merges a route's generateMetadata over the root's field-by-field, so any
+  // field a route leaves unset falls back to the root's strings — and when the
+  // root was a static `metadata` export, /tw/forum shipped the simplified
+  // keywords array and twitter description in a zh-TW document (普洱论坛 /
+  // 茶叶评测 / 爱好者社区). The fix is that the root converts its own fields,
+  // which only works if it is a function.
+  //
+  // Brittle by nature: a rename breaks it without a behaviour change. That is
+  // the accepted cost of binding the shape rather than testing the output,
+  // which would need a full render harness. Same trade as the next.config.ts
+  // guard below.
+  const layout = readFileSync(
+    path.join(import.meta.dirname, "..", "app", "layout.tsx"),
+    "utf8",
+  );
+  assert.match(layout, /export async function generateMetadata/, "root metadata is no longer a function of locale");
+  assert.doesNotMatch(layout, /export const metadata\b/, "root metadata went static and can no longer convert");
+  assert.match(layout, /convertText\(/, "root metadata stopped converting its text fields");
 });
 
 test("untwHref inverts twHref for every mirrored path", () => {
