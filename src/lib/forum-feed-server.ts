@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { convertText } from "@/lib/s2t";
+import { scoreThread, jitterSeed, jitterAmount, tierFactor } from "@/lib/hot-rank";
 
 /**
  * 论坛 feed 共享数据层（P2-R3 移动端懒加载）。
@@ -308,13 +309,34 @@ async function hotRankAndPage(opts: {
   const { filtered, manualPinned, wherePublished, offset, limit, userId } = opts;
   const now = Date.now();
 
+  // The scoring formula lives in `@/lib/hot-rank` so the board page and this
+  // feed cannot drift apart when a weight is tuned. What is *not* shared is the
+  // pipeline around it — cold-start, author diversity and the opportunity boost
+  // below are v4.0 feed behaviour the board page does not have.
   const scored = filtered.map((a) => {
-    const net = Math.max(0, (a.upvotes || 0) - (a.downvotes || 0));
-    const score = Math.log1p(net) * 6 + Math.log1p(a.replyCount || 0) * 4 + Math.log1p(Math.min((a.viewCount as number) || 0, 1000)) * 0.2;
-    const boost = (a as { videoUrl?: string | null; _coverImage?: string | null }).videoUrl || (a as { _coverImage?: string | null })._coverImage ? 1.3 : 1;
-    const age = Math.min((now - new Date(a.lastRepliedAt || a.createdAt).getTime()) / 3600000, 720);
-    const timeBonus = 1 + 0.3 / (1 + age / 48);
-    return { ...a, _hotScore: score * boost * timeBonus };
+    // `_coverImage` is not on the declared row shape — it was resolved upstream by
+    // `extractFeedImages`, so it arrives via the `Record<string, unknown>` index
+    // signature and is `unknown` here. `videoUrl` is declared, hence no cast.
+    const { videoUrl, _coverImage } = a;
+    return {
+      ...a,
+      _hotScore: scoreThread(
+        {
+          id: a.id,
+          upvotes: a.upvotes || 0,
+          downvotes: a.downvotes || 0,
+          replyCount: a.replyCount || 0,
+          viewCount: a.viewCount || 0,
+          // Same media question the board page asks, and for the same R26
+          // reason: `_coverImage` was resolved by `extractFeedImages` upstream
+          // (content ∪ images), never by regex on `content`.
+          hasMedia: !!(videoUrl || _coverImage),
+          createdAt: a.createdAt,
+          lastRepliedAt: a.lastRepliedAt,
+        },
+        now,
+      ),
+    };
   });
 
   // P2-R24 新帖冷启动（二）：48h 内新帖给「榜首基准 × 时间衰减」的冷启动分——
@@ -334,30 +356,27 @@ async function hotRankAndPage(opts: {
 
   scored.sort((a, b) => (b._hotScore as number) - (a._hotScore as number));
 
-  // Personalization seed: user ID (if logged in) + current date —
-  // each user sees a different ordering, same user sees it stable within a day
-  // V1-1.5 分层轮转：seed 改 hourBucket，排序每小时重排一次；保留 tierFactor 三层权重
-  // 让 top 5 稳、中段抖、尾段重排；用户多次刷新可见不同顺序。
-  const hourBucket = Math.floor(Date.now() / 3600000);
-  const seedStr = (userId || "anon") + ":" + hourBucket;
-  let seed = 0;
-  for (let i = 0; i < seedStr.length; i++) { seed = ((seed << 5) - seed) + seedStr.charCodeAt(i); seed |= 0; }
-  seed = Math.abs(seed);
+  // Personalization seed: user ID (if logged in) + an hour bucket —
+  // each user sees a different ordering, and the same user sees it reshuffle
+  // every hour. V1-1.5 分层轮转：bucket 取小时粒度（版块页是天粒度，那边一整天
+  // 稳定），配合 tierFactor 三层权重让 top 5 稳、中段抖、尾段重排。
+  // `now` rather than a fresh `Date.now()`: the bucket has to agree with the
+  // clock that scored the rows, or the two can straddle a boundary.
+  const seed = jitterSeed(userId ?? undefined, Math.floor(now / 3600000));
 
   const jitterMap = new Map<string, number>();
   for (const a of scored) {
-    let h = seed;
-    for (let i = 0; i < a.id.length; i++) { h = ((h << 5) - h) + a.id.charCodeAt(i); h |= 0; }
-    jitterMap.set(a.id, Math.abs(h) % 41 / 100);
+    jitterMap.set(a.id, jitterAmount(a.id, seed));
   }
 
   const topN = Math.min(5, scored.length);
   const ranked = scored
-    .map((a, i) => {
-      const tierFactor = i < topN ? 1.0 : i < topN + 10 ? 0.6 : 0.3;
-      const jitter = 1 + (jitterMap.get(a.id) || 0) * tierFactor;
-      return { ...a, _finalScore: (a._hotScore as number) * jitter };
-    })
+    .map((a, i) => ({
+      ...a,
+      // The tier is read off the `_hotScore` rank (`i` here), never off the
+      // jittered rank — see `tierFactor`.
+      _finalScore: a._hotScore * (1 + (jitterMap.get(a.id) || 0) * tierFactor(i, topN)),
+    }))
     .sort((a, b) => (b._finalScore as number) - (a._finalScore as number))
     // Diversity filter: max 3 posts per author
     .filter((() => {

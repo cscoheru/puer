@@ -9,6 +9,7 @@
 import { prisma } from "@/lib/prisma";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { extractFeedImages } from "@/lib/forum-feed-server";
+import { applyHotRank } from "@/lib/hot-rank";
 
 export const ITEMS_PER_PAGE = 20;
 
@@ -27,49 +28,22 @@ export type BoardThreadRow = Awaited<
   ReturnType<typeof prisma.article.findMany<{ select: typeof BOARD_THREAD_SELECT }>>
 >[number];
 
-export function applyHotRank<T extends {
-  id: string; upvotes: number; downvotes: number; replyCount: number;
-  viewCount: number; videoUrl: string | null; content: string;
-  images: string[] | null;
-  createdAt: Date; lastRepliedAt: Date | null;
-}>(
-  threads: T[],
-  sessionUserId?: string,
-): (T & { _hotScore: number; _finalScore: number })[] {
-  const now = Date.now();
-  const scored = threads.map((t) => {
-    const net = Math.max(0, t.upvotes - t.downvotes);
-    // R26：媒体判定必须走统一 helper（content ∪ images）。只看 content 正则会
-    // 让茶记自动帖拿不到 1.3 的媒体加权 —— 它们有图，只是图不在 content 里。
-    const { coverImage } = extractFeedImages({ content: t.content || "", images: t.images ?? null });
-    const score = Math.log1p(net) * 6 + Math.log1p(t.replyCount) * 4 + Math.log1p(Math.min(t.viewCount, 1000)) * 0.2;
-    const boost = (t.videoUrl || coverImage) ? 1.3 : 1;
-    const age = Math.min((now - new Date(t.lastRepliedAt || t.createdAt).getTime()) / 3600000, 720);
-    const timeBonus = 1 + 0.3 / (1 + age / 48);
-    // `coverImage` is only an input to the media boost below — it is not
-    // returned. Carrying it as `_coverImage` on every row put a string nobody
-    // read into the payload that crosses into the client components.
-    return { ...t, _hotScore: score * boost * timeBonus };
-  });
-
-  scored.sort((a, b) => b._hotScore - a._hotScore);
-
-  // Per-user personalization jitter
-  const dayBucket = Math.floor(Date.now() / 86400000);
-  const seedStr = (sessionUserId || "anon") + ":" + dayBucket;
-  let seed = 0;
-  for (let i = 0; i < seedStr.length; i++) { seed = ((seed << 5) - seed) + seedStr.charCodeAt(i); seed |= 0; }
-  seed = Math.abs(seed);
-
-  const topN = Math.min(5, scored.length);
-  return scored
-    .map((a, i) => {
-      let h = seed;
-      for (let j = 0; j < a.id.length; j++) { h = ((h << 5) - h) + a.id.charCodeAt(j); h |= 0; }
-      const jitter = 1 + (Math.abs(h) % 41) / 100 * (i < topN ? 1.0 : i < topN + 10 ? 0.6 : 0.3);
-      return { ...a, _finalScore: a._hotScore * jitter };
-    })
-    .sort((a, b) => b._finalScore - a._finalScore);
+/**
+ * Ranking state — `hasMedia`, `_hotScore`, `_finalScore` — is bookkeeping for
+ * the sort, not page data. Rows are rebuilt without it before they leave this
+ * module so the values cannot ride along into page props: the same reasoning
+ * that removed `_coverImage` from the scored rows. Doing it here rather than in
+ * each caller means there is no second place to forget.
+ */
+function toBoardRow(
+  row: (BoardThreadRow & { hasMedia: boolean }) & { _hotScore: number; _finalScore: number },
+): BoardThreadRow {
+  // Rest-omit is how the three keys get dropped. The bindings are deliberate
+  // discards, which this ESLint config reports because it does not set
+  // `ignoreRestSiblings` — that option exists precisely for this pattern.
+  /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+  const { hasMedia: _hasMedia, _hotScore: _hotScore, _finalScore: _finalScore, ...rest } = row;
+  return rest;
 }
 
 export interface BoardThreads {
@@ -118,11 +92,34 @@ export async function loadBoardThreads(opts: {
       .filter((t, i, arr) => arr.findIndex((b) => b.id === t.id) === i)
       .sort((a, b) => (b.hotSortOrder || 0) - (a.hotSortOrder || 0));
     const eligible = all.filter((t) => !t.hotOverride);
-    const ranked = applyHotRank(eligible, userId);
-    const merged = [
-      ...manualPinned.map((t) => ({ ...t, _hotScore: Infinity, _finalScore: Infinity } as typeof ranked[0])),
-      ...ranked,
-    ];
+
+    // The clock is read once here and injected, rather than twice inside the
+    // ranking function: `scoreThread`'s `now` and the personalization `bucket`
+    // used to be two separate `Date.now()` calls that could straddle a
+    // millisecond boundary and disagree about what day it is.
+    const now = Date.now();
+
+    const ranked = applyHotRank(
+      eligible.map((t) => ({
+        ...t,
+        // R26：媒体判定必须走统一 helper（content ∪ images）。只看 content 正则会
+        // 让茶记自动帖拿不到 1.3 的媒体加权 —— 它们有图，只是图不在 content 里。
+        hasMedia: !!(
+          t.videoUrl ||
+          extractFeedImages({ content: t.content || "", images: t.images ?? null }).coverImage
+        ),
+      })),
+      // The board page rotates personalization daily so a reader's board is
+      // stable all day. The home feed uses an hour bucket instead — that is a
+      // product difference between the two surfaces, not an inconsistency.
+      { now, bucket: Math.floor(now / 86400000), sessionUserId: userId },
+    ).map(toBoardRow);
+
+    // Pinned posts lead by construction: they are prepended, not scored. They
+    // used to be stamped `_hotScore: Infinity` to say the same thing, but
+    // nothing sorts `merged`, so those values were decorative and only cost a
+    // type assertion to produce.
+    const merged: BoardThreadRow[] = [...manualPinned, ...ranked];
     const start = (page - 1) * ITEMS_PER_PAGE;
     threads = merged.slice(start, start + ITEMS_PER_PAGE);
   }

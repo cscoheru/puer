@@ -2,12 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import VoteButton from "@/components/vote-button";
 import ForumSidebar from "@/components/forum-sidebar";
 import LatestPosts from "@/components/latest-posts";
 import BoardModerator from "@/components/board-moderator";
+import { BoardThreadList, BoardPagination } from "@/components/board-thread-list";
 import { loadBoardThreads } from "@/lib/board-threads";
-import { extractFeedImages } from "@/lib/forum-feed-server";
+import { parsePage } from "@/lib/pagination";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import type { Metadata } from "next";
 
@@ -16,17 +16,6 @@ export const dynamic = "force-dynamic";
 interface PageProps {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ page?: string; sort?: string }>;
-}
-
-/**
- * `Math.max(1, parseInt(x))` is not a guard: parseInt yields NaN for garbage
- * and Math.max(1, NaN) is NaN, which reaches Prisma's `skip` as NaN and 500s
- * the page. The upper bound keeps a crafted `?page=99999999999` from
- * overflowing Prisma's 32-bit `skip`. Mirrors the TW board page.
- */
-function parsePage(raw: string | undefined): number {
-  const n = parseInt(raw || "1", 10);
-  return Number.isSafeInteger(n) && n > 0 && n <= 10000 ? n : 1;
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -70,12 +59,6 @@ export default async function BoardPage({ params, searchParams }: PageProps) {
     userId: session?.user?.id,
   });
 
-  // Carries the active sort across pages. The previous inline form emitted the
-  // suffix whenever the sort was *not* "latest" — which dropped 最新 on page 2
-  // (the reader silently got the hot ranking back) and produced
-  // `&sort=undefined` when no sort was set at all.
-  const sortSuffix = sort ? `&sort=${sort}` : "";
-
   return (
     <div className="flex gap-4 md:gap-6 px-2 md:px-4 max-w-screen-2xl mx-auto py-4">
       {/* BreadcrumbList JSON-LD */}
@@ -115,85 +98,9 @@ export default async function BoardPage({ params, searchParams }: PageProps) {
           {totalPages > 1 && <span className="text-xs text-stone-400 ml-auto">第 {page}/{totalPages} 页</span>}
         </div>
 
-        {/* Thread list */}
-        {threads.length > 0 ? (
-          <div className="divide-y divide-stone-100 bg-white border border-stone-200 rounded-lg overflow-hidden">
-            {threads.map((thread) => {
-              // R26：content ∪ images 字段（茶记自动帖的图只在 images 里）
-              const { coverImage } = extractFeedImages({
-                content: thread.content || "",
-                images: thread.images ?? null,
-              });
-              const plainText = (thread.content || "").replace(/<[^>]*>/g, "").trim().slice(0, 120);
-              const timeAgo = ((d: Date) => {
-                const diff = Date.now() - d.getTime();
-                if (diff < 60000) return "刚刚";
-                if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
-                if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
-                return `${Math.floor(diff / 86400000)} 天前`;
-              })(thread.lastRepliedAt || thread.createdAt);
-
-              return (
-                <div key={thread.id} className="flex gap-3 px-4 py-3 hover:bg-stone-50 transition">
-                  <div className="shrink-0 pt-0.5">
-                    <VoteButton refId={thread.id} type="article" initialUpvotes={thread.upvotes} initialDownvotes={thread.downvotes} initialValue={voteMap.get(thread.id) || 0} size="sm" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 text-xs text-stone-400 mb-0.5">
-                      <Link href={`/user/${thread.author.id}`} className="hover:text-amber-700 font-medium text-stone-500">{thread.author.username}</Link>
-                      <span>·</span>
-                      <span>{timeAgo}</span>
-                    </div>
-                    <Link href={`/forum/thread/${thread.id}`} className="block">
-                      <h2 className="text-base font-semibold text-stone-800 hover:text-amber-800 leading-snug">
-                        {thread.isPinned && <span className="text-xs text-blue-600 font-medium mr-1">📌</span>}
-                        {thread.isEssence && <span className="text-xs text-amber-600 font-medium mr-1">💎</span>}
-                        {thread.title}
-                      </h2>
-                    </Link>
-                    {plainText && <p className="text-xs text-stone-500 mt-1 leading-relaxed line-clamp-2">{plainText}</p>}
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-stone-400">
-                      <span>👍 {Math.max(0, thread.upvotes - thread.downvotes)}</span>
-                      <Link href={`/forum/thread/${thread.id}`} className="hover:text-stone-600">💬 {thread.replyCount} 评论</Link>
-                    </div>
-                  </div>
-                  {coverImage ? (
-                    <Link href={`/forum/thread/${thread.id}`} className="shrink-0">
-                      <div className="w-20 h-20 md:w-24 md:h-24 rounded-lg bg-stone-100 overflow-hidden"><img src={coverImage} alt="" className="w-full h-full object-cover" /></div>
-                    </Link>
-                  ) : thread.videoUrl ? (
-                    <Link href={`/forum/thread/${thread.id}`} className="shrink-0">
-                      <div className="w-20 h-20 md:w-24 md:h-24 rounded-lg bg-black overflow-hidden relative">
-                        <video src={thread.videoUrl} preload="metadata" muted playsInline className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-6 h-6 bg-black/40 rounded-full flex items-center justify-center">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-16">
-            <p className="text-stone-400 text-sm">暂无帖子</p>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-6">
-            {page > 1 && <Link href={`/forum/${slug}?page=${page - 1}${sortSuffix}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">上一页</Link>}
-            {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => i + 1).map((p) => (
-              <Link key={p} href={`/forum/${slug}?page=${p}${sortSuffix}`}
-                className={`px-2.5 py-1.5 text-xs rounded border transition ${p === page ? "bg-amber-800 text-white border-amber-800" : "border-stone-300 text-stone-600 hover:border-amber-300"}`}>{p}</Link>
-            ))}
-            {page < totalPages && <Link href={`/forum/${slug}?page=${page + 1}${sortSuffix}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">下一页</Link>}
-          </div>
-        )}
+        {/* Thread list + pagination — shared with /tw/forum/[slug] */}
+        <BoardThreadList locale="zh-CN" threads={threads} voteMap={voteMap} />
+        <BoardPagination locale="zh-CN" slug={slug} page={page} totalPages={totalPages} sort={sort} />
       </div>
       <LatestPosts />
     </div>

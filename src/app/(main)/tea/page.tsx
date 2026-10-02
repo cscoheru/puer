@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { TeaGrid } from "@/components/tea/tea-list";
 import { LANDING_MIN_TEAS, PREFERRED_BRANDS, normalizeTeaType, teaListSelect } from "@/lib/tea-query";
+import { pageWindow } from "@/lib/pagination";
 
 export const metadata: Metadata = {
   title: "普洱茶库 - 经典普洱茶品大全（大益/下关/福今）",
@@ -19,18 +20,6 @@ const LIMIT = 24;
 
 interface PageProps {
   searchParams: Promise<{ brand?: string; year?: string; type?: string; q?: string; page?: string }>;
-}
-
-/** 分页器窗口：首页 + 末页 + 当前页 ±2，中间用省略号 */
-function pageWindow(current: number, total: number): (number | "…")[] {
-  const wanted = new Set<number>([1, total, current, current - 1, current + 1, current - 2, current + 2]);
-  const nums = [...wanted].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
-  const out: (number | "…")[] = [];
-  for (let i = 0; i < nums.length; i++) {
-    if (i > 0 && nums[i] - nums[i - 1] > 1) out.push("…");
-    out.push(nums[i]);
-  }
-  return out;
 }
 
 export default async function TeaListPage({ searchParams }: PageProps) {
@@ -174,6 +163,9 @@ export default async function TeaListPage({ searchParams }: PageProps) {
               上一页
             </Link>
           )}
+          {/* Page window: first + last + current ±2, `…` in each gap. Shared
+              with the board pages via `@/lib/pagination`; this page was the
+              original home of the shape. */}
           {pageWindow(page, totalPages).map((p, i) =>
             p === "…" ? (
               <span key={`gap-${i}`} className="px-1 text-stone-300 text-sm">…</span>

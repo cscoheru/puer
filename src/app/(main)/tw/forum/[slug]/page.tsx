@@ -4,9 +4,15 @@
  * Data comes from the same `loadBoardThreads()` the simplified page calls, so
  * ordering, ranking and pagination are identical across the two URLs — the
  * reader sees the same board, just in traditional glyphs. Only the presentation
- * layer differs: DB-sourced text goes through s2tw, UI chrome through the
- * zhCNtoTW map, and in-tree links go through `twHref` so a click does not drop
+ * layer differs: DB-sourced text goes through s2tw, UI chrome through
+ * `convertText`, and in-tree links go through `twHref` so a click does not drop
  * the reader back onto the simplified site (or, worse, onto a 404).
+ *
+ * The thread list and the pager themselves live in
+ * `@/components/board-thread-list`, shared with the simplified page and
+ * parameterised on `locale` — see that file for the glyph/routing rules. What
+ * stays here is the page's own chrome: metadata, JSON-LD, the board header and
+ * the sort tabs.
  *
  * canonical stays on /forum/[slug] (the DB-authoritative copy). JSON-LD here is
  * BreadcrumbList only.
@@ -15,45 +21,18 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import VoteButton from "@/components/vote-button";
 import ForumSidebar from "@/components/forum-sidebar";
 import LatestPosts from "@/components/latest-posts";
 import BoardModerator from "@/components/board-moderator";
+import { BoardThreadList, BoardPagination } from "@/components/board-thread-list";
 import { loadBoardThreads } from "@/lib/board-threads";
-import { extractFeedImages } from "@/lib/forum-feed-server";
+import { parsePage } from "@/lib/pagination";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import { convertText } from "@/lib/s2t";
 import { twHref, NON_MIRRORED_FORUM_SEGMENTS } from "@/i18n/translations";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
-
-/** Fixed time labels, converted once at module load instead of per thread per
- *  render — `convertText` hashes its input on every call even on a cache hit. */
-const T_JUST_NOW = convertText("刚刚");
-const T_MINUTES_AGO = convertText("分钟前");
-const T_HOURS_AGO = convertText("小时前");
-const T_DAYS_AGO = convertText("天前");
-
-/** Relative time with traditional labels. Mirrors the inline helper on the SC page. */
-function timeAgo(d: Date): string {
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return T_JUST_NOW;
-  if (diff < 3600000) return `${Math.floor(diff / 60000)} ${T_MINUTES_AGO}`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)} ${T_HOURS_AGO}`;
-  return `${Math.floor(diff / 86400000)} ${T_DAYS_AGO}`;
-}
-
-/**
- * Parses `?page=`. `Math.max(1, parseInt(x))` alone is not enough: parseInt
- * returns NaN for garbage, and Math.max(1, NaN) is NaN, which reaches Prisma's
- * `skip` as NaN and 500s the whole board. The upper bound keeps a crafted
- * `?page=999999999999` from overflowing Prisma's 32-bit `skip`.
- */
-function parsePage(raw: string | undefined): number {
-  const n = parseInt(raw || "1", 10);
-  return Number.isSafeInteger(n) && n > 0 && n <= 10000 ? n : 1;
-}
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
@@ -124,10 +103,6 @@ export default async function TwBoardPage({ params, searchParams }: PageProps) {
   // literal: the shape rules live in one place, and a path with no mirror
   // (`/forum/new`) is left unprefixed automatically instead of by hand.
   const boardHref = twHref("zh-TW", `/forum/${slug}`);
-  // Carry the active sort across pages. Emitting it only when it is *not*
-  // "latest" silently dropped the 最新 tab on page 2 (the reader got the hot
-  // ranking back), and emitted `&sort=undefined` when no sort was set at all.
-  const sortSuffix = sort ? `&sort=${sort}` : "";
 
   return (
     <div className="flex gap-4 md:gap-6 px-2 md:px-4 max-w-screen-2xl mx-auto py-4">
@@ -169,80 +144,9 @@ export default async function TwBoardPage({ params, searchParams }: PageProps) {
           {totalPages > 1 && <span className="text-xs text-stone-400 ml-auto">{convertText(`第 ${page}/${totalPages} 页`)}</span>}
         </div>
 
-        {/* Thread list */}
-        {threads.length > 0 ? (
-          <div className="divide-y divide-stone-100 bg-white border border-stone-200 rounded-lg overflow-hidden">
-            {threads.map((thread) => {
-              // R26：content ∪ images 字段（茶记自动帖的图只在 images 里）
-              const { coverImage } = extractFeedImages({
-                content: thread.content || "",
-                images: thread.images ?? null,
-              });
-              const plainText = convertText((thread.content || "").replace(/<[^>]*>/g, "").trim().slice(0, 120));
-              const replied = timeAgo(thread.lastRepliedAt || thread.createdAt);
-              const threadHref = twHref("zh-TW", `/forum/thread/${thread.id}`);
-
-              return (
-                <div key={thread.id} className="flex gap-3 px-4 py-3 hover:bg-stone-50 transition">
-                  <div className="shrink-0 pt-0.5">
-                    <VoteButton refId={thread.id} type="article" initialUpvotes={thread.upvotes} initialDownvotes={thread.downvotes} initialValue={voteMap.get(thread.id) || 0} size="sm" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 text-xs text-stone-400 mb-0.5">
-                      <Link href={`/user/${thread.author.id}`} className="hover:text-amber-700 font-medium text-stone-500">{thread.author.username}</Link>
-                      <span>·</span>
-                      <span>{replied}</span>
-                    </div>
-                    <Link href={threadHref} className="block">
-                      <h2 className="text-base font-semibold text-stone-800 hover:text-amber-800 leading-snug">
-                        {thread.isPinned && <span className="text-xs text-blue-600 font-medium mr-1">📌</span>}
-                        {thread.isEssence && <span className="text-xs text-amber-600 font-medium mr-1">💎</span>}
-                        {convertText(thread.title)}
-                      </h2>
-                    </Link>
-                    {plainText && <p className="text-xs text-stone-500 mt-1 leading-relaxed line-clamp-2">{plainText}</p>}
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-stone-400">
-                      <span>👍 {Math.max(0, thread.upvotes - thread.downvotes)}</span>
-                      <Link href={threadHref} className="hover:text-stone-600">💬 {thread.replyCount} {convertText("评论")}</Link>
-                    </div>
-                  </div>
-                  {coverImage ? (
-                    <Link href={threadHref} className="shrink-0">
-                      <div className="w-20 h-20 md:w-24 md:h-24 rounded-lg bg-stone-100 overflow-hidden"><img src={coverImage} alt="" className="w-full h-full object-cover" /></div>
-                    </Link>
-                  ) : thread.videoUrl ? (
-                    <Link href={threadHref} className="shrink-0">
-                      <div className="w-20 h-20 md:w-24 md:h-24 rounded-lg bg-black overflow-hidden relative">
-                        <video src={thread.videoUrl} preload="metadata" muted playsInline className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-6 h-6 bg-black/40 rounded-full flex items-center justify-center">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-16">
-            <p className="text-stone-400 text-sm">{convertText("暂无帖子")}</p>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-6">
-            {page > 1 && <Link href={`${boardHref}?page=${page - 1}${sortSuffix}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">{convertText("上一页")}</Link>}
-            {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => i + 1).map((p) => (
-              <Link key={p} href={`${boardHref}?page=${p}${sortSuffix}`}
-                className={`px-2.5 py-1.5 text-xs rounded border transition ${p === page ? "bg-amber-800 text-white border-amber-800" : "border-stone-300 text-stone-600 hover:border-amber-300"}`}>{p}</Link>
-            ))}
-            {page < totalPages && <Link href={`${boardHref}?page=${page + 1}${sortSuffix}`} className="px-2.5 py-1.5 text-xs border border-stone-300 rounded hover:border-amber-300 transition text-stone-600">{convertText("下一页")}</Link>}
-          </div>
-        )}
+        {/* Thread list + pagination — shared with /forum/[slug] */}
+        <BoardThreadList locale="zh-TW" threads={threads} voteMap={voteMap} />
+        <BoardPagination locale="zh-TW" slug={slug} page={page} totalPages={totalPages} sort={sort} />
       </div>
       <LatestPosts locale="zh-TW" />
     </div>
