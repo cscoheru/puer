@@ -58,7 +58,11 @@ case "$TASK" in
       auto-post)
         # R26/R27:必须容器内跑 — slideshow 视频依赖容器 /app/public/uploads(宿主机无此路径)。
         # AI(茶记 adapt)R25 起走 MiniMax,经 -e 透传 MINIMAX_API_KEY。
+        # AUTO_TEA_DRAFT_ADAPT=1 打开 Phase D 的 grounded 改写 —— 这个开关曾漏传,
+        # 密钥透传了但 adaptOn 恒 false,于是每日草稿全是 assemble.ts 的逐字拼装,
+        # 从未经模型改写。两个 env 必须成对出现,少一个改写路径就整条不跑。
         run docker exec -e DATABASE_URL -e MINIMAX_API_KEY \
+          -e AUTO_TEA_DRAFT_ADAPT="1" \
           -e AUTO_TEA_DRAFT_AUTHOR_ID="cmpb7net1000001ocrss0o4de" \
           -e AUTO_TEA_DRAFT_BOARD_ID="169748e7-123e-40f5-b283-b016c83f9c32" \
           puer-hub-app ./node_modules/.bin/tsx scripts/auto-post.mjs --apply

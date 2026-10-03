@@ -22,6 +22,7 @@ function note(over: Partial<NormalizedNote>): NormalizedNote {
     content: "<p>这是一段足够长的品鉴正文，描述了外观汤色与滋味。</p>",
     summary: null,
     teaId: "tea-1",
+    teaName: null,
     authorId: "auth-1",
     source: "manual",
     brewMethod: null,
@@ -132,6 +133,66 @@ test("title is whitespace-folded and clipped to TITLE_MAX_LENGTH (200) by code p
   const d = assembleDraft({ note: note({ title: "  " + long + "  " }), config: CONFIG });
   assert.equal([...d.title].length, 200);
   assert.equal(d.title, "标题".repeat(100));
+});
+
+test("title is the tea product name, not the note's log title", () => {
+  // The user-facing requirement: 「保留茶品名作为题目」. The note title is a
+  // diary log line ("2026开汤第3场"), which is meaningless in a forum list.
+  const d = assembleDraft({
+    note: note({
+      title: "2026开汤第3场",
+      teaName: "97老树圆茶",
+      content: "<p>汤色橙红，入口有樟香。</p>",
+    }),
+    config: CONFIG,
+  });
+  assert.equal(d.title, "97老树圆茶");
+  // Body must be untouched by the title change — the VERBATIM contract holds
+  // for the body even though it no longer holds for the title.
+  assert.equal(d.content, "<p>汤色橙红，入口有樟香。</p>");
+});
+
+test("title falls back to the note title when the note has no tea name", () => {
+  for (const teaName of [null, "", "   "]) {
+    const d = assembleDraft({
+      note: note({ title: "笔记原标题", teaName, content: "<p>正文。</p>" }),
+      config: CONFIG,
+    });
+    assert.equal(d.title, "笔记原标题", `teaName=${JSON.stringify(teaName)}`);
+  }
+});
+
+test("tea-name title is whitespace-folded and clipped to TITLE_MAX_LENGTH too", () => {
+  const d = assembleDraft({
+    note: note({ title: "原标题", teaName: "  " + "茶".repeat(300) + "  " }),
+    config: CONFIG,
+  });
+  assert.equal([...d.title].length, 200);
+  assert.equal(d.title, "茶".repeat(200));
+});
+
+test("summary skips a first sentence that repeats either the tea name or the note title", () => {
+  // Both are plausible openers for a note's first sentence, and the summary
+  // must not just echo whichever title we happened to pick.
+  const byTeaName = assembleDraft({
+    note: note({
+      title: "开汤记录",
+      teaName: "97老树圆茶",
+      content: "<p>97老树圆茶。汤色橙红，回甘快。</p>",
+    }),
+    config: CONFIG,
+  });
+  assert.equal(byTeaName.summary, "汤色橙红，回甘快。");
+
+  const byNoteTitle = assembleDraft({
+    note: note({
+      title: "开汤记录",
+      teaName: "97老树圆茶",
+      content: "<p>开汤记录。汤色橙红，回甘快。</p>",
+    }),
+    config: CONFIG,
+  });
+  assert.equal(byNoteTitle.summary, "汤色橙红，回甘快。");
 });
 
 test("summary = first complete non-title-repeat sentence, clipped at sentence boundary", () => {

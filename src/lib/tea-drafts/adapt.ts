@@ -11,7 +11,7 @@
  *   1. Numeric grounding — every arabic-digit run in the adapted text must
  *      already appear in the source corpus (blocks invented years / scores /
  *      weights / temps / steep counts).
- *   2. Length bounds vs source (30%–150%) + absolute min/max.
+ *   2. Length bounds vs source (20%–200%) + absolute min/max.
  *   3. Output HTML is passed through sanitizeNoteHtml — the SAME gate as the
  *      verbatim path — so script, iframe, on* handlers, style, and dangerous
  *      URL schemes are stripped. Then stripToContentTags enforces the prompt's
@@ -26,10 +26,15 @@
  * key) but at temperature 0.4 (grounded), not the retired creative 0.9, with a
  * json_object response format and a 20s timeout.
  */
-import { extractPlainText, codepointLength } from "./source-html.ts";
+import {
+  extractParagraphs,
+  extractPlainText,
+  codepointLength,
+} from "./source-html.ts";
 import { sanitizeNoteHtml, stripToContentTags } from "./sanitize.ts";
 import { escapeHtml, SUMMARY_MAX_LENGTH } from "./assemble.ts";
 import type { NormalizedNote } from "./normalize.ts";
+import { styleByKey, type StyleKey, type TeaDraftStyle } from "./styles.ts";
 
 // DeepSeek config — mirrors src/lib/moderation.ts. Those consts are
 // module-private there, so they are re-declared here to keep the adapter free
@@ -37,14 +42,21 @@ import type { NormalizedNote } from "./normalize.ts";
 const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
 const MINIMAX_MODEL = "MiniMax-M3";
 
-// Adaptation knobs (deliberately tighter than the retired creative rewrite).
+// Adaptation knobs. The ratio band was 0.3–1.5 and is now 0.2–2.0: the prompt
+// explicitly tells the model to DISCARD the reference/provenance material that
+// real notes are made of (product history, market talk, batch lore) and write
+// only the author's own tasting facts, so a correct rewrite of a 资料-heavy note
+// is legitimately much shorter than the source — and a rewrite that turns a thin
+// one-liner into a proper post is legitimately longer. Widening the ratio is a
+// style constraint relaxation only; the fact constraints (numeric grounding,
+// HTML whitelist) below are untouched.
 const ADAPT_TIMEOUT_MS = 20_000;
 const ADAPT_TEMPERATURE = 0.4;
 const ADAPT_MAX_TOKENS = 800;
 const ADAPT_MIN_CODEPOINTS = 60;
 const ADAPT_MAX_CODEPOINTS = 2000; // hard ceiling independent of ratio
-const ADAPT_RATIO_MIN = 0.3;
-const ADAPT_RATIO_MAX = 1.5;
+const ADAPT_RATIO_MIN = 0.2;
+const ADAPT_RATIO_MAX = 2.0;
 
 export interface AdaptBrewFields {
   method: string | null;
@@ -56,13 +68,27 @@ export interface AdaptBrewFields {
 /** Everything the adapter needs, derived purely from a normalized note. */
 export interface AdaptSource {
   title: string;
+  /**
+   * The tea product name — i.e. the title the finished article will actually
+   * carry (see `assemble.ts`'s `assembleTitle`). Distinct from `title`, which is
+   * the note's own diary log line ("2026开汤第3场"). The model needs both: the
+   * product name to write about the right tea, the note title for context. It
+   * is also part of `corpus` — see `toAdaptSource` for why.
+   */
+  teaName: string | null;
   plainText: string; // HTML-stripped body: prompt input + length-ratio baseline
   brewFields: AdaptBrewFields;
-  corpus: string; // title + body + rendered brew fields — the grounding source
+  corpus: string; // tea name + title + body + rendered brew fields — the grounding source
 }
 
+/**
+ * On success, `style` is the voice the rewrite was actually performed in —
+ * echoed back so the caller can persist it next to the text without recomputing
+ * the hash and risking a mismatch. On failure there is no style, because no
+ * rewrite happened.
+ */
 export type AdaptResult =
-  | { ok: true; content: string; summary: string }
+  | { ok: true; content: string; summary: string; style: StyleKey }
   | { ok: false; reason: string };
 
 /** Render non-null brew fields into one flat text line of facts the model may use. */
@@ -75,9 +101,34 @@ function renderBrewFields(b: AdaptBrewFields): string {
   return parts.join(" ");
 }
 
-/** Pure: derive the adapter input from a normalized note (no network, no DB). */
+/**
+ * Reference/provenance material, identified by a leading bracketed 资料 marker.
+ * Census of the 1686 production notes found this only ever on TITLES (108 of
+ * them), never in a body paragraph — so this is a cheap defensive net for future
+ * imports, not a fix for live data. The real 资料 problem is semantic (bodies
+ * mix reference prose with the author's own tasting facts) and is handled by the
+ * prompt's A/B separation instruction below.
+ */
+const REFERENCE_PARAGRAPH = /^[（(【\[]\s*资料\s*[）)】\]]/;
+
+/** Pure: drop paragraphs that open with a reference marker. Order preserved. */
+export function dropReferenceParagraphs(paragraphs: readonly string[]): string[] {
+  return paragraphs.filter((p) => !REFERENCE_PARAGRAPH.test(p));
+}
+
+/**
+ * Pure: derive the adapter input from a normalized note (no network, no DB).
+ *
+ * The reference-paragraph filter is applied here, on purpose, to ALL THREE
+ * fields the adapter reasons over — prompt input, length baseline, grounding
+ * corpus. They have to agree: a fact the model is told not to use must not be
+ * sitting in the corpus that licenses numbers, and material the prompt discards
+ * must not inflate the baseline the rewrite's length is judged against (which
+ * is exactly the 资料-heavy case the 0.2 ratio floor exists for).
+ */
 export function toAdaptSource(note: NormalizedNote): AdaptSource {
-  const plainText = extractPlainText(note.content);
+  const paragraphs = dropReferenceParagraphs(extractParagraphs(note.content));
+  const plainText = paragraphs.join(" ");
   const brewFields: AdaptBrewFields = {
     method: note.brewMethod,
     temp: note.waterTemp,
@@ -85,8 +136,15 @@ export function toAdaptSource(note: NormalizedNote): AdaptSource {
     steep: note.steepCount,
   };
   const brew = renderBrewFields(brewFields);
-  const corpus = [note.title, plainText, brew].filter(Boolean).join("\n");
-  return { title: note.title, plainText, brewFields, corpus };
+  const teaName = (note.teaName ?? "").trim() || null;
+  // The tea name joins the corpus as a first-class source fact. It has to:
+  // product names carry digits (「97老树圆茶」, 「7542」), and once the model is
+  // told the article's title is that name it will write it into the body — if
+  // the name were outside the corpus, `isGrounded` would reject the output for
+  // stating the article's own title. Content we ask the model to write must be
+  // licensed by the same corpus that polices it.
+  const corpus = [teaName, note.title, plainText, brew].filter(Boolean).join("\n");
+  return { title: note.title, teaName, plainText, brewFields, corpus };
 }
 
 /**
@@ -120,9 +178,9 @@ export function isGrounded(
 }
 
 /**
- * Pure length gate: adapted body must stay within [30%, 150%] of source and
- * satisfy an absolute min/max (independent of ratio). The 30% floor lets the
- * model trim a verbose per-steep brew log; the 150% ceiling guards rambling.
+ * Pure length gate: adapted body must stay within [20%, 200%] of source and
+ * satisfy an absolute min/max (independent of ratio). The floor lets the model
+ * cut a 资料-heavy note down to its tasting facts; the ceiling guards rambling.
  */
 export function checkAdaptLength(
   adaptedCodepoints: number,
@@ -152,10 +210,16 @@ export function checkAdaptLength(
   return { ok: true };
 }
 
-function buildPrompt(source: AdaptSource): string {
+function buildPrompt(source: AdaptSource, style: TeaDraftStyle): string {
   const brew = renderBrewFields(source.brewFields);
   return [
     '请把下方"源记录"改编成一篇普洱茶论坛帖子。',
+    "",
+    "【先分清两类内容】",
+    "笔记正文通常把两类内容混在一起,改写前先在心里分开:",
+    "A. 资料性内容 —— 产品沿革、市场说法、行情价、批次知识、历史考据、转述的他人记录。",
+    "B. 作者本人的品鉴事实 —— 这次开汤的冲泡、逐泡感受、香气/汤色/口感/回甘、优点与不足、本人的判断。",
+    "只写 B。A 一律丢弃:不要转述、不要概括、不要「顺带提一句」,不要写成产品介绍或历史考据。",
     "",
     "【硬性约束】",
     "- 只能使用源记录里已经出现的事实。不得编造年份、产地、价格、评分、冲泡次数、他人评价或源记录未提及的任何细节。",
@@ -163,8 +227,12 @@ function buildPrompt(source: AdaptSource): string {
     "- 第一人称、口语化,像一个真人在论坛分享。",
     "- 只能使用这些 HTML 标签:<p> <b> <i> <h2> <ul> <li>。不要使用 <img>、<a>、<script> 或任何属性。",
     "",
+    `【文风】${style.label}`,
+    style.voice,
+    "",
     "【源记录】",
-    `标题:${source.title}`,
+    source.teaName ? `茶品:${source.teaName}` : "",
+    `笔记标题:${source.title}`,
     `正文:${source.plainText || "(无正文)"}`,
     brew ? `参数:${brew}` : "",
     "",
@@ -178,7 +246,7 @@ function buildPrompt(source: AdaptSource): string {
 }
 
 const ADAPT_SYSTEM =
-  "你是普洱茶社区里一位资深的真实茶友。任务:把作者本人的品鉴记录改编成一篇论坛帖子——保留事实、精炼文风,重点写口感、优点和不足。绝不编造源记录里没有的细节。";
+  "你是普洱茶社区里一位资深的真实茶友。任务:把作者本人的品鉴记录改编成一篇论坛帖子——只保留作者亲口写的品鉴事实,把产品资料、市场行情、历史考据全部剔除,再按指定文风重新组织。绝不编造源记录里没有的细节。";
 
 interface DeepSeekChoice {
   message?: { content?: string };
@@ -217,6 +285,12 @@ function clipSummary(summary: string): string {
 
 export interface DeepSeekAdaptOptions {
   source: AdaptSource;
+  /**
+   * Required, not optional: the caller resolves it from the note id
+   * (`styleFor`). Deliberately no default — an omitted style must fail loudly
+   * rather than silently rewrite everything in one voice.
+   */
+  style: StyleKey;
   /** Injectable for tests; defaults to the global fetch. */
   fetcher?: typeof fetch;
   timeoutMs?: number;
@@ -235,6 +309,8 @@ export async function deepSeekAdapt(
   opts: DeepSeekAdaptOptions,
 ): Promise<AdaptResult> {
   const { source } = opts;
+  const style = styleByKey(opts.style);
+  if (!style) return { ok: false, reason: `unknown style: ${opts.style}` };
   const key = process.env.MINIMAX_API_KEY;
   if (!key) return { ok: false, reason: "MINIMAX_API_KEY missing" };
 
@@ -253,7 +329,7 @@ export async function deepSeekAdapt(
         model: MINIMAX_MODEL,
         messages: [
           { role: "system", content: ADAPT_SYSTEM },
-          { role: "user", content: buildPrompt(source) },
+          { role: "user", content: buildPrompt(source, style) },
         ],
         temperature: ADAPT_TEMPERATURE,
         max_completion_tokens: ADAPT_MAX_TOKENS,
@@ -304,5 +380,10 @@ export async function deepSeekAdapt(
   const grounded = isGrounded(`${adaptedPlain} ${summaryRaw}`, source.corpus);
   if (!grounded.ok) return { ok: false, reason: grounded.reason };
 
-  return { ok: true, content: sanitized, summary: clipSummary(summaryRaw) };
+  return {
+    ok: true,
+    content: sanitized,
+    summary: clipSummary(summaryRaw),
+    style: style.key,
+  };
 }

@@ -41,6 +41,7 @@ import { assembleDraft, isAllowedMediaUrl, type AssembleConfig, type AssembledDr
 import { generateSlideshowVideo } from "../slideshow-video.ts";
 import { tastingDraftId, noteIdFromDraftId } from "./id.ts";
 import { toAdaptSource, type AdaptSource, type AdaptResult } from "./adapt.ts";
+import { styleFor, type StyleKey } from "./styles.ts";
 
 /** Prisma's P2002 (unique violation) error code — checked by duck-typing to
  *  keep this module free of any `@/` runtime import (pure-loadable). */
@@ -175,11 +176,31 @@ export function selectDrafts(input: {
 
   // Stable rank: score DESC, createdAt DESC, id ASC (see scoring.rankCandidates).
   const ranked = rankCandidates(passing).map((r) => passing.find((p) => p.id === r.id)!);
-  const chosen = ranked.slice(0, Math.max(0, config.limit));
-  const chosenIds = new Set(chosen.map((c) => c.id));
 
-  for (const p of passing) {
-    if (!chosenIds.has(p.id)) rejected.push({ id: p.id, reason: "rank_cap" });
+  // Same-batch tea dedup. The historical `teaAlreadyCovered` fact is computed
+  // BEFORE selection, so two notes about the same product in one run would both
+  // see `false` and both become drafts — the "same product is never drafted
+  // twice" promise only held across runs. Walk rank order so the best-scoring
+  // note of a tea wins; every later note of that tea is rejected under the SAME
+  // `tea_already_covered` reason as an already-covered tea. A tea is marked
+  // taken only when its note is actually chosen, so an unselected note cannot
+  // shadow a better one. Notes with no teaId cannot be compared and pass through.
+  const limit = Math.max(0, config.limit);
+  const chosen: typeof passing = [];
+  const takenTeas = new Set<string>();
+  for (const p of ranked) {
+    const teaId = p.note.teaId;
+    const hasTea = typeof teaId === "string" && teaId !== "";
+    if (hasTea && takenTeas.has(teaId)) {
+      rejected.push({ id: p.id, reason: "tea_already_covered" });
+      continue;
+    }
+    if (chosen.length < limit) {
+      chosen.push(p);
+      if (hasTea) takenTeas.add(teaId);
+    } else {
+      rejected.push({ id: p.id, reason: "rank_cap" });
+    }
   }
 
   const selected = chosen.map((c) =>
@@ -236,6 +257,53 @@ export interface RunnerResult {
   videos: VideoOutcome[];
 }
 
+/**
+ * `Article.aiOriginal` payload — the frozen "what the machine produced" record
+ * that 审校修改率 diffs against. `title`/`content`/`summary` are the three keys
+ * the human-edit diff reads; `style` and `adapted` are provenance only and must
+ * never be folded into that diff (schema.prisma documents the column as the
+ * pure-human-edit baseline).
+ *
+ * `adapted` is the verbatim-vs-rewritten flag the admin UI needs: a draft still
+ * holding `assemble.ts`'s verbatim assembly is `adapted: false` and gets the
+ * 「⚠ 原文版 · 待重写」 badge. Rows written before this key existed are verbatim
+ * too, so reading a missing key as `false` is correct rather than a fallback.
+ *
+ * A TYPE alias, not an interface: Prisma's `InputJsonObject` needs an index
+ * signature, and TypeScript only gives those implicitly to object type
+ * literals. Declaring this as `interface` makes every `aiOriginal: {...}` write
+ * fail to typecheck against the generated client.
+ */
+export type AiOriginal = {
+  title: string;
+  content: string;
+  summary: string | null;
+  style?: StyleKey;
+  adapted?: boolean;
+};
+
+/**
+ * Build the `aiOriginal` provenance payload. Shared by BOTH write paths —
+ * creation (`adapted: false`) and post-adapt (`adapted: true`) — so the two
+ * cannot drift apart on key shape, and so both states are unit-testable without
+ * spinning up the transaction that owns the creation write.
+ */
+export function buildAiOriginal(input: {
+  title: string;
+  content: string;
+  summary: string | null;
+  style: StyleKey;
+  adapted: boolean;
+}): AiOriginal {
+  return {
+    title: input.title,
+    content: input.content,
+    summary: input.summary,
+    style: input.style,
+    adapted: input.adapted,
+  };
+}
+
 /** A draft created this run, carrying what the post-commit adapt needs. */
 export interface CreatedRow {
   id: string;
@@ -245,7 +313,20 @@ export interface CreatedRow {
   title: string;
   /** Draft images, so the adapt rewrite can re-embed them into the new body. */
   images?: string[];
+  /** Voice resolved from the note id at creation — the re-rewrite button recomputes it. */
+  style: StyleKey;
 }
+
+/**
+ * The rewrite hook the runner is given. Takes a single object so the style is
+ * a visible, named part of the contract: a call site that ignores it reads
+ * wrong at a glance (a bare `({ source }) => ...`), unlike a second positional
+ * argument that can be silently dropped.
+ */
+export type AdaptDraftFn = (input: {
+  source: AdaptSource;
+  style: StyleKey;
+}) => Promise<AdaptResult>;
 
 /** Internal transaction return shape. The public RunnerResult is assembled only
  *  AFTER the post-commit adapt loop, so the model call never runs inside the tx. */
@@ -284,7 +365,7 @@ export interface AdaptClient {
         content: string;
         summary: string;
         /** Re-freeze the AI original to the adapt output (optional for fakes). */
-        aiOriginal?: { title: string; content: string; summary: string };
+        aiOriginal?: AiOriginal;
       };
     }): Promise<{ count: number }>;
   };
@@ -305,14 +386,14 @@ export interface AdaptClient {
 export async function applyAdapt(opts: {
   writer: AdaptClient;
   createdRows: CreatedRow[];
-  adaptDraft: (source: AdaptSource) => Promise<AdaptResult>;
+  adaptDraft: AdaptDraftFn;
 }): Promise<AdaptOutcome[]> {
   const { writer, createdRows, adaptDraft } = opts;
   const adapted: AdaptOutcome[] = [];
   for (const row of createdRows) {
     let r: AdaptResult;
     try {
-      r = await adaptDraft(row.adaptSource);
+      r = await adaptDraft({ source: row.adaptSource, style: row.style });
     } catch (e) {
       r = { ok: false, reason: `adapt threw: ${e instanceof Error ? e.message : String(e)}` };
     }
@@ -326,8 +407,18 @@ export async function applyAdapt(opts: {
         content: r.content,
         summary: r.summary,
         // Keep aiOriginal in lockstep with the latest AI output, so the
-        // 审校修改率 always diffs against what the human actually saw.
-        aiOriginal: { title: row.title, content: r.content, summary: r.summary },
+        // 审校修改率 always diffs against what the human actually saw. `adapted`
+        // flips to true here (alongside the admin panel's one-click rewrite,
+        // the only two writers of that flag), and the style is echoed from the
+        // result rather than recomputed, so the persisted provenance cannot
+        // drift from the voice actually used.
+        aiOriginal: buildAiOriginal({
+          title: row.title,
+          content: r.content,
+          summary: r.summary,
+          style: r.style,
+          adapted: true,
+        }),
       },
     });
     adapted.push({
@@ -436,7 +527,7 @@ export async function runTeaDraftRunner(opts: {
   /** Phase D: optional grounded rewrite of just-created drafts. Omit for the
    *  pure verbatim path (current behavior). The model call runs AFTER the tx
    *  commits — never inside it — and on any failure the verbatim draft is kept. */
-  adaptDraft?: (source: AdaptSource) => Promise<AdaptResult>;
+  adaptDraft?: AdaptDraftFn;
 }): Promise<RunnerResult> {
   const { prisma, config, dryRun = false } = opts;
   const now = opts.now ?? (() => new Date());
@@ -505,8 +596,12 @@ export async function runTeaDraftRunner(opts: {
 
     // 6. Prefetch DB facts: author liveness (one fetch — same author for every
     //    candidate) + which candidates already have a draft (batch by PK) +
-    //    the set of teas already covered by ANY tasting-draft (tea-level dedup
-    //    so the same product is never drafted twice from different notes).
+    //    the set of teas already covered by ANY Article, in any status. That
+    //    widens the old `id startsWith "tasting-draft_"` scan (historical
+    //    auto-drafts only) to what was actually wanted: a tea that is already a
+    //    published post, on the hot list, or sitting in the draft pool is off
+    //    limits. Hot-list entries are published Articles, so they are covered
+    //    by the same predicate — no separate query.
     const author = await tx.user.findUnique({
       where: { id: config.authorId },
       select: { banStatus: true },
@@ -519,8 +614,9 @@ export async function runTeaDraftRunner(opts: {
     });
     const existingSet = new Set(existing.map((e) => e.id));
     const covered = await tx.article.findMany({
-      where: { id: { startsWith: TASTING_DRAFT_PREFIX } },
+      where: { teaId: { not: null } },
       select: { teaId: true },
+      distinct: ["teaId"],
     });
     const coveredTeaIds = new Set(
       covered.map((c) => c.teaId).filter((t): t is string => t != null),
@@ -534,8 +630,27 @@ export async function runTeaDraftRunner(opts: {
       });
     }
 
+    // 6b. Prefetch tea product names for the draft TITLE. TastingNote has no
+    //     name column — only the teaId FK — so this is a batched join, stamped
+    //     onto the normalized notes below. A note whose tea row is missing or
+    //     unnamed keeps teaName null and assemble.ts falls back to the note's
+    //     own title. One query for the whole batch, never one per note.
+    const teaIds = [
+      ...new Set(rows.map((r) => r.teaId).filter((t): t is string => t != null && t !== "")),
+    ];
+    const teaRows =
+      teaIds.length > 0
+        ? await tx.tea.findMany({
+            where: { id: { in: teaIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const teaNames = new Map(teaRows.map((t) => [t.id, t.name]));
+
     // 7. Pure selection (no DB). Verbatim assembly, no model.
-    const candidates = rows.map(normalizeTastingNote);
+    const candidates = rows.map((r) =>
+      normalizeTastingNote({ ...r, teaName: (r.teaId && teaNames.get(r.teaId)) || null }),
+    );
     const { selected, rejected } = selectDrafts({ candidates, factsByNote, scoringCtx, config });
 
     // 7b. Derive the (pure) adapt source for each selected draft now, so the
@@ -557,6 +672,10 @@ export async function runTeaDraftRunner(opts: {
     if (!dryRun) {
       for (const draft of selected) {
         try {
+          // Style is a pure hash of the NOTE id (not the draft id) so the admin
+          // re-rewrite button can recompute the identical voice from the note
+          // id alone — nothing to persist for dispatch.
+          const style = styleFor(noteIdFromDraftId(draft.id) ?? draft.id).key;
           const created = await tx.article.create({
             data: {
               id: draft.id,
@@ -566,7 +685,15 @@ export async function runTeaDraftRunner(opts: {
               summary: draft.summary,
               // Freeze the assembly original for the 审校修改率 baseline. Human
               // edits only ever touch content/summary/title — never this column.
-              aiOriginal: { title: draft.title, content: draft.content, summary: draft.summary },
+              // `adapted: false` marks this as the verbatim assembly; Phase D
+              // flips it to true on success and never touches it otherwise.
+              aiOriginal: buildAiOriginal({
+                title: draft.title,
+                content: draft.content,
+                summary: draft.summary,
+                style,
+                adapted: false,
+              }),
               boardId: draft.boardId,
               teaId: draft.teaId,
               tags: draft.tags,
@@ -583,7 +710,14 @@ export async function runTeaDraftRunner(opts: {
           });
           const adaptSource = adaptSourceByDraftId.get(draft.id);
           if (adaptSource) {
-            createdRows.push({ id: created.id, createdAt: created.createdAt, adaptSource, title: draft.title, images: draft.images });
+            createdRows.push({
+              id: created.id,
+              createdAt: created.createdAt,
+              adaptSource,
+              title: draft.title,
+              images: draft.images,
+              style,
+            });
           }
         } catch (e) {
           if (isUniqueViolation(e)) {

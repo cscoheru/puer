@@ -2,7 +2,50 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import DraftReviewPanel, { type ReviewDraft, type SourceNote } from "./drafts-client";
+import DraftReviewPanel, {
+  type ReviewDraft,
+  type SourceNote,
+  type AiOriginalInfo,
+} from "./drafts-client";
+import { isTastingDraftId } from "@/lib/tea-drafts/id";
+import { styleByKey } from "@/lib/tea-drafts/styles";
+
+/**
+ * What a list row must carry to show its markers. Structural subset of the
+ * single-draft payload — the list API returns the same `aiOriginal` column
+ * (Prisma `include` hands back every scalar), so no select change is needed.
+ */
+interface RowMark {
+  id: string;
+  aiOriginal?: AiOriginalInfo | null;
+}
+
+/**
+ * Row markers for tasting drafts, driven by `Article.aiOriginal` (already in the
+ * list payload — Prisma `include` returns every scalar, no select needed).
+ *
+ * `UnadaptedBadge` is the same distinction the review banner makes, but it has
+ * to be visible before you open anything: a verbatim assembly is not publishable
+ * as-is, and hunting that out one panel at a time is how bad drafts got shipped.
+ * `StyleChip` makes the creative-style rotation observable across consecutive
+ * days' drafts — the "多种风格" requirement is only satisfied if you can see it.
+ */
+function UnadaptedBadge({ draft }: { draft: RowMark }) {
+  if (!isTastingDraftId(draft.id)) return null;
+  if (draft.aiOriginal?.adapted === true) return null;
+  return (
+    <span className="ml-2 align-middle text-[10px] font-normal text-amber-800 bg-amber-100 border border-amber-200 rounded px-1.5 py-0.5 whitespace-nowrap">
+      ⚠ 待重写
+    </span>
+  );
+}
+
+function StyleChip({ draft }: { draft: RowMark }) {
+  if (!isTastingDraftId(draft.id)) return null;
+  if (draft.aiOriginal?.adapted !== true) return null;
+  const style = styleByKey(draft.aiOriginal?.style);
+  return <span className="ml-1 text-stone-400">· {style?.label ?? "风格未记录"}</span>;
+}
 
 export default function DraftsPage() {
   const { data: session } = useSession();
@@ -95,11 +138,15 @@ export default function DraftsPage() {
               className="flex items-center gap-3 p-3 bg-white rounded-lg border border-stone-200 hover:border-amber-200 transition"
             >
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-stone-800 truncate">{d.title}</p>
+                <p className="text-sm font-medium text-stone-800 truncate">
+                  {d.title}
+                  <UnadaptedBadge draft={d} />
+                </p>
                 <p className="text-xs text-stone-400 mt-0.5">
                   {d.type === "tasting" ? "品鉴" : d.type === "article" ? "文章" : "讨论"} ·{" "}
                   {new Date(d.createdAt).toLocaleDateString("zh-CN")} ·
                   {d.tags?.length > 0 && ` ${d.tags.slice(0, 3).join(", ")}`}
+                  <StyleChip draft={d} />
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">

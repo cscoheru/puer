@@ -3,15 +3,23 @@
  * core of the trustworthy-draft pipeline.
  *
  * Trust contract: every fragment in the output is traceable to either
- *   (a) the note's own prose, preserved VERBATIM in original order (only
+ *   (a) the note's own BODY prose, preserved VERBATIM in original order (only
  *       empty/exact-duplicate/exact-boilerplate paragraphs are dropped), or
  *   (b) a fixed, neutral section ("冲泡记录") built ONLY from the note's brew
  *       fields, with fixed labels, or
- *   (c) a fixed label/heading emitted by this module.
+ *   (c) a fixed label/heading emitted by this module, or
+ *   (d) the TITLE, which is the name of the note's tea product (`Tea.name`),
+ *       falling back to the note's own title when there is no tea row. This is
+ *       a lookup of an existing field, never a rewrite of one.
  * Nothing is invented, paraphrased, or model-generated. The numeric tasting
  * scores are NEVER written — not to `tastingScores`, not into the body, not
  * into the summary. (If the author's own prose mentions a score, that prose is
  * preserved verbatim — which is exactly the "traceable to source" promise.)
+ *
+ * Note that (a) is a BODY-only promise. It used to cover the title too, when
+ * the title was a verbatim copy of `note.title`; the title is now the tea
+ * product name per product decision, which is why (d) is called out separately
+ * rather than folded into (a).
  *
  * Pure: no DB, no network, no model. Safe under `node --test`.
  */
@@ -102,8 +110,16 @@ function stripAttachmentPlaceholders(p: string): string {
   return foldWhitespace(p.replace(ATTACHMENT_PLACEHOLDER, ""));
 }
 
-function assembleTitle(raw: string): string {
-  return clipToCodepoints(foldWhitespace(raw), TITLE_MAX_LENGTH);
+/**
+ * The draft title is the tea product name, per product decision — not the
+ * note's own log title. Falls back to the note title when the note has no tea
+ * row (or the name is blank) so a draft is always titled with something the
+ * reader recognises. Both sides are whitespace-folded and clipped to the
+ * Article.title column cap; neither is rewritten or generated.
+ */
+function assembleTitle(teaName: string | null, noteTitle: string): string {
+  const primary = foldWhitespace(teaName ?? "");
+  return clipToCodepoints(primary || foldWhitespace(noteTitle), TITLE_MAX_LENGTH);
 }
 
 /** When a sentence exceeds the cap, cut after the last terminator ≤ cap; else hard-clip. */
@@ -122,16 +138,18 @@ function stripTrailingTerminators(s: string): string {
   return s.replace(/[。！？!?;；]+$/, "");
 }
 
-function assembleSummary(paragraphs: string[], title: string): string | null {
+function assembleSummary(paragraphs: string[], skipTitles: readonly string[]): string | null {
   if (paragraphs.length === 0) return null;
   const sentences = paragraphs[0]
     .split(SENTENCE_SPLIT)
     .map(foldWhitespace)
     .filter(Boolean);
-  // First complete, non-empty sentence that is not a verbatim repeat of the
-  // title. Compare on terminator-stripped cores so "标题。" vs "标题" matches.
-  const picked =
-    sentences.find((s) => stripTrailingTerminators(s) !== stripTrailingTerminators(title)) ?? null;
+  // First complete, non-empty sentence that is not a verbatim repeat of any
+  // title we might have used. Compare on terminator-stripped cores so "标题。"
+  // vs "标题" matches. Both the draft title (tea name) and the note's own title
+  // are passed, because a body's first sentence can echo either.
+  const skip = new Set(skipTitles.map((t) => stripTrailingTerminators(t)));
+  const picked = sentences.find((s) => !skip.has(stripTrailingTerminators(s))) ?? null;
   if (!picked) return null;
   return clipAtSentenceBoundary(picked, SUMMARY_MAX_LENGTH) || null;
 }
@@ -193,14 +211,14 @@ export function assembleDraft(input: {
   const paragraphs = extractParagraphs(note.content)
     .map(stripAttachmentPlaceholders)
     .filter(Boolean);
-  const title = assembleTitle(note.title);
+  const title = assembleTitle(note.teaName, note.title);
   const media = assembleMedia(note);
   return {
     id: tastingDraftId(note.id),
     type: "tasting",
     title,
     content: assembleBody(paragraphs, note, boilerplate),
-    summary: assembleSummary(paragraphs, title),
+    summary: assembleSummary(paragraphs, [title, note.title]),
     tags: ["品鉴"],
     status: "draft",
     authorId: note.authorId,

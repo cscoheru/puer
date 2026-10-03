@@ -4,9 +4,13 @@
  * DraftReviewPanel — admin review surface for a single draft.
  *
  * For tasting-note drafts (deterministic id `tasting-draft_`) it also shows the
- * read-only source note so the reviewer can confirm the draft is a faithful,
- * un-rewritten projection of the author's manual note. The banner states the
- * trust contract explicitly: no AI, no semantic rewrite.
+ * read-only source note so the reviewer can confirm the draft is grounded in
+ * the author's manual note. The banner states the trust contract explicitly,
+ * and it is state-dependent: a draft that still holds `assemble.ts`'s verbatim
+ * assembly is flagged 「⚠ 原文版 · 待重写」 with a one-click rewrite, while a
+ * rewritten one says so and names the creative style it was written in. This
+ * distinction used to be unconditional ("未调用 AI") and became false the moment
+ * the grounded rewrite switched on.
  *
  * Actions: edit (title + RichEditor body) → save; publish (draft→published via
  * the unified transaction); archive; delete. The parent owns list refresh via
@@ -15,6 +19,7 @@
 import { useEffect, useState } from "react";
 import RichEditor from "@/components/rich-editor";
 import { isTastingDraftId } from "@/lib/tea-drafts/id";
+import { styleByKey } from "@/lib/tea-drafts/styles";
 
 interface TeaInfo {
   name: string;
@@ -32,6 +37,20 @@ interface BoardInfo {
   slug: string;
 }
 
+/**
+ * `Article.aiOriginal` as the list/single APIs return it. `adapted` is the
+ * provenance flag this panel's banner reads: `true` = a grounded AI rewrite
+ * landed on this draft, anything else = it is still `assemble.ts`'s verbatim
+ * assembly. Rows predating the key read as unadapted, which is correct.
+ */
+export interface AiOriginalInfo {
+  title?: string;
+  content?: string;
+  summary?: string | null;
+  style?: string;
+  adapted?: boolean;
+}
+
 export interface ReviewDraft {
   id: string;
   type: string;
@@ -47,6 +66,7 @@ export interface ReviewDraft {
   steepCount: number | null;
   status: string;
   createdAt: string;
+  aiOriginal?: AiOriginalInfo | null;
   author: AuthorInfo;
   tea: TeaInfo | null;
   board: BoardInfo | null;
@@ -94,6 +114,10 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
   const [uploadingImg, setUploadingImg] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // Held locally, not read straight off the prop: the rewrite action leaves the
+  // panel open and updates this in place, so the banner flips from 「原文版」 to
+  // the rewritten state without closing and re-opening the review surface.
+  const [aiOriginal, setAiOriginal] = useState<AiOriginalInfo | null>(draft.aiOriginal ?? null);
 
   // Reset local edit state when the inspected draft changes.
   useEffect(() => {
@@ -101,6 +125,7 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
     setTitle(draft.title);
     setContent(draft.content);
     setImages(asImages(draft.images));
+    setAiOriginal(draft.aiOriginal ?? null);
   }, [draft.id]);
 
   const isTeaDraft = isTastingDraftId(draft.id);
@@ -205,6 +230,49 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
     }
   }
 
+  /**
+   * One-click grounded rewrite for a tasting draft that is still holding
+   * `assemble.ts`'s verbatim assembly. The API re-derives the creative style
+   * deterministically from the note id, so nothing has to be stored here.
+   *
+   * The panel stays open and updates in place — closing it would lose the
+   * reviewer's place in the queue. The conditional write on the server
+   * (`updatedAt === createdAt`) means a human who saved first keeps their edit;
+   * we surface that instead of silently overwriting.
+   */
+  async function rewrite() {
+    if (editing) {
+      alert("编辑中 — 请先保存或取消，避免覆盖未保存的修改。");
+      return;
+    }
+    setBusy("rewrite");
+    try {
+      const res = await fetch("/api/drafts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: draft.id, action: "rewrite" }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error ?? "重写失败");
+      if (body?.skipped) {
+        alert(`重写已放弃：${body.reason ?? "该草稿已被人工修改，保留你的版本。"}`);
+        return;
+      }
+      if (body?.adapted === false) {
+        alert(`改写未通过校验，已保留原文版：${body.reason ?? "未知原因"}`);
+        return;
+      }
+      setTitle(body.title ?? title);
+      setContent(body.content ?? content);
+      setAiOriginal(body.aiOriginal ?? null);
+      onChanged();
+    } catch (err) {
+      alert("重写失败: " + (err instanceof Error ? err.message : "未知错误"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto"
@@ -230,15 +298,42 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
         </div>
 
         <div className="px-6 py-5 space-y-5">
-          {/* Trust banner: tasting-draft provenance */}
-          {isTeaDraft && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-900">
-              <p className="font-medium">自动组稿 · 未调用 AI、未做语义改写</p>
-              <p className="text-xs text-amber-800/80 mt-1">
-                正文为原作者本人品鉴笔记的逐字取舍（仅删空段/重复段/导入样板）。如需核对，请逐段对照下方「来源笔记」。
-              </p>
-            </div>
-          )}
+          {/* Trust banner: tasting-draft provenance. State-dependent — the
+              wording used to claim 「未调用 AI」 outright, which stopped being
+              true the moment the grounded rewrite switched on. */}
+          {isTeaDraft && (() => {
+            const adapted = aiOriginal?.adapted === true;
+            const style = adapted ? styleByKey(aiOriginal?.style) : null;
+            return (
+              <div
+                className={`rounded-lg border px-4 py-3 text-sm ${
+                  adapted
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                    : "bg-amber-50 border-amber-200 text-amber-900"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium">
+                    {adapted
+                      ? `自动组稿 · AI 初稿（已改写${style ? ` · ${style.label}` : ""}）`
+                      : "⚠ 原文版 · 待重写"}
+                  </p>
+                  <button
+                    onClick={rewrite}
+                    disabled={busy !== null}
+                    className="shrink-0 text-xs border border-current/30 rounded px-3 py-1.5 hover:bg-white/60 disabled:opacity-50"
+                  >
+                    {busy === "rewrite" ? "重写中…" : "🔄 重写"}
+                  </button>
+                </div>
+                <p className={`text-xs mt-1 ${adapted ? "text-emerald-800/80" : "text-amber-800/80"}`}>
+                  {adapted
+                    ? `正文为 AI 依作者本人品鉴事实改写的初稿（风格：${style?.label ?? "未记录"}）。仅保留本次开汤的冲泡与品饮判断，已剔除产品资料与行情考据。数字已对照原笔记接地校验。如需核对，请逐段对照下方「来源笔记」。`
+                    : "正文为原作者本人品鉴笔记的逐字取舍（仅删空段/重复段/导入样板），尚未经模型改写。点「🔄 重写」生成 AI 初稿；若已人工保存过，重写会放弃以保留你的修改。"}
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Metadata */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
@@ -395,7 +490,9 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
             ) : (
               <div
                 className="prose prose-stone prose-sm max-w-none bg-white border border-stone-200 rounded-lg px-4 py-3"
-                dangerouslySetInnerHTML={{ __html: draft.content || "<p class='text-stone-400'>（空）</p>" }}
+                // Renders `content`, not `draft.content`: a successful rewrite
+                // swaps the body in place without re-fetching the draft.
+                dangerouslySetInnerHTML={{ __html: content || "<p class='text-stone-400'>（空）</p>" }}
               />
             )}
           </div>

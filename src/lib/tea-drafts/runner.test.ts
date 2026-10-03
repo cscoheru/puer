@@ -13,6 +13,7 @@ import {
   selectDrafts,
   startOfShanghaiDayUtc,
   isUniqueViolation,
+  buildAiOriginal,
   applyAdapt,
   attachVideos,
   type RunnerConfig,
@@ -20,6 +21,7 @@ import {
   type AdaptClient,
   type VideoClient,
   type CreatedRow,
+  type AiOriginal,
 } from "./runner.ts";
 import type { NormalizedNote } from "./normalize.ts";
 import type { AdaptSource, AdaptResult } from "./adapt.ts";
@@ -45,6 +47,7 @@ function nn(over: Partial<NormalizedNote>): NormalizedNote {
     content: LONG_CONTENT,
     summary: null,
     teaId: "tea-1",
+    teaName: null,
     authorId: AUTHOR,
     source: "manual",
     brewMethod: null,
@@ -168,8 +171,10 @@ test("missing facts → fail-closed (treated as inactive author)", () => {
 });
 
 test("limit cap: two eligible notes, limit 1 → newer selected, other rank_cap", () => {
-  const older = nn({ id: ID_B, createdAt: 1000 });
-  const newer = nn({ id: ID_C, createdAt: 2000 });
+  // Distinct teaIds: this test is about the rank cap, and must not also trip
+  // the same-batch tea dedup.
+  const older = nn({ id: ID_B, createdAt: 1000, teaId: "tea-b" });
+  const newer = nn({ id: ID_C, createdAt: 2000, teaId: "tea-c" });
   const res = run([older, newer], cfg({ noteIds: new Set([ID_B, ID_C]), limit: 1 }));
   assert.equal(res.selected.length, 1);
   assert.equal(res.selected[0].id, "tasting-draft_" + ID_C); // newer wins (createdAt DESC)
@@ -179,11 +184,117 @@ test("limit cap: two eligible notes, limit 1 → newer selected, other rank_cap"
 });
 
 test("limit 2: both eligible → both selected, no rank_cap", () => {
-  const a = nn({ id: ID_B, createdAt: 1000 });
-  const b = nn({ id: ID_C, createdAt: 2000 });
+  const a = nn({ id: ID_B, createdAt: 1000, teaId: "tea-b" });
+  const b = nn({ id: ID_C, createdAt: 2000, teaId: "tea-c" });
   const res = run([a, b], cfg({ noteIds: new Set([ID_B, ID_C]), limit: 2 }));
   assert.equal(res.selected.length, 2);
   assert.deepEqual(res.rejected, []);
+});
+
+// ── same-batch tea dedup ────────────────────────────────────────────────
+
+test("same batch, same tea: only one draft, the other is tea_already_covered", () => {
+  // The historical `teaAlreadyCovered` fact is computed before selection, so
+  // both notes here see `false`. Without in-batch dedup the "same product is
+  // never drafted twice" promise breaks inside a single run.
+  const a = nn({ id: ID_B, createdAt: 1000, teaId: "tea-shared" });
+  const b = nn({ id: ID_C, createdAt: 2000, teaId: "tea-shared" });
+  const res = run([a, b], cfg({ noteIds: new Set([ID_B, ID_C]), limit: 2 }));
+  assert.equal(res.selected.length, 1);
+  assert.deepEqual(
+    res.rejected.map((r) => r.reason),
+    ["tea_already_covered"],
+  );
+  assert.equal(res.rejected[0].id, ID_B); // older loses the tie-break
+});
+
+test("same batch, same tea: the higher-ranked note of the tea is the one kept", () => {
+  // Rank order decides which note of a tea survives, so a lower-scoring note
+  // cannot evict a better one just by appearing earlier in the input.
+  const better = nn({ id: ID_B, createdAt: 3000, teaId: "tea-shared" });
+  const worse = nn({ id: ID_C, createdAt: 1000, teaId: "tea-shared" });
+  const res = run([worse, better], cfg({ noteIds: new Set([ID_B, ID_C]), limit: 2 }));
+  assert.equal(res.selected.length, 1);
+  assert.equal(res.selected[0].id, "tasting-draft_" + ID_B);
+  assert.deepEqual(
+    res.rejected.map((r) => ({ id: r.id, reason: r.reason })),
+    [{ id: ID_C, reason: "tea_already_covered" }],
+  );
+});
+
+test("same batch, distinct teas are both selected", () => {
+  const a = nn({ id: ID_B, createdAt: 1000, teaId: "tea-b" });
+  const b = nn({ id: ID_C, createdAt: 2000, teaId: "tea-c" });
+  const res = run([a, b], cfg({ noteIds: new Set([ID_B, ID_C]), limit: 2 }));
+  assert.equal(res.selected.length, 2);
+  assert.deepEqual(res.rejected, []);
+});
+
+test("same batch, notes with no teaId are never deduped against each other", () => {
+  // A null teaId means "cannot be compared" — two unrelated notes must not be
+  // silently collapsed just because both lack a product.
+  const a = nn({ id: ID_B, createdAt: 1000, teaId: "" });
+  const b = nn({ id: ID_C, createdAt: 2000, teaId: "" });
+  const res = run([a, b], cfg({ noteIds: new Set([ID_B, ID_C]), limit: 2 }));
+  assert.equal(res.selected.length, 2);
+  assert.deepEqual(res.rejected, []);
+});
+
+test("same-batch dedup and the rank cap are independent", () => {
+  // Three notes for two teas, limit 1. The winner takes its tea; the other note
+  // of that tea is a duplicate, the third is simply over the cap — and each
+  // must report its own reason rather than a generic one.
+  const a1 = nn({ id: ID_B, createdAt: 3000, teaId: "tea-a" });
+  const a2 = nn({ id: ID_C, createdAt: 2000, teaId: "tea-a" });
+  const b = nn({ id: "cjld2cjxh0003qzrmn831i7rn2", createdAt: 1000, teaId: "tea-b" });
+  const res = run([a1, a2, b], cfg({ noteIds: new Set(), limit: 1 }));
+  assert.equal(res.selected.length, 1);
+  assert.equal(res.selected[0].id, "tasting-draft_" + ID_B);
+  const byId = new Map(res.rejected.map((r) => [r.id, r.reason]));
+  assert.equal(byId.get(ID_C), "tea_already_covered");
+  assert.equal(byId.get("cjld2cjxh0003qzrmn831i7rn2"), "rank_cap");
+});
+
+// ── tea-name injection into the title ───────────────────────────────────
+
+test("the assembled draft title is the tea product name carried on the note", () => {
+  // The runner stamps Tea.name onto NormalizedNote.teaName (TastingNote has no
+  // name column); selectDrafts must hand it through to assemble.ts untouched.
+  const res = run([nn({ teaName: "97老树圆茶" })], cfg());
+  assert.equal(res.selected[0].title, "97老树圆茶");
+});
+
+test("a note with no tea name keeps the note's own title", () => {
+  const res = run([nn({ teaName: null })], cfg());
+  assert.equal(res.selected[0].title, "某山头古树春茶");
+});
+
+// ── aiOriginal provenance ───────────────────────────────────────────────
+
+test("buildAiOriginal: creation state is adapted:false with the dispatch style", () => {
+  const orig = buildAiOriginal({
+    title: "97老树圆茶",
+    content: "<p>正文</p>",
+    summary: "摘要",
+    style: "caveat",
+    adapted: false,
+  });
+  // The three diff keys stay exactly title/content/summary — style/adapted are
+  // provenance and must never leak into 审校修改率.
+  assert.deepEqual(Object.keys(orig).sort(), ["adapted", "content", "style", "summary", "title"]);
+  assert.equal(orig.adapted, false);
+  assert.equal(orig.style, "caveat");
+  assert.equal(orig.summary, "摘要");
+});
+
+test("buildAiOriginal: a pre-provenance row (no style/adapted keys) is not marked adapted", () => {
+  // Rows written before this cut have no style/adapted key at all — and they
+  // ARE verbatim assemblies. The consumer idiom is `adapted === true`, so a
+  // missing key must not satisfy it; asserting `=== false` would be wrong,
+  // since the key is genuinely absent rather than false.
+  const legacy: AiOriginal = { title: "t", content: "c", summary: "s" };
+  assert.notEqual(legacy.adapted, true);
+  assert.equal(legacy.style, undefined);
 });
 
 test("empty candidates → empty selected and rejected", () => {
@@ -272,20 +383,27 @@ test("isUniqueViolation: false for any other Prisma code, non-object, or missing
 
 const ADAPT_SRC: AdaptSource = {
   title: "某山头古树春茶",
+  teaName: null,
   plainText: "汤色金黄,入口顺滑,回甘持久。" .repeat(6),
   brewFields: { method: "盖碗", temp: 100, weight: "7克", steep: 7 },
   corpus: "汤色金黄 100 7 盖碗",
 };
 const CREATED_AT = new Date("2026-08-02T00:00:00Z");
 function makeRow(id: string): CreatedRow {
-  return { id, createdAt: CREATED_AT, adaptSource: ADAPT_SRC, title: ADAPT_SRC.title };
+  return {
+    id,
+    createdAt: CREATED_AT,
+    adaptSource: ADAPT_SRC,
+    title: ADAPT_SRC.title,
+    style: "veteran",
+  };
 }
 
 /** Fake writer that records every updateMany call and returns a fixed count. */
 function fakeWriter(count: number) {
   const calls: Array<{
     where: { id: string; updatedAt: Date; status: string };
-    data: { content: string; summary: string };
+    data: { content: string; summary: string; aiOriginal?: unknown };
   }> = [];
   const writer: AdaptClient = {
     article: {
@@ -298,7 +416,12 @@ function fakeWriter(count: number) {
   return { writer, calls };
 }
 
-const OK_ADAPT: AdaptResult = { ok: true, content: "<p>改编正文</p>", summary: "改编摘要" };
+const OK_ADAPT: AdaptResult = {
+  ok: true,
+  content: "<p>改编正文</p>",
+  summary: "改编摘要",
+  style: "veteran",
+};
 
 test("applyAdapt: ok result → one conditional updateMany with updatedAt guard, updated=true", async () => {
   const { writer, calls } = fakeWriter(1);
@@ -318,6 +441,41 @@ test("applyAdapt: ok result → one conditional updateMany with updatedAt guard,
   assert.equal(out[0].ok, true);
   assert.equal(out[0].updated, true);
   assert.equal(out[0].reason, undefined);
+});
+
+test("applyAdapt: writes adapted:true + the result's style, and hands row.style to the rewrite", async () => {
+  const { writer, calls } = fakeWriter(1);
+  const seen: string[] = [];
+  const out = await applyAdapt({
+    writer,
+    createdRows: [{ ...makeRow("tasting-draft_abc"), style: "story" }],
+    adaptDraft: async (input) => {
+      seen.push(input.style);
+      return { ...OK_ADAPT, style: input.style };
+    },
+  });
+  assert.deepEqual(seen, ["story"], "the row's dispatch style did not reach the rewrite");
+  assert.equal(out[0].ok, true);
+  const orig = calls[0].data.aiOriginal as AiOriginal;
+  assert.equal(orig.adapted, true);
+  assert.equal(orig.style, "story");
+  assert.equal(orig.title, ADAPT_SRC.title); // adapt never touches the title
+  assert.equal(orig.content, "<p>改编正文</p>");
+});
+
+test("applyAdapt: a failed rewrite writes nothing, so the row keeps adapted:false", async () => {
+  // This is the badge's whole basis: an unadapted draft must still be flagged
+  // 「⚠ 原文版 · 待重写」. If a failed adapt wrote anyway, the badge would clear
+  // while the body stayed verbatim.
+  const { writer, calls } = fakeWriter(1);
+  const out = await applyAdapt({
+    writer,
+    createdRows: [makeRow("tasting-draft_abc")],
+    adaptDraft: async () => ({ ok: false, reason: "ungrounded number: 95" }),
+  });
+  assert.equal(calls.length, 0, "failed adapt must not write");
+  assert.equal(out[0].ok, false);
+  assert.equal(out[0].updated, false);
 });
 
 test("applyAdapt: human edited first (count=0) → updateMany called, updated=false, reason set", async () => {

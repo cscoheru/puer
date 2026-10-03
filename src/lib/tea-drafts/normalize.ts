@@ -16,6 +16,13 @@ export interface NormalizedNote {
   content: string;
   summary: string | null;
   teaId: string;
+  /**
+   * Product name of `teaId`, from the `Tea` row — NOT a TastingNote column.
+   * Prefetched by the runner and stamped on here so `assembleTitle` can use the
+   * product name as the draft title. `null` when the note has no tea row (or no
+   * name), which is the signal to fall back to the note's own title.
+   */
+  teaName: string | null;
   authorId: string;
   /** "evernote" | "manual" | "import" (DB default "evernote"). */
   source: string;
@@ -30,13 +37,15 @@ export interface NormalizedNote {
   createdAt: number;
 }
 
-/** Subset of Prisma's TastingNote that normalizeTastingNote reads. */
+/** Subset of Prisma's TastingNote that normalizeTastingNote reads (`teaName` is an optional join from `Tea`). */
 export interface TastingNoteLike {
   id: string;
   title: string;
   content: string;
   summary?: string | null;
   teaId: string;
+  /** Optional — set when the caller joined/prefetched the `Tea` name. */
+  teaName?: string | null;
   authorId: string;
   source: string;
   brewMethod?: string | null;
@@ -64,6 +73,7 @@ export function normalizeTastingNote(note: TastingNoteLike): NormalizedNote {
     content: note.content,
     summary: note.summary ?? null,
     teaId: note.teaId,
+    teaName: note.teaName ?? null,
     authorId: note.authorId,
     source: note.source,
     brewMethod: note.brewMethod ?? null,
