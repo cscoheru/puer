@@ -50,13 +50,30 @@ const MINIMAX_MODEL = "MiniMax-M3";
 // one-liner into a proper post is legitimately longer. Widening the ratio is a
 // style constraint relaxation only; the fact constraints (numeric grounding,
 // HTML whitelist) below are untouched.
-const ADAPT_TIMEOUT_MS = 20_000;
+const ADAPT_TIMEOUT_MS = 30_000;
 const ADAPT_TEMPERATURE = 0.4;
-const ADAPT_MAX_TOKENS = 800;
+const ADAPT_MAX_TOKENS = 2000;
 const ADAPT_MIN_CODEPOINTS = 60;
 const ADAPT_MAX_CODEPOINTS = 2000; // hard ceiling independent of ratio
 const ADAPT_RATIO_MIN = 0.2;
 const ADAPT_RATIO_MAX = 2.0;
+
+/**
+ * How many times the model is sampled before the rewrite is given up on.
+ *
+ * Measured, not guessed: 11 production calls on one 1600cp note failed 3 times
+ * — one timeout at the old 20s ceiling (normal latency is 9–18s, so the old
+ * timeout sat barely above the median), one completion truncated at the old
+ * 800-token cap (`finish_reason: "length"`), and one response whose JSON was
+ * malformed mid-body. Sampling at temperature 0.4 is not reproducible, so a
+ * transient miss is not a deterministic verdict on the note.
+ *
+ * The pipeline fails closed — a failed adapt leaves the verbatim draft standing
+ * — so a retry cannot corrupt anything. It only buys back the rewrite the user
+ * asked for, at the price of one extra call on an already-failing path. Two
+ * attempts takes a ~27% miss rate down to the square of it.
+ */
+const ADAPT_ATTEMPTS = 2;
 
 export interface AdaptBrewFields {
   method: string | null;
@@ -265,6 +282,13 @@ const ADAPT_SYSTEM =
 
 interface DeepSeekChoice {
   message?: { content?: string };
+  /**
+   * Kept and surfaced in failure reasons only — never used to accept output.
+   * `"length"` is the tell for a completion cut off at ADAPT_MAX_TOKENS, which
+   * presents as an unparseable JSON blob and would otherwise be reported as
+   * the useless symptom "no JSON object in model response".
+   */
+  finish_reason?: string;
 }
 interface DeepSeekBody {
   choices?: DeepSeekChoice[];
@@ -312,23 +336,17 @@ export interface DeepSeekAdaptOptions {
 }
 
 /**
- * Call MiniMax (OpenAI-compatible) to adapt the draft body/summary. Fail-safe:
- * any error or validation failure returns {ok:false,reason} and never throws.
- * On success the returned content has been sanitized, length-checked, and
- * numerically grounded against the source corpus.
- *
- * P2-R25:DeepSeek → MiniMax 切换。函数名 deepSeekAdapt 为历史名,被
- * runner/测试引用,暂保留;内部已走 MINIMAX_API_KEY + MiniMax-M3。
+ * One sample of the model. Extracted from `deepSeekAdapt` so it can be retried:
+ * every failure mode below is either transient (transport) or sampling-dependent
+ * (the model's JSON), and the caller has no reason to care which attempt landed.
+ * Same fail-safe contract as the public entry point — returns, never throws.
  */
-export async function deepSeekAdapt(
+async function runAdaptAttempt(
   opts: DeepSeekAdaptOptions,
+  style: TeaDraftStyle,
+  key: string,
 ): Promise<AdaptResult> {
   const { source } = opts;
-  const style = styleByKey(opts.style);
-  if (!style) return { ok: false, reason: `unknown style: ${opts.style}` };
-  const key = process.env.MINIMAX_API_KEY;
-  if (!key) return { ok: false, reason: "MINIMAX_API_KEY missing" };
-
   const fetcher = opts.fetcher ?? fetch;
   const timeoutMs = opts.timeoutMs ?? ADAPT_TIMEOUT_MS;
 
@@ -368,9 +386,26 @@ export async function deepSeekAdapt(
   } catch {
     return { ok: false, reason: "MiniMax returned non-JSON body" };
   }
-  const raw = body?.choices?.[0]?.message?.content ?? "";
+  const choice = body?.choices?.[0];
+  const raw = choice?.message?.content ?? "";
+  const finish = choice?.finish_reason;
   const parsed = parseLooseJson(raw);
-  if (!parsed) return { ok: false, reason: "no JSON object in model response" };
+  if (!parsed) {
+    // Name the cause, not the symptom. "no JSON object" alone cannot tell a
+    // size problem (fix ADAPT_MAX_TOKENS) from a model that put the payload
+    // somewhere other than `message.content` (fix the prompt or the field) —
+    // both were seen in production and need different treatment.
+    const detail =
+      finish === "length"
+        ? "truncated at max_completion_tokens"
+        : !raw
+          ? "empty model content"
+          : "unparseable model JSON";
+    return {
+      ok: false,
+      reason: `no JSON object in model response (${detail}, finish=${finish ?? "?"})`,
+    };
+  }
 
   const contentHtml = typeof parsed.content === "string" ? parsed.content : "";
   const summaryRaw = typeof parsed.summary === "string" ? parsed.summary : "";
@@ -400,5 +435,37 @@ export async function deepSeekAdapt(
     content: sanitized,
     summary: clipSummary(summaryRaw),
     style: style.key,
+  };
+}
+
+/**
+ * Call MiniMax (OpenAI-compatible) to adapt the draft body/summary. Fail-safe:
+ * any error or validation failure returns {ok:false,reason} and never throws.
+ * On success the returned content has been sanitized, length-checked, and
+ * numerically grounded against the source corpus.
+ *
+ * Samples the model up to {@link ADAPT_ATTEMPTS} times; the reason reported on
+ * failure is the last one, tagged with the attempt count so a log line still
+ * reads as "this was retried and still failed" rather than a single blip.
+ *
+ * P2-R25:DeepSeek → MiniMax 切换。函数名 deepSeekAdapt 为历史名,被
+ * runner/测试引用,暂保留;内部已走 MINIMAX_API_KEY + MiniMax-M3。
+ */
+export async function deepSeekAdapt(
+  opts: DeepSeekAdaptOptions,
+): Promise<AdaptResult> {
+  const style = styleByKey(opts.style);
+  if (!style) return { ok: false, reason: `unknown style: ${opts.style}` };
+  const key = process.env.MINIMAX_API_KEY;
+  if (!key) return { ok: false, reason: "MINIMAX_API_KEY missing" };
+
+  let last: AdaptResult = { ok: false, reason: "no attempt ran" };
+  for (let attempt = 1; attempt <= ADAPT_ATTEMPTS; attempt++) {
+    last = await runAdaptAttempt(opts, style, key);
+    if (last.ok) return last;
+  }
+  return {
+    ok: false,
+    reason: `${last.reason} (after ${ADAPT_ATTEMPTS} attempts)`,
   };
 }

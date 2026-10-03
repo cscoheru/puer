@@ -319,6 +319,104 @@ test("deepSeekAdapt: missing API key → rejected (fail-closed)", async () => {
   }
 });
 
+// ─── deepSeekAdapt: retry + failure diagnosis ──────────────────────────
+
+/**
+ * Fetcher that hands back a scripted response per call and sticks on the last
+ * one. Counting calls is the only way to assert that a retry actually happened
+ * rather than that the second response was merely accepted.
+ */
+function sequenceFetcher(bodies: unknown[], sink: { calls: number }): FetchLike {
+  return (async () => {
+    const i = Math.min(sink.calls, bodies.length - 1);
+    sink.calls += 1;
+    return makeFetcher(bodies[i])("http://local.invalid/");
+  }) as FetchLike;
+}
+
+/** Like `dsBody` but also carries `finish_reason`, which only matters on failure. */
+function dsBodyFinish(rawModelContent: string, finish: string): unknown {
+  return {
+    choices: [{ message: { content: rawModelContent }, finish_reason: finish }],
+  };
+}
+
+test("deepSeekAdapt: a malformed first response is retried and the second one wins", async () => {
+  const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+  const sink = { calls: 0 };
+  const r = await deepSeekAdapt({
+    source,
+    style: "veteran",
+    fetcher: sequenceFetcher(
+      [dsBody('{"content":"<p>没有闭合'), okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY })],
+      sink,
+    ),
+  });
+  assert.equal(r.ok, true);
+  assert.equal(sink.calls, 2, "the good second response must come from a second call");
+});
+
+test("deepSeekAdapt: when every attempt fails the reason carries the attempt count", async () => {
+  const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+  const sink = { calls: 0 };
+  const r = await deepSeekAdapt({
+    source,
+    style: "veteran",
+    fetcher: sequenceFetcher([dsBody("not json at all")], sink),
+  });
+  assert.equal(r.ok, false);
+  assert.equal(sink.calls, 2);
+  // A retried-and-still-failed line must read differently in the cron log from
+  // a one-shot blip, or the retry is invisible to whoever reads the report.
+  assert.match((r as { reason: string }).reason, /\(after \d+ attempts\)$/);
+});
+
+test("deepSeekAdapt: a truncated completion is diagnosed as truncation, not bad JSON", async () => {
+  const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+  const sink = { calls: 0 };
+  const r = await deepSeekAdapt({
+    source,
+    style: "veteran",
+    fetcher: sequenceFetcher([dsBodyFinish('{"content":"<p>被截断了', "length")], sink),
+  });
+  assert.equal(r.ok, false);
+  const reason = (r as { reason: string }).reason;
+  assert.match(reason, /truncated at max_completion_tokens/);
+  assert.match(reason, /finish=length/);
+});
+
+test("deepSeekAdapt: empty model content is diagnosed as empty, not bad JSON", async () => {
+  const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+  const sink = { calls: 0 };
+  const r = await deepSeekAdapt({
+    source,
+    style: "veteran",
+    fetcher: sequenceFetcher([dsBodyFinish("", "stop")], sink),
+  });
+  assert.equal(r.ok, false);
+  const reason = (r as { reason: string }).reason;
+  assert.match(reason, /empty model content/);
+  assert.match(reason, /finish=stop/);
+});
+
+test("deepSeekAdapt: the completion cap leaves room for a full rewrite", async () => {
+  const sink: { body?: string } = {};
+  const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+  await deepSeekAdapt({
+    source,
+    style: "veteran",
+    fetcher: captureFetcher(okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY }), sink),
+  });
+  const sent = JSON.parse(sink.body ?? "{}") as { max_completion_tokens?: number };
+  // A FLOOR, not an exact value, so future tuning upward stays free. The
+  // 800-token cap this replaces was observed hitting `finish_reason: "length"`
+  // on a real 1600cp note, which truncates the JSON and loses the whole draft.
+  assert.ok(
+    (sent.max_completion_tokens ?? 0) >= 1600,
+    `max_completion_tokens=${sent.max_completion_tokens} would truncate real rewrites`,
+  );
+});
+
 // Restore whatever was there before the suite ran.
 process.env.DEEPSEEK_API_KEY = PREV_KEY;
 
