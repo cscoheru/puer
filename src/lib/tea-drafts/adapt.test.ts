@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import {
   toAdaptSource,
   dropReferenceParagraphs,
+  REFERENCE_TITLE_PREFIX,
   extractNumberTokens,
   isGrounded,
   checkAdaptLength,
@@ -374,6 +375,50 @@ test("dropReferenceParagraphs: pure and order-preserving", () => {
   const kept = dropReferenceParagraphs(input);
   assert.deepEqual(kept, ["a", "b"]);
   assert.deepEqual(input, before, "input was mutated");
+});
+
+test("dropReferenceParagraphs: the numbered qualifiers in the real corpus are dropped", () => {
+  // Production labels its reference notes 「（资料）」 and 「（资料1）」–「（资料4）」.
+  // A marker that only matched the bare form left the numbered ones in — and
+  // 「（资料4）论冰岛老寨茶」 (market commentary, not a tasting note) was the
+  // single highest-ranked candidate of 1500 when this was found.
+  const kept = dropReferenceParagraphs([
+    "（资料1）大益402大叶青饼,行情最高曾去到190W/件。",
+    "（资料2）2004年国营勐海茶厂改制。",
+    "（资料4）切莫听信冰岛茶存10年20年的故事。",
+    "今天开汤,汤色橙红透亮。",
+  ]);
+  assert.deepEqual(kept, ["今天开汤,汤色橙红透亮。"]);
+});
+
+test("reference marker: the DB prefix filter and the paragraph filter agree", () => {
+  // The two stages use one rule by two mechanisms — Prisma `startsWith` (a
+  // prefix, because it cannot take a regex) and this module's pattern. They
+  // have drifted before, so pin the agreement on the exact titles in the
+  // corpus instead of trusting a comment to keep them in step.
+  const corpusTitles = [
+    "（资料）97老树圆茶",
+    "（资料1）大益402大叶青500克",
+    "（资料2）401-彩大益 8852/500克",
+    "（资料3）2002-大益紫斑砖",
+    "（资料4）论冰岛老寨茶",
+  ];
+  for (const title of corpusTitles) {
+    const droppedAsParagraph = dropReferenceParagraphs([title]).length === 0;
+    assert.equal(
+      title.startsWith(REFERENCE_TITLE_PREFIX),
+      droppedAsParagraph,
+      `selection and rewriting disagree about ${title}`,
+    );
+    assert.equal(droppedAsParagraph, true, `${title} must be treated as reference material`);
+  }
+
+  // And the ordinary note titles must survive BOTH filters — a prefix that
+  // swallowed real titles would silently empty the draft pool.
+  for (const title of ["2026开汤第3场", "97老树圆茶开汤", "资料室的一场老茶局"]) {
+    assert.equal(title.startsWith(REFERENCE_TITLE_PREFIX), false, `${title} must stay selectable`);
+    assert.equal(dropReferenceParagraphs([title]).length, 1, `${title} must stay in the body`);
+  }
 });
 
 test("toAdaptSource: drops 资料 paragraphs from prompt text AND from the length baseline", () => {

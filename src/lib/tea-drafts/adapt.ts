@@ -102,14 +102,29 @@ function renderBrewFields(b: AdaptBrewFields): string {
 }
 
 /**
- * Reference/provenance material, identified by a leading bracketed 资料 marker.
- * Census of the 1686 production notes found this only ever on TITLES (108 of
- * them), never in a body paragraph — so this is a cheap defensive net for future
- * imports, not a fix for live data. The real 资料 problem is semantic (bodies
+ * Reference/provenance material, identified by a leading bracketed 资料 marker —
+ * the marker may carry a qualifier inside the brackets (「（资料）」, 「（资料4）」).
+ * Census of the 1686 production notes found this only ever on TITLES (112 of
+ * them: 108 bare 「（资料）」 + 4 numbered), never in a body paragraph — so this is
+ * a cheap defensive net for future imports, not a fix for live data. The real
+ * 资料 problem is semantic (bodies
  * mix reference prose with the author's own tasting facts) and is handled by the
  * prompt's A/B separation instruction below.
  */
-const REFERENCE_PARAGRAPH = /^[（(【\[]\s*资料\s*[）)】\]]/;
+const REFERENCE_PARAGRAPH = /^[（(【\[]\s*资料[^）)】\]]*[）)】\]]/;
+
+/**
+ * The prefix form of {@link REFERENCE_PARAGRAPH} for Prisma's `startsWith`,
+ * used by the selection filter in `runner.ts`. One rule, two stages:
+ * selection drops whole reference notes, this module drops reference paragraphs
+ * inside a kept one. Prisma cannot take a regex, so selection gets the widest
+ * safe prefix of the pattern above — conservative by construction: it can only
+ * over-exclude (a hypothetical 「（资料室）的老茶局」 would be dropped), never
+ * under-exclude. Under-exclusion is what let 「（资料4）论冰岛老寨茶」 become the
+ * top-ranked candidate and get rewritten into a post, which is the exact thing
+ * the user asked us to stop doing.
+ */
+export const REFERENCE_TITLE_PREFIX = "（资料";
 
 /** Pure: drop paragraphs that open with a reference marker. Order preserved. */
 export function dropReferenceParagraphs(paragraphs: readonly string[]): string[] {

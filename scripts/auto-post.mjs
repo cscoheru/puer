@@ -103,8 +103,12 @@ const config = {
 // today's verbatim path (adaptDraft undefined → runner skips the rewrite).
 // deepSeekAdapt is side-effect-free to import; it only touches the network
 // when actually invoked, so the off path makes zero model calls.
+// The runner hands each row's dispatch style ({ source, style }) — pass it
+// through verbatim. deepSeekAdapt treats style as REQUIRED and fails closed on
+// an unknown key, so dropping it here would show up as every adapt returning
+// "unknown style" rather than silently rewriting everything in one voice.
 const adaptOn = process.env.AUTO_TEA_DRAFT_ADAPT === "1";
-const adaptDraft = adaptOn ? (source) => deepSeekAdapt({ source }) : undefined;
+const adaptDraft = adaptOn ? ({ source, style }) => deepSeekAdapt({ source, style }) : undefined;
 
 // ── prisma client (injected, same adapter as src/lib/prisma.ts) ─────
 

@@ -40,7 +40,12 @@ import {
 import { assembleDraft, isAllowedMediaUrl, type AssembleConfig, type AssembledDraft } from "./assemble.ts";
 import { generateSlideshowVideo } from "../slideshow-video.ts";
 import { tastingDraftId, noteIdFromDraftId } from "./id.ts";
-import { toAdaptSource, type AdaptSource, type AdaptResult } from "./adapt.ts";
+import {
+  toAdaptSource,
+  REFERENCE_TITLE_PREFIX,
+  type AdaptSource,
+  type AdaptResult,
+} from "./adapt.ts";
 import { styleFor, type StyleKey } from "./styles.ts";
 
 /** Prisma's P2002 (unique violation) error code — checked by duck-typing to
@@ -583,8 +588,13 @@ export async function runTeaDraftRunner(opts: {
       where: {
         source: { in: ["manual", "evernote"] },
         authorId: config.authorId,
-        // R29a: 资料贴 (title 以 "（资料）" 开头) 内容为空 (仅图片占位) 不适合生成 draft, 跳过.
-        title: { not: { startsWith: "（资料）" } },
+        // R29a: 资料贴 (title 以「（资料…」开头) 是行情/考据/转载, 不是本人品鉴,
+        // 不适合生成 draft, 跳过. The prefix comes from REFERENCE_TITLE_PREFIX so
+        // it cannot drift from the rewrite-time marker: this used to be the literal
+        // "（资料）", which missed the four numbered 「（资料1）」–「（资料4）」 notes —
+        // and one of them (market commentary, not a tasting note) ranked first
+        // among 1500 candidates and was about to be rewritten into a post.
+        title: { not: { startsWith: REFERENCE_TITLE_PREFIX } },
         ...(noteIds.length > 0 ? { id: { in: noteIds } } : {}),
       },
       orderBy: { createdAt: "desc" },
