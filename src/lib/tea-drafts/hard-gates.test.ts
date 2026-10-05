@@ -11,7 +11,7 @@ const CONFIG: HardGateConfig = {
   authorId: "auth-1",
   noteIds: new Set(["note-1"]),
 };
-const PASS_CTX = { authorActive: true, existingDraftExists: false, teaAlreadyCovered: false };
+const PASS_CTX = { activeUsersExist: true, existingDraftExists: false, teaAlreadyCovered: false };
 
 // Build content whose extracted plain text is exactly `n` code points.
 function textOf(n: number): string {
@@ -44,9 +44,9 @@ test("rejects unknown source", () => {
   assert.equal(r.reason, "source_not_manual");
 });
 
-test("rejects when author is not the configured author", () => {
+test("R31: different author passes (author identity gate removed)", () => {
   const r = checkHardGates({ ...GOOD_NOTE, authorId: "someone-else" }, CONFIG, PASS_CTX);
-  assert.equal(r.reason, "author_not_configured");
+  assert.equal(r.pass, true);
 });
 
 test("rejects when note id is not in a non-empty allowlist", () => {
@@ -60,8 +60,8 @@ test("empty allowlist = wildcard: any note id passes", () => {
   assert.equal(r.pass, true);
 });
 
-test("rejects inactive/banned author (DB fact)", () => {
-  const r = checkHardGates(GOOD_NOTE, CONFIG, { ...PASS_CTX, authorActive: false });
+test("rejects when no active users exist in pool (DB fact)", () => {
+  const r = checkHardGates(GOOD_NOTE, CONFIG, { ...PASS_CTX, activeUsersExist: false });
   assert.equal(r.reason, "author_inactive_or_banned");
 });
 
@@ -97,13 +97,13 @@ test("rejects disqualifying repost/source/copyright signals", () => {
   }
 });
 
-test("DB-backed gates run before content parsing (banned author short-circuits)", () => {
-  // Even with empty content that would fail length, a banned author reports the
-  // author reason — proving order is author-check before content-check.
+test("DB-backed gates run before content parsing (no active users short-circuits)", () => {
+  // Even with empty content that would fail length, no active users reports the
+  // author reason — proving order is pool-check before content-check.
   const r = checkHardGates(
     { ...GOOD_NOTE, content: "" },
     CONFIG,
-    { ...PASS_CTX, authorActive: false },
+    { ...PASS_CTX, activeUsersExist: false },
   );
   assert.equal(r.reason, "author_inactive_or_banned");
 });

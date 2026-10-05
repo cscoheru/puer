@@ -62,7 +62,7 @@ function nn(over: Partial<NormalizedNote>): NormalizedNote {
 }
 
 function factsOk(): CandidateFacts {
-  return { authorActive: true, existingDraftExists: false, teaAlreadyCovered: false };
+  return { activeUsersExist: true, existingDraftExists: false, teaAlreadyCovered: false };
 }
 
 function cfg(over: Partial<RunnerConfig> = {}): RunnerConfig {
@@ -114,10 +114,10 @@ test("source unknown → rejected source_not_manual", () => {
   assert.deepEqual(res.rejected, [{ id: ID_A, reason: "source_not_manual" }]);
 });
 
-test("author mismatch → rejected author_not_configured", () => {
+test("R31: author mismatch passes (identity gate removed, author randomly assigned)", () => {
   const res = run([nn({ authorId: "someone-else" })], cfg());
-  assert.equal(res.selected.length, 0);
-  assert.equal(res.rejected[0].reason, "author_not_configured");
+  assert.equal(res.selected.length, 1);
+  assert.equal(res.rejected.length, 0);
 });
 
 test("note not in allowlist → rejected note_not_in_allowlist", () => {
@@ -132,21 +132,21 @@ test("empty allowlist (wildcard) → note id not restricted", () => {
 });
 
 test("inactive author → rejected author_inactive_or_banned", () => {
-  const facts = new Map([[ID_A, { authorActive: false, existingDraftExists: false, teaAlreadyCovered: false }]]);
+  const facts = new Map([[ID_A, { activeUsersExist: false, existingDraftExists: false, teaAlreadyCovered: false }]]);
   const res = run([nn({})], cfg(), facts);
   assert.equal(res.selected.length, 0);
   assert.equal(res.rejected[0].reason, "author_inactive_or_banned");
 });
 
 test("existing draft → rejected draft_already_exists", () => {
-  const facts = new Map([[ID_A, { authorActive: true, existingDraftExists: true, teaAlreadyCovered: false }]]);
+  const facts = new Map([[ID_A, { activeUsersExist: true, existingDraftExists: true, teaAlreadyCovered: false }]]);
   const res = run([nn({})], cfg(), facts);
   assert.equal(res.selected.length, 0);
   assert.equal(res.rejected[0].reason, "draft_already_exists");
 });
 
 test("tea already covered → rejected tea_already_covered", () => {
-  const facts = new Map([[ID_A, { authorActive: true, existingDraftExists: false, teaAlreadyCovered: true }]]);
+  const facts = new Map([[ID_A, { activeUsersExist: true, existingDraftExists: false, teaAlreadyCovered: true }]]);
   const res = run([nn({})], cfg(), facts);
   assert.equal(res.selected.length, 0);
   assert.equal(res.rejected[0].reason, "tea_already_covered");

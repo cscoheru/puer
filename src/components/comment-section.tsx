@@ -149,6 +149,11 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
   const editRef = useRef<HTMLTextAreaElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
   const colorRef = useRef<HTMLDivElement>(null);
+  const [commentsCollapsed, setCommentsCollapsed] = useState(true);
+  const [inlineReplyId, setInlineReplyId] = useState<string | null>(null);
+  const [inlineText, setInlineText] = useState("");
+  const [inlineSubmitting, setInlineSubmitting] = useState(false);
+  const inlineRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     fetch(`/api/comments?articleId=${articleId}`)
@@ -189,13 +194,51 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
   }
   mapNumbers(tree);
 
-  const handleReply = (author: Author, snippet: string, _id: string) => {
+  // Reply: set target comment, open inline reply box (no quote text)
+  const handleReply = (author: Author, _id: string) => {
+    setReplyTo({ id: _id, username: author.username, content: "" });
+    setInlineReplyId(_id);
+    setInlineText("");
+    setTimeout(() => inlineRef.current?.focus(), 50);
+  };
+
+  // Quote: set target comment + paste blockquote into inline reply box
+  const handleQuote = (author: Author, snippet: string, _id: string) => {
     setReplyTo({ id: _id, username: author.username, content: snippet });
-    // Quote: first 2 lines only, rest replaced with ellipsis
     const plain = stripHtml(snippet);
-    const lines = plain.split('\n');
-    const truncated = lines.slice(0, 2).join('\n') + (lines.length > 2 ? '\n...' : '');
-    setText(`> ${truncated}\n\n`);
+    const lines = plain.split("\n");
+    const truncated = lines.slice(0, 3).join("\n") + (lines.length > 3 ? "\n..." : "");
+    setInlineText(`<blockquote>${truncated}</blockquote>\n\n`);
+    setInlineReplyId(_id);
+    setTimeout(() => inlineRef.current?.focus(), 50);
+  };
+
+  // Submit inline reply
+  const handleInlineSubmit = async (parentId: string) => {
+    const plainText = inlineText.replace(/<[^>]*>/g, "").trim();
+    if (!plainText) return;
+    setInlineSubmitting(true);
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ articleId, content: inlineText.trim(), parentId, images: [] }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        setError(err.error || "发布失败");
+        return;
+      }
+      const newComment = await res.json();
+      setComments((prev) => [...prev, newComment]);
+      setInlineText("");
+      setInlineReplyId(null);
+      setReplyTo(null);
+    } catch {
+      setError("发布失败，请重试");
+    } finally {
+      setInlineSubmitting(false);
+    }
   };
 
   const insertFormat = (open: string, close: string) => {
@@ -344,7 +387,7 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
         body: JSON.stringify({
           articleId,
           content: text.trim(),
-          parentId: replyTo?.id || null,
+          parentId: null, // Top-level comments only; inline replies use handleInlineSubmit
           images: mediaUrl ? [mediaUrl] : [],
         }),
       });
@@ -366,6 +409,18 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
       setSubmitting(false);
     }
   };
+
+  // Convert legacy "> text" quotes to styled blockquote cards
+  function renderContent(html: string): string {
+    // Match lines starting with "> " (or "&gt; " from HTML encoding),
+    // capturing consecutive quote lines into one blockquote.
+    const converted = html.replace(
+      /(^|\n)(&gt;|>) ([\s\S]*?)(?=\n[^&\n>]|\n\n|$)/g,
+      (_match, prefix, _gt, text) =>
+        `${prefix}<blockquote class="border-l-3 border-stone-300 bg-stone-50 pl-3 py-1.5 my-2 text-stone-500 text-sm rounded-r italic">${text.trim()}</blockquote>`,
+    );
+    return sanitizeHtml(converted);
+  }
 
   function renderComment(node: CommentNode, depth: number = 0) {
     const num = postNumberMap.get(node.id) || 0;
@@ -399,7 +454,7 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
                 <span className="font-mono">#{num}</span>
                 <span>·</span>
                 <span>{timeAgo(node.createdAt)}</span>
-                {replyTo?.id === node.id && (
+                {inlineReplyId === node.id && (
                   <span className="text-amber-600 font-medium">← 正在回复此楼</span>
                 )}
               </div>
@@ -440,8 +495,8 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
                 /* ── View mode ── */
                 <>
                   <div
-                    className="text-sm text-stone-700 leading-relaxed [&_span]:inline [&_b]:font-bold [&_i]:italic"
-                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(node.content) }}
+                    className="text-sm text-stone-700 leading-relaxed [&_span]:inline [&_b]:font-bold [&_i]:italic [&_blockquote]:border-l-3 [&_blockquote]:border-stone-300 [&_blockquote]:bg-stone-50 [&_blockquote]:pl-3 [&_blockquote]:py-1.5 [&_blockquote]:my-2 [&_blockquote]:text-stone-500 [&_blockquote]:text-sm [&_blockquote]:rounded-r [&_blockquote]:italic"
+                    dangerouslySetInnerHTML={{ __html: renderContent(node.content) }}
                   />
 
                   {/* Images */}
@@ -472,7 +527,13 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
                   size="sm"
                 />
                 <button
-                  onClick={() => handleReply(node.author, node.content, node.id)}
+                  onClick={() => session?.user && handleReply(node.author, node.id)}
+                  className="text-xs text-stone-400 hover:text-amber-700 transition ml-1"
+                >
+                  回复
+                </button>
+                <button
+                  onClick={() => session?.user && handleQuote(node.author, node.content, node.id)}
                   className="text-xs text-stone-400 hover:text-amber-700 transition ml-1"
                 >
                   引用
@@ -494,6 +555,41 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
                   <button onClick={() => setDeleteConfirmId(null)} className="px-2 py-1 border border-stone-300 rounded text-stone-600 hover:bg-stone-50">取消</button>
                 </div>
               )}
+
+              {/* Inline reply form */}
+              {inlineReplyId === node.id && session?.user && (
+                <div className="mt-3 p-3 bg-stone-50 rounded-lg border border-stone-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-stone-500">回复 @{replyTo?.username}</span>
+                    <button
+                      type="button"
+                      onClick={() => { setInlineReplyId(null); setInlineText(""); setReplyTo(null); }}
+                      className="text-xs text-stone-400 hover:text-stone-600"
+                    >
+                      取消
+                    </button>
+                  </div>
+                  <textarea
+                    ref={inlineRef}
+                    value={inlineText}
+                    onChange={(e) => setInlineText(e.target.value)}
+                    placeholder="写下你的回复..."
+                    rows={3}
+                    maxLength={1000}
+                    className="w-full px-3 py-2 rounded border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none text-sm resize-none"
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-stone-400">{inlineText.replace(/<[^>]*>/g, "").length}/1000</span>
+                    <button
+                      onClick={() => handleInlineSubmit(node.id)}
+                      disabled={inlineSubmitting || !inlineText.replace(/<[^>]*>/g, "").trim()}
+                      className="px-3 py-1 bg-amber-800 hover:bg-amber-900 disabled:bg-stone-300 text-white text-xs rounded transition"
+                    >
+                      {inlineSubmitting ? "发送中..." : "发送"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -508,9 +604,20 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
 
   return (
     <section className="mt-6 border-t border-stone-200 pt-6">
-      <h2 className="text-base font-bold text-stone-800 mb-4">
-        回复 ({comments.length})
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-bold text-stone-800">
+          回复 ({comments.length})
+        </h2>
+        {comments.length > 0 && (
+          <button
+            onClick={() => setCommentsCollapsed(!commentsCollapsed)}
+            className="text-xs text-stone-400 hover:text-amber-700 transition flex items-center gap-1"
+          >
+            {commentsCollapsed ? "展开回复" : "收起回复"}
+            <span className="text-[10px]">{commentsCollapsed ? "▼" : "▲"}</span>
+          </button>
+        )}
+      </div>
 
       {error && (
         <div className="p-3 mb-4 text-sm text-red-700 bg-red-50 rounded-lg border border-red-200">
@@ -519,23 +626,9 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
         </div>
       )}
 
-      {/* Comment form */}
+      {/* Comment form — new top-level comment */}
       {session?.user ? (
         <form onSubmit={handleSubmit} className="mb-6">
-          {replyTo && (
-            <div className="text-xs text-stone-500 bg-stone-50 px-3 py-2 rounded border-l-2 border-amber-500 mb-2 flex items-center gap-2">
-              <span>回复 @{replyTo.username}：</span>
-              <span className="truncate flex-1 text-stone-400">{stripHtml(replyTo.content).slice(0, 60)}</span>
-              <button
-                type="button"
-                onClick={() => { setReplyTo(null); setText(""); }}
-                className="text-stone-400 hover:text-stone-600 shrink-0"
-              >
-                取消
-              </button>
-            </div>
-          )}
-
           {/* Formatting toolbar */}
           <div className="flex items-center gap-0.5 mb-1.5 flex-wrap">
             <button type="button" onClick={() => insertFormat("<b>", "</b>")} className="w-7 h-7 flex items-center justify-center text-sm font-bold text-stone-600 hover:bg-stone-100 rounded" title="粗体">B</button>
@@ -646,7 +739,29 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
         </div>
       ) : tree.length === 0 ? (
         <p className="text-center py-8 text-sm text-stone-400">暂无回复，来说两句吧</p>
+      ) : commentsCollapsed ? (
+        /* Collapsed: show first 2 top-level comments as summaries */
+        <div className="space-y-2">
+          {tree.slice(0, 2).map((node) => (
+            <div key={node.id} className="flex items-start gap-2 p-2.5 bg-stone-50 rounded-lg text-sm">
+              <span className="font-medium text-stone-600 shrink-0">{node.author.username}:</span>
+              <span className="text-stone-500 truncate">{stripHtml(node.content).slice(0, 80)}</span>
+              {node.replies.length > 0 && (
+                <span className="text-xs text-stone-400 shrink-0">{node.replies.length}条回复</span>
+              )}
+            </div>
+          ))}
+          {tree.length > 2 && (
+            <button
+              onClick={() => setCommentsCollapsed(false)}
+              className="w-full text-center text-sm text-amber-700 hover:text-amber-900 py-2 transition"
+            >
+              查看全部 {comments.length} 条回复 ▼
+            </button>
+          )}
+        </div>
       ) : (
+        /* Expanded: full comment tree */
         <div>
           {tree.map((node) => renderComment(node, 0))}
         </div>

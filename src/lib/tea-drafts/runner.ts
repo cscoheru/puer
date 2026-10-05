@@ -1,7 +1,8 @@
 /**
- * Tea-draft runner — the DB-coupled orchestration that turns the configured
- * author's manual tasting notes into exactly zero or one reviewable draft per
- * run, inside a single advisory-locked transaction.
+ * Tea-draft runner — the DB-coupled orchestration that turns tasting notes
+ * (filtered by the optional configured author) into reviewable drafts, with
+ * each draft's published author randomly assigned from the active user pool.
+ * Runs inside a single advisory-locked transaction.
  *
  * Two exports, two test surfaces:
  *   - `selectDrafts(...)` — PURE composition (gates → score → threshold → rank
@@ -80,7 +81,7 @@ export interface RunnerConfig extends HardGateConfig, AssembleConfig {
 
 /** DB-dependent facts about each candidate, pre-fetched inside the tx. */
 export interface CandidateFacts {
-  authorActive: boolean;
+  activeUsersExist: boolean;
   existingDraftExists: boolean;
   /** True if a tasting-draft Article already exists for this note's tea. */
   teaAlreadyCovered: boolean;
@@ -135,12 +136,12 @@ export function selectDrafts(input: {
     // author with an existing draft for an already-covered tea — i.e. must not
     // be selected.
     const facts = factsByNote.get(note.id) ?? {
-      authorActive: false,
+      activeUsersExist: false,
       existingDraftExists: true,
       teaAlreadyCovered: true,
     };
     const ctx: HardGateContext = {
-      authorActive: facts.authorActive,
+      activeUsersExist: facts.activeUsersExist,
       existingDraftExists: facts.existingDraftExists,
       teaAlreadyCovered: facts.teaAlreadyCovered,
     };
@@ -228,7 +229,8 @@ export type RunnerStatus =
   | "skipped-already-running"
   | "skipped-unreviewed-exists"
   | "skipped-daily-cap"
-  | "no-candidates";
+  | "no-candidates"
+  | "no-active-users";
 
 /** Outcome of a single post-commit adapt attempt (Phase D). `updated=false`
  *  with `ok=true` means the draft was human-edited/changed before the adapt
@@ -604,19 +606,16 @@ export async function runTeaDraftRunner(opts: {
       return emptyTx("no-candidates");
     }
 
-    // 6. Prefetch DB facts: author liveness (one fetch — same author for every
-    //    candidate) + which candidates already have a draft (batch by PK) +
-    //    the set of teas already covered by ANY Article, in any status. That
-    //    widens the old `id startsWith "tasting-draft_"` scan (historical
-    //    auto-drafts only) to what was actually wanted: a tea that is already a
-    //    published post, on the hot list, or sitting in the draft pool is off
-    //    limits. Hot-list entries are published Articles, so they are covered
-    //    by the same predicate — no separate query.
-    const author = await tx.user.findUnique({
-      where: { id: config.authorId },
-      select: { banStatus: true },
+    // 6. Prefetch DB facts: active-user pool existence (R31: draft author is now
+    //    randomly assigned from active users, not tied to the note author) +
+    //    which candidates already have a draft (batch by PK) + the set of teas
+    //    already covered by ANY Article. Tea-level dedup so the same product is
+    //    never posted twice.
+    const anyActiveUser = await tx.user.findFirst({
+      where: { level: { gte: 1 }, banStatus: "active" },
+      select: { id: true },
     });
-    const authorActive = author !== null && author.banStatus === "active";
+    const activeUsersExist = anyActiveUser !== null;
     const draftIds = rows.map((r) => tastingDraftId(r.id));
     const existing = await tx.article.findMany({
       where: { id: { in: draftIds } },
@@ -634,7 +633,7 @@ export async function runTeaDraftRunner(opts: {
     const factsByNote = new Map<string, CandidateFacts>();
     for (const r of rows) {
       factsByNote.set(r.id, {
-        authorActive,
+        activeUsersExist,
         existingDraftExists: existingSet.has(tastingDraftId(r.id)),
         teaAlreadyCovered: r.teaId != null && coveredTeaIds.has(r.teaId),
       });
@@ -674,6 +673,17 @@ export async function runTeaDraftRunner(opts: {
       if (note) adaptSourceByDraftId.set(draft.id, toAdaptSource(note));
     }
 
+    // 7c. R31: Fetch active user pool for random author assignment.
+    //     Draft author is no longer tied to the note author — each draft is
+    //     published under a randomly chosen active user to diversify bylines.
+    const activeUserPool = await tx.user.findMany({
+      where: { level: { gte: 1 }, banStatus: "active" },
+      select: { id: true },
+    });
+    if (selected.length > 0 && activeUserPool.length === 0) {
+      return emptyTx("no-active-users");
+    }
+
     // 8. Write (skip entirely on dry-run). P2002 on the deterministic PK means
     //    the draft already exists — idempotent, not an error. Capture createdAt
     //    so the post-commit adapt can guard against a concurrent human edit.
@@ -682,6 +692,9 @@ export async function runTeaDraftRunner(opts: {
     if (!dryRun) {
       for (const draft of selected) {
         try {
+          // R31: Override author with a random active user from the pool.
+          const randomAuthor = activeUserPool[Math.floor(Math.random() * activeUserPool.length)];
+          draft.authorId = randomAuthor.id;
           // Style is a pure hash of the NOTE id (not the draft id) so the admin
           // re-rewrite button can recompute the identical voice from the note
           // id alone — nothing to persist for dispatch.

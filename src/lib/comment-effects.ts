@@ -39,7 +39,17 @@ export async function publishCommentEffects(opts: {
 
     // 通知 fire-and-forget
     if (postArticle?.authorId) {
-      notifyCommentReply(postArticle.authorId, authorId, articleId, parentId || undefined).catch(() => {});
+      // parentId is the parent COMMENT id, but notifyCommentReply expects the
+      // parent comment's AUTHOR id — look it up when replying to a nested comment.
+      let parentAuthorId: string | undefined;
+      if (parentId) {
+        const parent = await prisma.comment.findUnique({
+          where: { id: parentId },
+          select: { authorId: true },
+        });
+        parentAuthorId = parent?.authorId;
+      }
+      notifyCommentReply(postArticle.authorId, authorId, articleId, parentAuthorId).catch(() => {});
     }
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 
 const teaSchema = z.object({
@@ -14,6 +15,7 @@ const teaSchema = z.object({
   storageCondition: z.string().max(100).optional().nullable(),
   coverImage: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
+  marketInfo: z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -46,7 +48,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const body = await req.json();
-  const data = teaSchema.parse(body);
+  const parsed = teaSchema.parse(body);
+
+  // Prisma Json? fields require Prisma.DbNull (not plain null) to clear
+  // and InputJsonValue-compatible types for values.
+  const data: Record<string, unknown> = { ...parsed };
+  if (parsed.marketInfo === null) {
+    data.marketInfo = Prisma.DbNull;
+  } else if (parsed.marketInfo !== undefined) {
+    data.marketInfo = parsed.marketInfo as Prisma.InputJsonValue;
+  }
 
   const tea = await prisma.tea.update({
     where: { id },

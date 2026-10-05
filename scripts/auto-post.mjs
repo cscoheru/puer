@@ -73,7 +73,7 @@ function intEnv(name, fallback) {
   return n;
 }
 
-const AUTHOR_ID = required("AUTO_TEA_DRAFT_AUTHOR_ID");
+const AUTHOR_ID = process.env.AUTO_TEA_DRAFT_AUTHOR_ID || undefined;
 const BOARD_ID = required("AUTO_TEA_DRAFT_BOARD_ID");
 // NOTE_IDS is optional: an empty/unset value = wildcard mode (any of the
 // configured author's manual/evernote notes is eligible). The source, author,

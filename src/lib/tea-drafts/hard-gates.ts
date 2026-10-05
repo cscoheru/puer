@@ -16,16 +16,18 @@ import { extractPlainText, codepointLength } from "./source-html.ts";
 
 /** Operator configuration (from env at runtime, injected here for purity). */
 export interface HardGateConfig {
-  /** The single user id allowed to originate auto-drafts (AUTO_TEA_DRAFT_AUTHOR_ID). */
-  authorId: string;
+  /** Optional single user id to filter notes by (AUTO_TEA_DRAFT_AUTHOR_ID).
+   *  When set, only this author's notes are eligible. The draft's published
+   *  author is now randomly assigned from the active user pool (see runner). */
+  authorId?: string;
   /** Operator-curated note-id allowlist (AUTO_TEA_DRAFT_NOTE_IDS). */
   noteIds: ReadonlySet<string>;
 }
 
 /** DB-dependent facts, pre-fetched by the runner. */
 export interface HardGateContext {
-  /** False if the author is missing or banned. */
-  authorActive: boolean;
+  /** False if no active (non-banned) users exist in the user pool. */
+  activeUsersExist: boolean;
   /** True if an Article with the deterministic id already exists. */
   existingDraftExists: boolean;
   /** True if any tasting-draft Article already covers this note's tea — i.e. a
@@ -95,13 +97,14 @@ export function checkHardGates(
   ctx: HardGateContext,
 ): HardGateResult {
   if (!ACCEPTED_SOURCES.has(note.source)) return fail("source_not_manual");
-  if (note.authorId !== config.authorId) return fail("author_not_configured");
+  // R31: authorId identity gate removed — draft author is now randomly
+  // assigned from the active user pool by the runner, not derived from the note.
   // Empty allowlist = wildcard mode: any of the configured author's notes is
-  // eligible (the author + source + tea-dedup gates still bound the set).
+  // eligible (the source + tea-dedup gates still bound the set).
   if (config.noteIds.size > 0 && !config.noteIds.has(note.id)) {
     return fail("note_not_in_allowlist");
   }
-  if (!ctx.authorActive) return fail("author_inactive_or_banned");
+  if (!ctx.activeUsersExist) return fail("author_inactive_or_banned");
   if (ctx.existingDraftExists) return fail("draft_already_exists");
   if (ctx.teaAlreadyCovered) return fail("tea_already_covered");
 
