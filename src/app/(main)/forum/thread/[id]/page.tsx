@@ -316,7 +316,7 @@ export default async function ThreadPage({ params }: PageProps) {
 
           {/* Actions */}
           <div className="mt-6 pt-4 border-t border-stone-200 space-y-3">
-            {/* Row 1: Primary actions */}
+            {/* Row 1: Primary actions — 投票、分享、关注、举报 */}
             <div className="flex items-center gap-2 md:gap-3">
               <VoteButton
                 refId={id}
@@ -325,17 +325,16 @@ export default async function ThreadPage({ params }: PageProps) {
                 initialDownvotes={article.downvotes}
                 initialValue={initialVote}
               />
-              <LikeButton articleId={id} initialLiked={initialLiked} initialCount={article._count.likes} />
-              <FavoriteButton articleId={id} initialFavorited={initialFavorited} />
               <ShareButton title={article.title} url={threadUrl} />
               <FollowThreadButton articleId={id} />
+              <span className="flex-1" />
+              <ReportButton targetType="article" targetId={id} />
             </div>
 
-            {/* Row 2: Stats + secondary actions */}
+            {/* Row 2: Stats + edit/delete */}
             <div className="flex items-center gap-3 text-xs text-stone-400">
               <span>{article.viewCount} 次查看 · {article._count.comments} 条回复</span>
               <span className="flex-1" />
-              <ReportButton targetType="article" targetId={id} />
               {session?.user && (session.user.id === article.author.id || session.user.role === "admin") && (
                 <>
                   <Link

@@ -127,11 +127,14 @@ export default function ForumContent({ html, className = "", maxImages }: ForumC
     const overlay = document.createElement("div");
     overlay.className = "member-image-lock";
     overlay.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;margin-top:8px;background:#fefce8;border:1px dashed #ca8a04;border-radius:12px;cursor:default;">
-        <span style="font-size:18px;">🔒</span>
-        <div>
-          <div style="font-size:14px;font-weight:500;color:#78350f;">查看更多图片</div>
-          <div style="font-size:12px;color:#a16207;margin-top:2px;">还有 ${hiddenCount} 张图 · 会员专享服务</div>
+      <div style="position:relative;padding:24px 16px;margin-top:8px;border-radius:8px;overflow:hidden;background:#fafaf9;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
+          <span style="padding:6px 12px;border-radius:9999px;background:rgba(41,37,36,0.8);color:white;font-size:12px;font-weight:500;backdrop-filter:blur(8px);">
+            🔒 会员专享 · 完整图片库仅付费会员可见
+          </span>
+        </div>
+        <div style="text-align:center;margin-top:8px;font-size:12px;color:#78716c;">
+          还有 ${hiddenCount} 张图 · <span style="color:#b45309;font-weight:500;text-decoration:underline;">开通会员查看</span>
         </div>
       </div>
     `;

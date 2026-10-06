@@ -1,13 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { LockedWallOverlay } from "@/components/tea/locked-tip";
 
 /**
- * P2-R26：帖子详情页图片墙 — 渲染 article.images 中未内联进 content 的图片。
- * 茶记自动帖（tasting-draft）的图片存独立 images 字段、content 纯文字，
- * ForumContent 只渲染 content，因此需要这个补充 gallery（含 lightbox）。
- * 样式复用 globals.css 的 .image-gallery（与正文内联图片墙一致）。
- *
+ * 帖子详情页图片墙 — 渲染 article.images 中未内联进 content 的图片。
  * maxVisible: 最多显示几张图片，超出部分显示会员锁定遮罩（默认 3）。
  */
 export default function ArticleImageGallery({
@@ -54,22 +51,16 @@ export default function ArticleImageGallery({
         ))}
       </div>
 
-      {/* 会员锁定遮罩：第 4 张起 */}
+      {/* 会员锁定遮罩：茶品详情页同款风格 */}
       {hiddenCount > 0 && (
-        <div className="relative mt-2">
-          <div className="image-gallery opacity-40 blur-[2px] pointer-events-none select-none">
+        <div className="relative mt-2 overflow-hidden rounded-lg">
+          <div className="image-gallery opacity-30 blur-[2px] pointer-events-none select-none">
             {images.slice(maxVisible, maxVisible + 3).map((src) => (
               // eslint-disable-next-line @next/next/no-img-element
               <img key={src} src={src} alt="" referrerPolicy="no-referrer" />
             ))}
           </div>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="bg-white/90 backdrop-blur-sm border border-stone-200 rounded-xl px-5 py-3 text-center shadow-sm">
-              <p className="text-lg mb-0.5">🔒</p>
-              <p className="text-sm font-medium text-stone-700">查看更多图片</p>
-              <p className="text-xs text-stone-400 mt-0.5">会员专享服务</p>
-            </div>
-          </div>
+          <LockedWallOverlay hiddenCount={hiddenCount} />
         </div>
       )}
 

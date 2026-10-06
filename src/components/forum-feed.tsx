@@ -530,10 +530,10 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
         />
         <Link
           href={twHref(locale, `/forum/thread/${article.id}`)}
-          className="flex items-center gap-1 px-2.5 h-8 rounded-lg text-xs text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition"
+          className="flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-900 transition"
           title={_("评论")}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
           {article.replyCount > 0 ? article.replyCount : _("评论")}
