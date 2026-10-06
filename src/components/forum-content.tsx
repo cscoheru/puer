@@ -6,9 +6,10 @@ import { sanitizeHtml } from "@/lib/sanitize";
 interface ForumContentProps {
   html: string;
   className?: string;
+  maxImages?: number; // 限制最多显示几张图片，超出显示会员锁定
 }
 
-export default function ForumContent({ html, className = "" }: ForumContentProps) {
+export default function ForumContent({ html, className = "", maxImages }: ForumContentProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
 
@@ -93,6 +94,52 @@ export default function ForumContent({ html, className = "" }: ForumContentProps
       }
     }
   }, [html]);
+
+  // Image limiting: hide images beyond maxImages and show member lock overlay
+  useEffect(() => {
+    if (!maxImages) return;
+    const el = ref.current;
+    if (!el) return;
+    const allImgs = Array.from(el.querySelectorAll<HTMLImageElement>("img"));
+    if (allImgs.length <= maxImages) return;
+
+    // Hide images beyond the limit
+    for (let i = maxImages; i < allImgs.length; i++) {
+      allImgs[i].style.display = "none";
+      allImgs[i].dataset.locked = "1";
+    }
+
+    // Also hide their parent gallery divs if they're inside one
+    for (let i = maxImages; i < allImgs.length; i++) {
+      const parent = allImgs[i].parentElement;
+      if (parent?.classList.contains("image-gallery")) {
+        const visibleChildren = Array.from(parent.children).filter(
+          (c) => (c as HTMLElement).style?.display !== "none"
+        );
+        if (visibleChildren.length === 0) {
+          parent.style.display = "none";
+        }
+      }
+    }
+
+    // Add lock overlay after the last visible image
+    const hiddenCount = allImgs.length - maxImages;
+    const overlay = document.createElement("div");
+    overlay.className = "member-image-lock";
+    overlay.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;margin-top:8px;background:#fefce8;border:1px dashed #ca8a04;border-radius:12px;cursor:default;">
+        <span style="font-size:18px;">🔒</span>
+        <div>
+          <div style="font-size:14px;font-weight:500;color:#78350f;">查看更多图片</div>
+          <div style="font-size:12px;color:#a16207;margin-top:2px;">还有 ${hiddenCount} 张图 · 会员专享服务</div>
+        </div>
+      </div>
+    `;
+    // Insert after the last visible image's container
+    const lastVisible = allImgs[maxImages - 1];
+    const insertAfter = lastVisible.closest(".image-gallery") || lastVisible;
+    insertAfter.parentNode?.insertBefore(overlay, insertAfter.nextSibling);
+  }, [html, maxImages]);
 
   // Close on Escape
   useEffect(() => {

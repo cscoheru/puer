@@ -302,7 +302,7 @@ export default async function ThreadPage({ params }: PageProps) {
           </h1>
 
           {/* Content */}
-          <ForumContent html={article.content} />
+          <ForumContent html={article.content} maxImages={3} />
 
           {/* P2-R26：补充图片墙（茶记帖 images 字段，content 未内联的部分） */}
           <ArticleImageGallery images={galleryImages} />

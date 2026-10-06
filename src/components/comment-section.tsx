@@ -535,15 +535,15 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
                 />
                 <button
                   onClick={() => session?.user && handleReply(node.author, node.id)}
-                  className="text-xs text-stone-400 hover:text-amber-700 transition ml-1"
+                  className="text-xs text-amber-700 font-medium hover:text-amber-900 hover:bg-amber-50 px-2 py-1 rounded transition ml-1"
                 >
-                  回复
+                  💬 回复
                 </button>
                 <button
                   onClick={() => session?.user && handleQuote(node.author, node.content, node.id)}
-                  className="text-xs text-stone-400 hover:text-amber-700 transition ml-1"
+                  className="text-xs text-amber-700 font-medium hover:text-amber-900 hover:bg-amber-50 px-2 py-1 rounded transition ml-1"
                 >
-                  引用
+                  📝 引用
                 </button>
                 <MessageButton targetId={node.author.id} targetName={node.author.nickname || node.author.username} />
                 {isOwner && !isEditing && (
