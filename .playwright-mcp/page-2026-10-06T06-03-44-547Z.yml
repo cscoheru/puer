@@ -1,0 +1,894 @@
+- generic [active] [ref=f3e1]:
+  - banner [ref=f3e2]:
+    - generic [ref=f3e3]:
+      - link "Puê ~ r" [ref=f3e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f3e11]:
+          - text: Pu
+          - generic [ref=f3e12]:
+            - text: ê
+            - generic [ref=f3e13]: ~
+          - text: r
+      - navigation [ref=f3e14]:
+        - link "论坛" [ref=f3e15] [cursor=pointer]:
+          - /url: /forum
+        - link "茶品库" [ref=f3e16] [cursor=pointer]:
+          - /url: /tea
+        - link "互换大厅" [ref=f3e17] [cursor=pointer]:
+          - /url: /exchange
+        - link "云喝茶" [ref=f3e18] [cursor=pointer]:
+          - /url: /sessions
+        - link "茶问" [ref=f3e19] [cursor=pointer]:
+          - /url: /ask
+        - link "茶记" [ref=f3e20] [cursor=pointer]:
+          - /url: /tasting
+      - generic [ref=f3e23]:
+        - textbox "搜索帖子..." [ref=f3e24]
+        - generic [ref=f3e25]: ⌘K
+      - generic [ref=f3e26]:
+        - button "切换语言" [ref=f3e27]: 繁體
+        - generic [ref=f3e28]:
+          - button "通知" [ref=f3e30]
+          - button "云水禅心" [ref=f3e35]
+  - main [ref=f3e40]:
+    - generic [ref=f3e41]:
+      - generic [ref=f3e42]:
+        - heading "普洱茶论坛" [level=1] [ref=f3e43]
+        - paragraph [ref=f3e44]: 生普/熟普品鉴交流、大益等经典中老期茶档案、仓储行情讨论与茶友问答。
+      - generic [ref=f3e45]:
+        - complementary [ref=f3e46]:
+          - generic [ref=f3e47]:
+            - navigation [ref=f3e48]:
+              - link "🏠 首页" [ref=f3e49] [cursor=pointer]:
+                - /url: /forum
+                - generic [ref=f3e50]: 🏠
+                - generic [ref=f3e51]: 首页
+              - link "🔍 探索社区" [ref=f3e52] [cursor=pointer]:
+                - /url: /forum/explore
+                - generic [ref=f3e53]: 🔍
+                - generic [ref=f3e54]: 探索社区
+              - link "➕ 新建社区" [ref=f3e55] [cursor=pointer]:
+                - /url: /forum/communities/new
+                - generic [ref=f3e56]: ➕
+                - generic [ref=f3e57]: 新建社区
+              - link "✏️ 发布新帖" [ref=f3e58] [cursor=pointer]:
+                - /url: /forum/new
+                - generic [ref=f3e59]: ✏️
+                - generic [ref=f3e60]: 发布新帖
+            - generic [ref=f3e61]:
+              - link "🏵️ 经典普洱 热点茶品 · 动态更新 更多›" [ref=f3e62] [cursor=pointer]:
+                - /url: /forum/classics
+                - generic [ref=f3e63]: 🏵️
+                - generic [ref=f3e64]:
+                  - generic [ref=f3e65]: 经典普洱
+                  - generic [ref=f3e66]: 热点茶品 · 动态更新
+                - generic [ref=f3e67]: 更多›
+              - generic [ref=f3e68]:
+                - link "1 2002-鸿庆号易武熟 3 篇品鉴" [ref=f3e69] [cursor=pointer]:
+                  - /url: /tea/cb238111-3810-4f66-a6cb-7326f4d3c591
+                  - generic [ref=f3e70]: "1"
+                  - generic [ref=f3e71]:
+                    - paragraph [ref=f3e72]: 2002-鸿庆号易武熟
+                    - paragraph [ref=f3e73]: 3 篇品鉴
+                - link "2 2005-大益501勐海之星 6 篇品鉴" [ref=f3e74] [cursor=pointer]:
+                  - /url: /tea/685cd295-345c-47fd-88e2-57d23d0b315c
+                  - generic [ref=f3e75]: "2"
+                  - generic [ref=f3e76]:
+                    - paragraph [ref=f3e77]: 2005-大益501勐海之星
+                    - paragraph [ref=f3e78]: 6 篇品鉴
+                - link "3 2003-兴海302景迈 4 篇品鉴" [ref=f3e79] [cursor=pointer]:
+                  - /url: /tea/2b9e0b2f-2299-4459-ba56-ed91458b8537
+                  - generic [ref=f3e80]: "3"
+                  - generic [ref=f3e81]:
+                    - paragraph [ref=f3e82]: 2003-兴海302景迈
+                    - paragraph [ref=f3e83]: 4 篇品鉴
+                - link "4 2005-大益501-8592双益 2 篇品鉴" [ref=f3e84] [cursor=pointer]:
+                  - /url: /tea/e43f9b8e-0e80-43b6-8a47-abd872680de2
+                  - generic [ref=f3e85]: "4"
+                  - generic [ref=f3e86]:
+                    - paragraph [ref=f3e87]: 2005-大益501-8592双益
+                    - paragraph [ref=f3e88]: 2 篇品鉴
+                - link "5 2003-大益7542咬七版 9 篇品鉴" [ref=f3e89] [cursor=pointer]:
+                  - /url: /tea/502b2b16-d217-4763-8ff0-cacfc795f18a
+                  - generic [ref=f3e90]: "5"
+                  - generic [ref=f3e91]:
+                    - paragraph [ref=f3e92]: 2003-大益7542咬七版
+                    - paragraph [ref=f3e93]: 9 篇品鉴
+                - link "6 601-大益班章有机 1 篇品鉴" [ref=f3e94] [cursor=pointer]:
+                  - /url: /tea/d1bc60dd-a869-4153-9e92-42a89e22972c
+                  - generic [ref=f3e95]: "6"
+                  - generic [ref=f3e96]:
+                    - paragraph [ref=f3e97]: 601-大益班章有机
+                    - paragraph [ref=f3e98]: 1 篇品鉴
+                - link "7 2003-黄大益 2 篇品鉴" [ref=f3e99] [cursor=pointer]:
+                  - /url: /tea/305fa6d6-a8ee-42dd-be17-c6b980a13a90
+                  - generic [ref=f3e100]: "7"
+                  - generic [ref=f3e101]:
+                    - paragraph [ref=f3e102]: 2003-黄大益
+                    - paragraph [ref=f3e103]: 2 篇品鉴
+                - link "8 2003-大益302 7222 1 篇品鉴" [ref=f3e104] [cursor=pointer]:
+                  - /url: /tea/9b9af7f5-a075-483f-91d8-c857d0aee624
+                  - generic [ref=f3e105]: "8"
+                  - generic [ref=f3e106]:
+                    - paragraph [ref=f3e107]: 2003-大益302 7222
+                    - paragraph [ref=f3e108]: 1 篇品鉴
+                - link "9 2004-大益401-7532 7 篇品鉴" [ref=f3e109] [cursor=pointer]:
+                  - /url: /tea/93956b9c-ef27-4435-9852-cc35d1902a78
+                  - generic [ref=f3e110]: "9"
+                  - generic [ref=f3e111]:
+                    - paragraph [ref=f3e112]: 2004-大益401-7532
+                    - paragraph [ref=f3e113]: 7 篇品鉴
+                - link "10 2005-大益金针白莲 5 篇品鉴" [ref=f3e114] [cursor=pointer]:
+                  - /url: /tea/f444f0bc-64e1-4b0a-bce4-c1b971ff1755
+                  - generic [ref=f3e115]: "10"
+                  - generic [ref=f3e116]:
+                    - paragraph [ref=f3e117]: 2005-大益金针白莲
+                    - paragraph [ref=f3e118]: 5 篇品鉴
+                - link "11 2001-下关敬业号 9 篇品鉴" [ref=f3e119] [cursor=pointer]:
+                  - /url: /tea/81b1f828-a9c5-4790-b76c-dd4f763db223
+                  - generic [ref=f3e120]: "11"
+                  - generic [ref=f3e121]:
+                    - paragraph [ref=f3e122]: 2001-下关敬业号
+                    - paragraph [ref=f3e123]: 9 篇品鉴
+                - link "12 2011-金大益 10 篇品鉴" [ref=f3e124] [cursor=pointer]:
+                  - /url: /tea/28ad67e7-7587-435f-ac49-2ac4430e8cae
+                  - generic [ref=f3e125]: "12"
+                  - generic [ref=f3e126]:
+                    - paragraph [ref=f3e127]: 2011-金大益
+                    - paragraph [ref=f3e128]: 10 篇品鉴
+              - generic [ref=f3e129]:
+                - paragraph [ref=f3e130]: 💬 最近经典帖
+                - link "【跟进】2002-鸿庆号易武熟" [ref=f3e131] [cursor=pointer]:
+                  - /url: /forum/thread/cmuw38dse001eof01g3nx8vi0
+                - link "【跟进】2003-兴海302景迈💬 8" [ref=f3e132] [cursor=pointer]:
+                  - /url: /forum/thread/cmuuzxhpc0008n301gr9fgk8g
+                  - text: 【跟进】2003-兴海302景迈
+                  - generic [ref=f3e133]: 💬 8
+            - generic [ref=f3e134]:
+              - heading "社区" [level=2] [ref=f3e135]
+              - generic [ref=f3e136]:
+                - link "🍵 普洱醇香 120" [ref=f3e137] [cursor=pointer]:
+                  - /url: /forum/puer
+                  - generic [ref=f3e138]: 🍵
+                  - generic [ref=f3e139]: 普洱醇香
+                  - generic [ref=f3e140]: "120"
+                - link "🫖 黑茶雅韵 7" [ref=f3e141] [cursor=pointer]:
+                  - /url: /forum/heicha
+                  - generic [ref=f3e142]: 🫖
+                  - generic [ref=f3e143]: 黑茶雅韵
+                  - generic [ref=f3e144]: "7"
+                - link "🏺 茶器清心 23" [ref=f3e145] [cursor=pointer]:
+                  - /url: /forum/teacup
+                  - generic [ref=f3e146]: 🏺
+                  - generic [ref=f3e147]: 茶器清心
+                  - generic [ref=f3e148]: "23"
+                - link "💧 茶水人生 9" [ref=f3e149] [cursor=pointer]:
+                  - /url: /forum/water
+                  - generic [ref=f3e150]: 💧
+                  - generic [ref=f3e151]: 茶水人生
+                  - generic [ref=f3e152]: "9"
+                - link "📖 习茶问道 13" [ref=f3e153] [cursor=pointer]:
+                  - /url: /forum/knowledge
+                  - generic [ref=f3e154]: 📖
+                  - generic [ref=f3e155]: 习茶问道
+                  - generic [ref=f3e156]: "13"
+                - link "🤝 茶市风云 5" [ref=f3e157] [cursor=pointer]:
+                  - /url: /forum/trade
+                  - generic [ref=f3e158]: 🤝
+                  - generic [ref=f3e159]: 茶市风云
+                  - generic [ref=f3e160]: "5"
+                - link "🏵️ 经典普洱 45" [ref=f3e161] [cursor=pointer]:
+                  - /url: /forum/classics
+                  - generic [ref=f3e162]: 🏵️
+                  - generic [ref=f3e163]: 经典普洱
+                  - generic [ref=f3e164]: "45"
+            - generic [ref=f3e166]:
+              - link "关于 PuEr" [ref=f3e167] [cursor=pointer]:
+                - /url: /about
+              - link "广告合作" [ref=f3e168] [cursor=pointer]:
+                - /url: /advertise
+              - link "帮助" [ref=f3e169] [cursor=pointer]:
+                - /url: /help
+            - generic [ref=f3e170]:
+              - link "社区规则" [ref=f3e171] [cursor=pointer]:
+                - /url: /rules
+              - link "隐私政策" [ref=f3e172] [cursor=pointer]:
+                - /url: /privacy
+              - link "用户协议" [ref=f3e173] [cursor=pointer]:
+                - /url: /terms
+        - generic [ref=f3e174]:
+          - generic [ref=f3e175]:
+            - link "🔥 今日" [ref=f3e176] [cursor=pointer]:
+              - /url: /forum?tab=day
+            - link "📅 本周" [ref=f3e177] [cursor=pointer]:
+              - /url: /forum?tab=week
+            - link "🏆 月榜" [ref=f3e178] [cursor=pointer]:
+              - /url: /forum?tab=month
+            - link "⏰ 最新" [ref=f3e179] [cursor=pointer]:
+              - /url: /forum?tab=latest
+            - link "💎 精华" [ref=f3e180] [cursor=pointer]:
+              - /url: /forum?tab=essence
+          - generic [ref=f3e181]:
+            - generic [ref=f3e183]:
+              - generic [ref=f3e184]:
+                - generic [ref=f3e185]:
+                  - link [ref=f3e186] [cursor=pointer]:
+                    - /url: /user/cmpb7net1000001ocrss0o4de
+                  - generic [ref=f3e187]:
+                    - button "渔夫" [ref=f3e189]
+                    - generic [aria-hidden] [ref=f3e190]: ·
+                    - generic [ref=f3e191]: 1 天前
+                    - generic [aria-hidden] [ref=f3e192]: ·
+                    - link "普洱醇香" [ref=f3e193] [cursor=pointer]:
+                      - /url: /forum/puer
+                - link "2002-海湾7548（品名很山寨）" [ref=f3e194] [cursor=pointer]:
+                  - /url: /forum/thread/tasting-draft_32de1abc-f522-489c-8821-ab918660ccca
+              - generic [ref=f3e196]:
+                - paragraph [ref=f3e197]: 今天开了一款2002年海湾茶厂的7548,用的盖碗冲泡,润茶水清甜无苦涩。下面简单记一下品饮感受。茶汤香气偏幽,带点果蜜香,也有轻微的梅子香,但整体不算很足。 第一水入口甜,生津带甜,几乎无苦涩。第二水苦涩上来,滋味变浓郁,果蜜香显,苦涩很快退去,带轻微梅子香,生津甜。第三水滋味比上一水淡一些,苦涩显但化得快,生津快,梅子香稍欠沉稳。第四水比较喜欢,饱满有力,茶汤活性强、有刺激感,苦涩甜协调,微微苦涩下两颊收敛性好,和203-7542的汤感滋味香气都有相似之处。第五水继续维持,汤感更圆润,略有涩感。第六水涩感变强,这类茶尾水涩感确实难控。第七水进入尾水,还能喝,苦涩几乎没了。 总体判断 7542该有的特点都在,显梅子韵,汤感粘稠,活性较好,前几水能喝出点八八青年轻时的味道。缺点就是香气不够足,尾水涩感偏强。整体看比同年的7542品质要高一些,价格估计只有三分之一,性价比还是不错的。
+                - button "展开全文 ▼" [ref=f3e198]
+              - button "取消静音" [ref=f3e202]: 🔇
+              - generic [ref=f3e203]:
+                - generic [ref=f3e204]:
+                  - button "推荐" [ref=f3e205] [cursor=pointer]
+                  - generic [ref=f3e208]: "39"
+                  - button "不推荐" [ref=f3e209] [cursor=pointer]
+                - link "4" [ref=f3e212] [cursor=pointer]:
+                  - /url: /forum/thread/tasting-draft_32de1abc-f522-489c-8821-ab918660ccca
+            - generic [ref=f3e216]:
+              - generic [ref=f3e217]:
+                - generic [ref=f3e218]:
+                  - link [ref=f3e219] [cursor=pointer]:
+                    - /url: /user/4c40d835-3bae-41d8-b030-89e605a1dcdc
+                  - generic [ref=f3e220]:
+                    - button "一泡成名" [ref=f3e222]
+                    - generic [aria-hidden] [ref=f3e223]: ·
+                    - generic [ref=f3e224]: 16 天前
+                    - generic [aria-hidden] [ref=f3e225]: ·
+                    - link "普洱醇香" [ref=f3e226] [cursor=pointer]:
+                      - /url: /forum/puer
+                  - generic [ref=f3e227]:
+                    - generic [ref=f3e228]: 分享
+                    - generic "精华" [ref=f3e229]: ⭐
+                - link "2006年大益勐海之星400克" [ref=f3e230] [cursor=pointer]:
+                  - /url: /forum/thread/cmu96zyx6000sqk01p2uhc4sr
+              - paragraph [ref=f3e233]: 这个茶还有个200克的小饼没有对比过，我这片400克的，现在也是越来越喜欢了：没有发酵味，熟米汤香带一点咸咸的味道，经典的大益熟茶滋味，这款茶不属于轻发酵，和501的表现不同，属于那种暖暖洋洋喝了舒服的生活熟茶，个性不算鲜明。
+              - link "‹ › 1/5" [ref=f3e234] [cursor=pointer]:
+                - /url: /forum/thread/cmu96zyx6000sqk01p2uhc4sr
+                - generic [ref=f3e235]:
+                  - button "‹" [ref=f3e236]
+                  - button "›" [ref=f3e237]
+                - generic [ref=f3e238]:
+                  - button [ref=f3e239]
+                  - button [ref=f3e240]
+                  - button [ref=f3e241]
+                  - button [ref=f3e242]
+                  - button [ref=f3e243]
+                  - generic [ref=f3e244]: 1/5
+              - generic [ref=f3e245]:
+                - generic [ref=f3e246]:
+                  - button "推荐" [ref=f3e247] [cursor=pointer]
+                  - generic [ref=f3e250]: "19"
+                  - button "不推荐" [ref=f3e251] [cursor=pointer]
+                - link "8" [ref=f3e254] [cursor=pointer]:
+                  - /url: /forum/thread/cmu96zyx6000sqk01p2uhc4sr
+            - generic [ref=f3e258]:
+              - generic [ref=f3e259]:
+                - generic [ref=f3e260]:
+                  - link [ref=f3e261] [cursor=pointer]:
+                    - /url: /user/e0bde961-2469-439a-9f21-16d91b31f700
+                  - generic [ref=f3e262]:
+                    - button "古道茶人" [ref=f3e264]
+                    - generic [aria-hidden] [ref=f3e265]: ·
+                    - generic [ref=f3e266]: 21 小时前
+                    - generic [aria-hidden] [ref=f3e267]: ·
+                    - link "经典普洱" [ref=f3e268] [cursor=pointer]:
+                      - /url: /forum/classics
+                  - generic [ref=f3e269]:
+                    - generic [ref=f3e270]: 新
+                    - generic [ref=f3e271]: 讨论
+                    - generic "经典普洱" [ref=f3e272]: 🏵️ 经典
+                - link "【跟进】2003-兴海302景迈" [ref=f3e273] [cursor=pointer]:
+                  - /url: /forum/thread/cmuuzxhpc0008n301gr9fgk8g
+              - paragraph [ref=f3e276]: 这个茶真的是经典，放在03年的勐海茶厂毫不逊色，其松烟香的地道和汤水融合度来说无出其右，有人会说水路厚薄的不足，我认为是鸡蛋里挑骨头：盲喝我是喝不出来的。今天秋高气爽湿度温度刚好，没有一点涩感，到了非常好的品饮时期了，可惜也没多少，一年喝上两泡还能喝四五年哈哈哈😂
+              - link "‹ › 1/7" [ref=f3e277] [cursor=pointer]:
+                - /url: /forum/thread/cmuuzxhpc0008n301gr9fgk8g
+                - generic [ref=f3e278]:
+                  - button "‹" [ref=f3e279]
+                  - button "›" [ref=f3e280]
+                - generic [ref=f3e281]:
+                  - button [ref=f3e282]
+                  - button [ref=f3e283]
+                  - button [ref=f3e284]
+                  - button [ref=f3e285]
+                  - button [ref=f3e286]
+                  - button [ref=f3e287]
+                  - button [ref=f3e288]
+                  - generic [ref=f3e289]: 1/7
+              - generic [ref=f3e290]:
+                - generic [ref=f3e291]:
+                  - button "推荐" [ref=f3e292] [cursor=pointer]
+                  - generic [ref=f3e295]: "15"
+                  - button "不推荐" [ref=f3e296] [cursor=pointer]
+                - link "8" [ref=f3e299] [cursor=pointer]:
+                  - /url: /forum/thread/cmuuzxhpc0008n301gr9fgk8g
+            - generic [ref=f3e303]:
+              - generic [ref=f3e304]:
+                - generic [ref=f3e305]:
+                  - link "昆" [ref=f3e306] [cursor=pointer]:
+                    - /url: /user/8bb414ad-fbda-4586-aad3-922aa83646c3
+                  - generic [ref=f3e308]:
+                    - button "昆明老茶头" [ref=f3e310]
+                    - generic [aria-hidden] [ref=f3e311]: ·
+                    - generic [ref=f3e312]: 3 天前
+                    - generic [aria-hidden] [ref=f3e313]: ·
+                    - link "习茶问道" [ref=f3e314] [cursor=pointer]:
+                      - /url: /forum/knowledge
+                  - generic [ref=f3e315]: 分享
+                - link "2006年大益五韵-岩韵" [ref=f3e317] [cursor=pointer]:
+                  - /url: /forum/thread/a5fc02f2-96df-477b-b8ce-97c90fd82f51
+              - generic [ref=f3e319]:
+                - paragraph [ref=f3e320]: 最近翻出一泡2012年的 大益601岩韵 ,正好手边也有宝和祥13年的岩韵,就摆在一起对喝。这名字起得真容易让人误会——"岩骨花香"四个字一出来,很多人就拿来跟武夷岩茶对标,其实它就是一款打着"岩韵"概念的生普,路子还是生普的路子。 开汤润茶,公道杯蜜香里带着青味和一丝烟香,入口清甜,青味明显。第一水下去酽感就出来了,那种"岩味"挺有辨识度,推测是氨基酸和矿物质含量偏高。和06年同期的茶比,这款转化明显慢半拍,酸底重,涩感化开稍迟,生津回甘都慢半拍,典型的还年轻。 第二水开始有点意思了,公道杯里浮出轻樟香,退得倒快。茶汤咽下去回味一上来,就是岩石感带甘甜,水相对粗一些,两颊生津不错,花果香隐隐约约,韵感还没立起来。整体还是偏青涩,远没到最佳品饮期。 第三水开始有点像样了,涩感跟香气揉在一起,可以叫"岩韵涩"——不是那种讨人厌的死涩,是带着骨架的涩。第四水居然开始打嗝,香气变得直接,花香蜜香裹着岩味往上顶,这一水真的有几分岩茶的意思了,跟大红袍摆一块儿盲品还真不一定输阵。 可惜第五水就开始塌,甜度一掉,其他滋味跟着泄,香气也衰减,茶汤一下子软下来没骨架了,没耐心继续泡。 整体看
+                - button "展开全文 ▼" [ref=f3e321]
+              - link "‹ › 1/19" [ref=f3e322] [cursor=pointer]:
+                - /url: /forum/thread/a5fc02f2-96df-477b-b8ce-97c90fd82f51
+                - generic [ref=f3e323]:
+                  - button "‹" [ref=f3e324]
+                  - button "›" [ref=f3e325]
+                - generic [ref=f3e326]:
+                  - button [ref=f3e327]
+                  - button [ref=f3e328]
+                  - button [ref=f3e329]
+                  - button [ref=f3e330]
+                  - button [ref=f3e331]
+                  - button [ref=f3e332]
+                  - button [ref=f3e333]
+                  - button [ref=f3e334]
+                  - button [ref=f3e335]
+                  - button [ref=f3e336]
+                  - button [ref=f3e337]
+                  - button [ref=f3e338]
+                  - button [ref=f3e339]
+                  - button [ref=f3e340]
+                  - button [ref=f3e341]
+                  - button [ref=f3e342]
+                  - button [ref=f3e343]
+                  - button [ref=f3e344]
+                  - button [ref=f3e345]
+                  - generic [ref=f3e346]: 1/19
+              - generic [ref=f3e347]:
+                - generic [ref=f3e348]:
+                  - button "推荐" [ref=f3e349] [cursor=pointer]
+                  - generic [ref=f3e352]: "19"
+                  - button "不推荐" [ref=f3e353] [cursor=pointer]
+                - link "8" [ref=f3e356] [cursor=pointer]:
+                  - /url: /forum/thread/a5fc02f2-96df-477b-b8ce-97c90fd82f51
+            - generic [ref=f3e360]:
+              - generic [ref=f3e361]:
+                - generic [ref=f3e362]:
+                  - link "古" [ref=f3e363] [cursor=pointer]:
+                    - /url: /user/82d83afe-53f5-4b85-9700-da4bee4c7546
+                  - generic [ref=f3e365]:
+                    - button "古普研习社" [ref=f3e367]
+                    - generic [aria-hidden] [ref=f3e368]: ·
+                    - generic [ref=f3e369]: 6 天前
+                    - generic [aria-hidden] [ref=f3e370]: ·
+                    - link "普洱醇香" [ref=f3e371] [cursor=pointer]:
+                      - /url: /forum/puer
+                  - generic [ref=f3e372]:
+                    - generic [ref=f3e373]: 分享
+                    - generic "精华" [ref=f3e374]: ⭐
+                - link "大益2021年力开天地（牛饼）" [ref=f3e375] [cursor=pointer]:
+                  - /url: /forum/thread/7187fcba-c001-4a5c-b895-59a307085d47
+              - generic [ref=f3e377]:
+                - paragraph [ref=f3e378]: "前两天群里又在聊行情,有茶友搬出一张图说 21力开天地 从当年发行价3万,高峰1.8万一片,现在一路掉到2k不到。我当时第一反应就是:这价格还要不要人活了? 但转念一想,群里好几个老茶客都在说,真要跌到1字头,那基本闭眼入了,再跌也认账。你还别说,这种从喝出发的心理价位,反而比那些拿着K线图分析的资金派更接地气——毕竟普洱茶最后是要进嘴的,不是永远在仓里躺着等下个接盘侠。 我个人倒没那么悲观,觉得行情不会彻底崩。主要是两个观察: 第一,广东那边的老茶客存量是真的大,加上其他省份零星增加的茶友,大益的 终端收藏和品饮基本盘 其实还在。大家嘴上说跌,真到腰斩再腰斩,反而捂着不动了,尤其是那些硬通货。第二,主流渠道和二级市场的商家现在基本都在硬扛,价格更新周期越拉越长,说明大家还在等,还没到割肉甩货那种恐慌阶段。真要崩,早就互相踩踏了,不至于现在这种\"死气沉沉但还活着\"的状态。 按群里老茶友的算法,如果真要跌到1k+一片,大概还得磨个6到8个月。听起来漫长,但反过来想,这不就是给想入手的人留了慢慢挑货的窗口吗?我作为一个白天上班、晚上才有空开汤的茶客,其实更关心的是:价格下来了,我"
+                - button "展开全文 ▼" [ref=f3e379]
+              - link "‹ › 1/13" [ref=f3e380] [cursor=pointer]:
+                - /url: /forum/thread/7187fcba-c001-4a5c-b895-59a307085d47
+                - generic [ref=f3e381]:
+                  - button "‹" [ref=f3e382]
+                  - button "›" [ref=f3e383]
+                - generic [ref=f3e384]:
+                  - button [ref=f3e385]
+                  - button [ref=f3e386]
+                  - button [ref=f3e387]
+                  - button [ref=f3e388]
+                  - button [ref=f3e389]
+                  - button [ref=f3e390]
+                  - button [ref=f3e391]
+                  - button [ref=f3e392]
+                  - button [ref=f3e393]
+                  - button [ref=f3e394]
+                  - button [ref=f3e395]
+                  - button [ref=f3e396]
+                  - button [ref=f3e397]
+                  - generic [ref=f3e398]: 1/13
+              - generic [ref=f3e399]:
+                - generic [ref=f3e400]:
+                  - button "推荐" [ref=f3e401] [cursor=pointer]
+                  - generic [ref=f3e404]: "20"
+                  - button "不推荐" [ref=f3e405] [cursor=pointer]
+                - link "6" [ref=f3e408] [cursor=pointer]:
+                  - /url: /forum/thread/7187fcba-c001-4a5c-b895-59a307085d47
+            - generic [ref=f3e412]:
+              - generic [ref=f3e413]:
+                - generic [ref=f3e414]:
+                  - link "下" [ref=f3e415] [cursor=pointer]:
+                    - /url: /user/9cd07364-8d05-4961-b2c8-58556d1ed217
+                  - generic [ref=f3e417]:
+                    - button "下关党代表" [ref=f3e419]
+                    - generic [aria-hidden] [ref=f3e420]: ·
+                    - generic [ref=f3e421]: 5 天前
+                    - generic [aria-hidden] [ref=f3e422]: ·
+                    - link "普洱醇香" [ref=f3e423] [cursor=pointer]:
+                      - /url: /forum/puer
+                  - generic [ref=f3e424]:
+                    - generic [ref=f3e425]: 分享
+                    - generic "精华" [ref=f3e426]: ⭐
+                - link "大益2006年圣茶之旅，与801高山对冲" [ref=f3e427] [cursor=pointer]:
+                  - /url: /forum/thread/c618de81-9719-4614-8b9b-77053c83ea1a
+              - generic [ref=f3e429]:
+                - paragraph [ref=f3e430]: 前阵子撬了一款圣茶来喝,头一泡印象一般,觉得价质不太符,心里有点不服气,正好朋友圈又在卖,就又入了一份试试。 这次学聪明了点,沿着上次撬茶的位置往薄处走,撬散一点,方便醒茶。第一水下去就有惊喜——闻香带着 烟香和蜜香 ,茶汤甜里带烟香,几无苦涩,这个跟上次的果香毫香完全不是一个路子。难怪这一批比601批次贵,我那会儿喝的时候还没烟香呢。 但跟昨晚刚喝的 801高山韵象 摆一块比,差距就出来了:801香气更纯净高雅,这个圣茶水路粗了不少,茶气冲击力偏弱,入口没有打头的感觉,挺平缓的。在大益烟香茶里我觉得只能排 第三梯队以后 了,甚至带一点点火气。 到了第三、四水倒是稳住了,茶汤开始有力度,身体明显有热感。投茶量小所以出汤稍慢,这点要注意。整体来说,涩感从头到尾都有点留存,喉感好,回甘生津是差那么一口气,不过这个价位也算及格偏上吧。 网上茶油说"蜜甜韵、苦不明显、协调性好、微涩有茶韵",跟我自己喝的差不多,只是烟香这个变量,得看批次碰运气。你们觉得,大益烟香茶里 圣茶、801高山韵象、那几个经典款 ,按水路、香气、茶气综合排,谁才是第一梯队?
+                - button "展开全文 ▼" [ref=f3e431]
+              - link "‹ › 1/29" [ref=f3e432] [cursor=pointer]:
+                - /url: /forum/thread/c618de81-9719-4614-8b9b-77053c83ea1a
+                - generic [ref=f3e433]:
+                  - button "‹" [ref=f3e434]
+                  - button "›" [ref=f3e435]
+                - generic [ref=f3e436]:
+                  - button [ref=f3e437]
+                  - button [ref=f3e438]
+                  - button [ref=f3e439]
+                  - button [ref=f3e440]
+                  - button [ref=f3e441]
+                  - button [ref=f3e442]
+                  - button [ref=f3e443]
+                  - button [ref=f3e444]
+                  - button [ref=f3e445]
+                  - button [ref=f3e446]
+                  - button [ref=f3e447]
+                  - button [ref=f3e448]
+                  - button [ref=f3e449]
+                  - button [ref=f3e450]
+                  - button [ref=f3e451]
+                  - button [ref=f3e452]
+                  - button [ref=f3e453]
+                  - button [ref=f3e454]
+                  - button [ref=f3e455]
+                  - button [ref=f3e456]
+                  - button [ref=f3e457]
+                  - button [ref=f3e458]
+                  - button [ref=f3e459]
+                  - button [ref=f3e460]
+                  - button [ref=f3e461]
+                  - button [ref=f3e462]
+                  - button [ref=f3e463]
+                  - button [ref=f3e464]
+                  - button [ref=f3e465]
+                  - generic [ref=f3e466]: 1/29
+              - generic [ref=f3e467]:
+                - generic [ref=f3e468]:
+                  - button "推荐" [ref=f3e469] [cursor=pointer]
+                  - generic [ref=f3e472]: "18"
+                  - button "不推荐" [ref=f3e473] [cursor=pointer]
+                - link "6" [ref=f3e476] [cursor=pointer]:
+                  - /url: /forum/thread/c618de81-9719-4614-8b9b-77053c83ea1a
+            - generic [ref=f3e480]:
+              - generic [ref=f3e481]:
+                - generic [ref=f3e482]:
+                  - link [ref=f3e483] [cursor=pointer]:
+                    - /url: /user/e2b98a3e-3bb0-4d73-8f7f-4e1e2b6c9bfc
+                  - generic [ref=f3e484]:
+                    - button "京城茶客" [ref=f3e486]
+                    - generic [aria-hidden] [ref=f3e487]: ·
+                    - generic [ref=f3e488]: 15 小时前
+                    - generic [aria-hidden] [ref=f3e489]: ·
+                    - link "习茶问道" [ref=f3e490] [cursor=pointer]:
+                      - /url: /forum/knowledge
+                  - generic [ref=f3e491]:
+                    - generic [ref=f3e492]: 新
+                    - generic [ref=f3e493]: 讨论
+                - link "501勐海之星是未来的特二接班人？" [ref=f3e494] [cursor=pointer]:
+                  - /url: /forum/thread/cmuvcjvfh000mn301mzxcnsen
+              - paragraph [ref=f3e497]: 路过一个直播间，为了把勐海之星高价卖出去，说是特二的接班人，然后狂赞下单的人识货懂茶。这个茶我觉得和502勐海之星以及最近很火的501金针白莲都是名过其实性价比很低的明星茶，它们不会成为白菜特二大一大二，它们只是它们自己。
+              - link [ref=f3e498] [cursor=pointer]:
+                - /url: /forum/thread/cmuvcjvfh000mn301mzxcnsen
+              - generic [ref=f3e500]:
+                - generic [ref=f3e501]:
+                  - button "推荐" [ref=f3e502] [cursor=pointer]
+                  - generic [ref=f3e505]: "7"
+                  - button "不推荐" [ref=f3e506] [cursor=pointer]
+                - link "3" [ref=f3e509] [cursor=pointer]:
+                  - /url: /forum/thread/cmuvcjvfh000mn301mzxcnsen
+            - generic [ref=f3e513]:
+              - generic [ref=f3e514]:
+                - generic [ref=f3e515]:
+                  - link "茶" [ref=f3e516] [cursor=pointer]:
+                    - /url: /user/a950441a-590c-45b7-8231-b4a58073aca3
+                  - generic [ref=f3e518]:
+                    - button "茶山摄影师" [ref=f3e520]
+                    - generic [aria-hidden] [ref=f3e521]: ·
+                    - generic [ref=f3e522]: 8 天前
+                    - generic [aria-hidden] [ref=f3e523]: ·
+                    - link "习茶问道" [ref=f3e524] [cursor=pointer]:
+                      - /url: /forum/knowledge
+                  - generic [ref=f3e525]: 分享
+                - link "03黄大益开汤:高烟香那版真有点东西,说说第三泡那个\"断片\"感" [ref=f3e527] [cursor=pointer]:
+                  - /url: /forum/thread/839a2a74-cafa-49ed-853b-81a45b9321ca
+              - generic [ref=f3e529]:
+                - paragraph [ref=f3e530]: 最近喝了朋友那泡03黄大益,存世量少加上仓储折腾,现在能碰到明显烟香的其实不多了。我喝到的这泡属于 高烟香版本 ,一入口就是那种很典型的浓郁柴火烟,跟03年很多茶的路子一致,不算特别。 但这茶真正让我上头的是水路和中后段。前段穿透力很强,带着活泼的果酸,连我这种老烟枪都觉得有点冲——烟香里裹着爽朗的果酸,不是那种仓存过干出来的寡酸,这点区别挺明显的。心里还嘀咕,再放几年烟味褪下去,会不会走96玫瑰大益那种路子? 最妙的是 第三泡突然"衰减"了一下 ,我当时还以为这茶就这么结束了。结果第四泡甜度直接拉起来,中后段一路越来越甜,把前面堆起来的涩感全平衡掉了,嘴里全是甘甜和润感,烟香果香反倒退到背景里去了。我自己泡茶的感觉就像老相机拧变焦环—— 前景的苦涩被推远,藏在底下的甜度反而成了主角 ;再往后就像长焦镜头把景色整体拉远,香气滋味都渐渐模糊,但嘴里一直留着淡淡烟香的甜,直到喝不动都还有余韵。 黄大益背景资料一直不多,只知道是定制茶、产量小,经过20年消耗+仓储损耗,现在带明显烟香的存量真不算多,遇到且喝且珍惜吧。
+                - button "展开全文 ▼" [ref=f3e531]
+              - link "‹ › 1/19" [ref=f3e532] [cursor=pointer]:
+                - /url: /forum/thread/839a2a74-cafa-49ed-853b-81a45b9321ca
+                - generic [ref=f3e533]:
+                  - button "‹" [ref=f3e534]
+                  - button "›" [ref=f3e535]
+                - generic [ref=f3e536]:
+                  - button [ref=f3e537]
+                  - button [ref=f3e538]
+                  - button [ref=f3e539]
+                  - button [ref=f3e540]
+                  - button [ref=f3e541]
+                  - button [ref=f3e542]
+                  - button [ref=f3e543]
+                  - button [ref=f3e544]
+                  - button [ref=f3e545]
+                  - button [ref=f3e546]
+                  - button [ref=f3e547]
+                  - button [ref=f3e548]
+                  - button [ref=f3e549]
+                  - button [ref=f3e550]
+                  - button [ref=f3e551]
+                  - button [ref=f3e552]
+                  - button [ref=f3e553]
+                  - button [ref=f3e554]
+                  - button [ref=f3e555]
+                  - generic [ref=f3e556]: 1/19
+              - generic [ref=f3e557]:
+                - generic [ref=f3e558]:
+                  - button "推荐" [ref=f3e559] [cursor=pointer]
+                  - generic [ref=f3e562]: "16"
+                  - button "不推荐" [ref=f3e563] [cursor=pointer]
+                - link "4" [ref=f3e566] [cursor=pointer]:
+                  - /url: /forum/thread/839a2a74-cafa-49ed-853b-81a45b9321ca
+            - generic [ref=f3e570]:
+              - generic [ref=f3e571]:
+                - generic [ref=f3e572]:
+                  - link [ref=f3e573] [cursor=pointer]:
+                    - /url: /user/cmpb7net1000001ocrss0o4de
+                  - generic [ref=f3e574]:
+                    - button "渔夫" [ref=f3e576]
+                    - generic [aria-hidden] [ref=f3e577]: ·
+                    - generic [ref=f3e578]: 8 天前
+                    - generic [aria-hidden] [ref=f3e579]: ·
+                    - link "普洱醇香" [ref=f3e580] [cursor=pointer]:
+                      - /url: /forum/puer
+                  - generic "精华" [ref=f3e582]: ⭐
+                - link "2003-大益302 7222" [ref=f3e583] [cursor=pointer]:
+                  - /url: /forum/thread/tasting-draft_0c10735b-ac52-444d-b60e-3b5eaf4b3c3b
+              - generic [ref=f3e585]:
+                - paragraph [ref=f3e586]: 茶样，32克1200，克价40块了，其实很不便宜，如果按照10克一泡，一泡就要400块，足够请人吃一顿饭了。润茶水烟香水甜无苦涩。 第一水，入口苦涩酸酽，那种酸中带苦的味道，仓没有问题。苦涩酸都能很快退去，微微的生津回甘，都不算强，茶气还没有感觉。 第二水，公道杯烟香樟香，苦涩更强，酸感弱了很多，这一泡应该是302-7222本真的滋味了，没什么杂味，茶汤的厚度不算厚，就是弄强度烟香沉水，开始打嗝。确实论苦涩浓强，03年还没有找到第二个。 第三水，此茶苦涩浓后的返甜以及生津回甘的力度还是不够，收敛感很强，口腔有较强的刺激性，但缺少苦尽甘来的感受，整体不够丰富。 第四水，这一泡更纯粹的苦感，酸感几乎没有了，两颊涩感生津感强，确实，论苦涩度，302还没有找到敌手。茶汤稍凉后那种苦涩更强，化得也快，两颊非常强的收敛感，稍微停一会再喝第五水。 第五水，如此苦涩的茶现在喝掉真是太可惜了，要登上十年再喝，如果这个茶的苦涩退掉大半，茶汤将是怎么样的？开始有点掉了。这茶让我香气那天在涛哥那里喝的断南，也是足够的强度，但似乎断南更加均衡，7222更苦涩，但甜度不如断南，郑旭说断南没有骨架感比较
+                - button "展开全文 ▼" [ref=f3e587]
+              - generic [ref=f3e591]:
+                - generic [ref=f3e592]:
+                  - button "推荐" [ref=f3e593] [cursor=pointer]
+                  - generic [ref=f3e596]: "138"
+                  - button "不推荐" [ref=f3e597] [cursor=pointer]
+                - link "5" [ref=f3e600] [cursor=pointer]:
+                  - /url: /forum/thread/tasting-draft_0c10735b-ac52-444d-b60e-3b5eaf4b3c3b
+            - generic [ref=f3e604]:
+              - generic [ref=f3e605]:
+                - generic [ref=f3e606]:
+                  - link "一" [ref=f3e607] [cursor=pointer]:
+                    - /url: /user/0743f981-6c19-4e36-a704-f141ccc07475
+                  - generic [ref=f3e609]:
+                    - button "一叶知春秋" [ref=f3e611]
+                    - generic [aria-hidden] [ref=f3e612]: ·
+                    - generic [ref=f3e613]: 9 天前
+                    - generic [aria-hidden] [ref=f3e614]: ·
+                    - link "习茶问道" [ref=f3e615] [cursor=pointer]:
+                      - /url: /forum/knowledge
+                  - generic [ref=f3e616]: 分享
+                - link "老熟茶存世少,真不是不好,是被当年喝光了" [ref=f3e618] [cursor=pointer]:
+                  - /url: /forum/thread/ccd463a8-47ea-4e84-9b7f-0d17b4f33f9e
+              - generic [ref=f3e620]:
+                - paragraph [ref=f3e621]: 翻老库存翻到几张90年代末的勐海茶厂熟饼,突然想起圈子里一直在聊的一个问题:为啥老生茶一抓一大把,老熟茶却凤毛麟角? 我自己的理解,熟茶这玩意儿,生出来就不是让你"藏"的。7572那一路,用的都是5级以下的粗老料,当年厂里的逻辑很朴素——做出来就是给茶楼、给饭馆、给老百姓日常消耗的,图个稳定、醇厚、价格亲民。跟"奢侈品"三个字压根不沾边。 所以你回头看,90年代那些勐海大厂的常规熟饼,留存下来的真不多。不是茶不行,恰恰是太"好用"了,当年就被人喝掉了,根本没等到今天。这跟生茶那套"存着慢慢陈"的逻辑完全反着来。 再说原料的事儿。我手里正好有一片01年的7262,也有后来208批的紫大益熟。实话实说,紫大益在厚度、层次、耐泡度上确实更胜一筹,毕竟用料精细化这条路,本世纪初99陆羽、班章熟那批开始就走起来了,改制前后还出过03早春乔木熟、绿色生态熟这类定制品,路子是对的。 但我个人喝下来,这种差距更多是"量"的区别,不是"质"的鸿沟。渥堆这道工序太厉害了,微生物把原料从头到尾重塑一遍,粗料细料出来都有那股子熟茶该有的骨架。大厂工艺加上干净仓储,普通熟茶放个二十多年,出来的味道真不会
+                - button "展开全文 ▼" [ref=f3e622]
+              - link "‹ › 1/19" [ref=f3e623] [cursor=pointer]:
+                - /url: /forum/thread/ccd463a8-47ea-4e84-9b7f-0d17b4f33f9e
+                - generic [ref=f3e624]:
+                  - button "‹" [ref=f3e625]
+                  - button "›" [ref=f3e626]
+                - generic [ref=f3e627]:
+                  - button [ref=f3e628]
+                  - button [ref=f3e629]
+                  - button [ref=f3e630]
+                  - button [ref=f3e631]
+                  - button [ref=f3e632]
+                  - button [ref=f3e633]
+                  - button [ref=f3e634]
+                  - button [ref=f3e635]
+                  - button [ref=f3e636]
+                  - button [ref=f3e637]
+                  - button [ref=f3e638]
+                  - button [ref=f3e639]
+                  - button [ref=f3e640]
+                  - button [ref=f3e641]
+                  - button [ref=f3e642]
+                  - button [ref=f3e643]
+                  - button [ref=f3e644]
+                  - button [ref=f3e645]
+                  - button [ref=f3e646]
+                  - generic [ref=f3e647]: 1/19
+              - generic [ref=f3e648]:
+                - generic [ref=f3e649]:
+                  - button "推荐" [ref=f3e650] [cursor=pointer]
+                  - generic [ref=f3e653]: "17"
+                  - button "不推荐" [ref=f3e654] [cursor=pointer]
+                - link "2" [ref=f3e657] [cursor=pointer]:
+                  - /url: /forum/thread/ccd463a8-47ea-4e84-9b7f-0d17b4f33f9e
+            - generic [ref=f3e661]:
+              - generic [ref=f3e662]:
+                - generic [ref=f3e663]:
+                  - link [ref=f3e664] [cursor=pointer]:
+                    - /url: /user/e0bde961-2469-439a-9f21-16d91b31f700
+                  - generic [ref=f3e665]:
+                    - button "古道茶人" [ref=f3e667]
+                    - generic [aria-hidden] [ref=f3e668]: ·
+                    - generic [ref=f3e669]: 9 天前
+                    - generic [aria-hidden] [ref=f3e670]: ·
+                    - link "经典普洱" [ref=f3e671] [cursor=pointer]:
+                      - /url: /forum/classics
+                  - generic [ref=f3e672]:
+                    - generic [ref=f3e673]: 分享
+                    - generic "经典普洱" [ref=f3e674]: 🏵️ 经典
+                - link "五十年代·干仓无纸红印品感（转发）" [ref=f3e675] [cursor=pointer]:
+                  - /url: /forum/thread/cmuiitxqt001rqk017q9ojzs3
+              - paragraph [ref=f3e678]: 夜茶🍵：『五十年代·干仓无纸红印』[爱心][爱心][爱心] 有梅子韵、烟韵，还带着粉粉的花香， 干仓确实与众不同：口感活泼，带细微收敛感，回味细腻持久，喉底还留着原始原料的山野之气。这种体验，我也是喝到了才懂。 今日饮法：7.7g，130ml朱泥壶。 已喝到第十一泡，表现竟比平常投茶10g+还好。最近越发觉得：最佳投茶比，并不是越多越耐泡，很多时候反而适得其反……🤔[胜利][胜利][胜利]
+              - link "‹ › 1/6" [ref=f3e679] [cursor=pointer]:
+                - /url: /forum/thread/cmuiitxqt001rqk017q9ojzs3
+                - generic [ref=f3e680]:
+                  - button "‹" [ref=f3e681]
+                  - button "›" [ref=f3e682]
+                - generic [ref=f3e683]:
+                  - button [ref=f3e684]
+                  - button [ref=f3e685]
+                  - button [ref=f3e686]
+                  - button [ref=f3e687]
+                  - button [ref=f3e688]
+                  - button [ref=f3e689]
+                  - generic [ref=f3e690]: 1/6
+              - generic [ref=f3e691]:
+                - generic [ref=f3e692]:
+                  - button "推荐" [ref=f3e693] [cursor=pointer]
+                  - generic [ref=f3e696]: "17"
+                  - button "不推荐" [ref=f3e697] [cursor=pointer]
+                - link "2" [ref=f3e700] [cursor=pointer]:
+                  - /url: /forum/thread/cmuiitxqt001rqk017q9ojzs3
+            - generic [ref=f3e704]:
+              - generic [ref=f3e705]:
+                - generic [ref=f3e706]:
+                  - link "老" [ref=f3e707] [cursor=pointer]:
+                    - /url: /user/4d6affaf-eaab-4b62-a0e9-d89826aeac6e
+                  - generic [ref=f3e709]:
+                    - button "老伍茶话" [ref=f3e711]
+                    - generic [aria-hidden] [ref=f3e712]: ·
+                    - generic [ref=f3e713]: 11 天前
+                    - generic [aria-hidden] [ref=f3e714]: ·
+                    - link "习茶问道" [ref=f3e715] [cursor=pointer]:
+                      - /url: /forum/knowledge
+                  - generic [ref=f3e716]:
+                    - generic [ref=f3e717]: 分享
+                    - generic "精华" [ref=f3e718]: ⭐
+                - link "从7262聊到7572，聊聊熟茶入门" [ref=f3e719] [cursor=pointer]:
+                  - /url: /forum/thread/f42e893e-c00e-4869-acdc-fad2825ef32b
+              - generic [ref=f3e721]:
+                - paragraph [ref=f3e722]: 最近泡了泡 7262 ,顺手把它的来龙去脉捋了一遍,挺有意思,跟大家唠唠。 7262是70年代研制出来的配方,唛号里的"2"和"6"分别代表饼面茶和底茶用的原料等级。至于这个唛号啥时候正式"出生",说法是1996年,但市面上能找到的最早定型产品,基本是97、98年的试验品,量极少。我问过几个老茶商,他们的共识是:2000年以前基本是试制阶段,没批量生产,配方饼型都没定型,包装也不统一,甚至用过80年代的包纸。所以现在能见到的最早几个版面,就是 中茶绿印、无R红大益、中茶黄印 (黄印可能是定制款)这些。仓储方面,中茶绿印港仓版相对多见。2001到2014年,7262基本是常规产品年年出,2015年后减少,最近一次出品是2018年。 聊完7262,顺带说说 7572 。生茶大家都建议从7542入门,但熟茶这块我个人真不推荐7572当入门——别看它俩在生熟茶里地位差不多,7572真不太好一下喝明白。它的好处在 汤感和层次感 ,但这俩点你不对比着喝,光闷头喝7572,很难get到。 相比之下,7262的特点就特别容易抓:香气很显,早期的 糖香、枣香 ,中期的 熟米香、木质香、参香 ,一入
+                - button "展开全文 ▼" [ref=f3e723]
+              - link "‹ › 1/19" [ref=f3e724] [cursor=pointer]:
+                - /url: /forum/thread/f42e893e-c00e-4869-acdc-fad2825ef32b
+                - generic [ref=f3e725]:
+                  - button "‹" [ref=f3e726]
+                  - button "›" [ref=f3e727]
+                - generic [ref=f3e728]:
+                  - button [ref=f3e729]
+                  - button [ref=f3e730]
+                  - button [ref=f3e731]
+                  - button [ref=f3e732]
+                  - button [ref=f3e733]
+                  - button [ref=f3e734]
+                  - button [ref=f3e735]
+                  - button [ref=f3e736]
+                  - button [ref=f3e737]
+                  - button [ref=f3e738]
+                  - button [ref=f3e739]
+                  - button [ref=f3e740]
+                  - button [ref=f3e741]
+                  - button [ref=f3e742]
+                  - button [ref=f3e743]
+                  - button [ref=f3e744]
+                  - button [ref=f3e745]
+                  - button [ref=f3e746]
+                  - button [ref=f3e747]
+                  - generic [ref=f3e748]: 1/19
+              - generic [ref=f3e749]:
+                - generic [ref=f3e750]:
+                  - button "推荐" [ref=f3e751] [cursor=pointer]
+                  - generic [ref=f3e754]: "15"
+                  - button "不推荐" [ref=f3e755] [cursor=pointer]
+                - link "7" [ref=f3e758] [cursor=pointer]:
+                  - /url: /forum/thread/f42e893e-c00e-4869-acdc-fad2825ef32b
+            - generic [ref=f3e762]:
+              - generic [ref=f3e763]:
+                - generic [ref=f3e764]:
+                  - link "性" [ref=f3e765] [cursor=pointer]:
+                    - /url: /user/078fe1ed-0d3f-48df-839c-b3c4f9656f19
+                  - generic [ref=f3e767]:
+                    - button "性价比猎人" [ref=f3e769]
+                    - generic [aria-hidden] [ref=f3e770]: ·
+                    - generic [ref=f3e771]: 14 天前
+                    - generic [aria-hidden] [ref=f3e772]: ·
+                    - link "习茶问道" [ref=f3e773] [cursor=pointer]:
+                      - /url: /forum/knowledge
+                  - generic [ref=f3e774]:
+                    - generic [ref=f3e775]: 分享
+                    - generic "精华" [ref=f3e776]: ⭐
+                - link "放几张美女养养眼，顺带来三款易武古树茶横评——蜜韵深浅长短怎么比？" [ref=f3e777] [cursor=pointer]:
+                  - /url: /forum/thread/4f1e6b8a-9e98-454a-91cf-249a8c7567e9
+              - generic [ref=f3e779]:
+                - paragraph [ref=f3e780]: "拿 2015岁月知味易武古韵、2012陈升号古韵圆茶、2008观自在凌波青带 三款做横评,主聊 蜜韵 的差别 先说结论:三款都出蜜韵,但 15古韵韵浅而短 ,12古韵和08青带基本打平,综合表现明显盖过15古韵。投茶等级作者尽量统一到大树料,前两款广东仓,08青带早年在昆明存(昆明干,转化大致追平广仓2010年前后),仓储这变量也算卡住了。 逐款记一下口感,方便我自己翻: · 15易武古韵 :这批稍微受潮,汤香不显,苦涩偏重,甜度一般。汤色清亮通透,生津回甘还行,咽下去喉底能返一点蜜香,茶味在口腔留存也算久——但作者原话是 \"口中有茶缺韵\" ,蜜韵挂不住,我理解就是有香有味但撑不起骨架,体感也不清晰。 · 12古韵圆茶 :入口微苦涩带点果酸,甜来得早,所以蜜韵跟着就 显现得清晰厚实 ,满口是茶。这条我划重点——甜度出现的时机直接决定蜜韵能不能立住。 · 08凌波青带 :作者没贴全口感,但蜜韵显现比12古韵还要 更清晰 ,香气往下沉,转化得更圆润。考虑到这料子早年昆明仓放了好几年,没受潮是关键。 我自己延伸一下,蜜韵这东西说玄也玄,落到杯子里其实就是三件事: 甜度出现的早晚"
+                - button "展开全文 ▼" [ref=f3e781]
+              - link "‹ › 1/18" [ref=f3e782] [cursor=pointer]:
+                - /url: /forum/thread/4f1e6b8a-9e98-454a-91cf-249a8c7567e9
+                - generic [ref=f3e783]:
+                  - button "‹" [ref=f3e784]
+                  - button "›" [ref=f3e785]
+                - generic [ref=f3e786]:
+                  - button [ref=f3e787]
+                  - button [ref=f3e788]
+                  - button [ref=f3e789]
+                  - button [ref=f3e790]
+                  - button [ref=f3e791]
+                  - button [ref=f3e792]
+                  - button [ref=f3e793]
+                  - button [ref=f3e794]
+                  - button [ref=f3e795]
+                  - button [ref=f3e796]
+                  - button [ref=f3e797]
+                  - button [ref=f3e798]
+                  - button [ref=f3e799]
+                  - button [ref=f3e800]
+                  - button [ref=f3e801]
+                  - button [ref=f3e802]
+                  - button [ref=f3e803]
+                  - button [ref=f3e804]
+                  - generic [ref=f3e805]: 1/18
+              - generic [ref=f3e806]:
+                - generic [ref=f3e807]:
+                  - button "推荐" [ref=f3e808] [cursor=pointer]
+                  - generic [ref=f3e811]: "14"
+                  - button "不推荐" [ref=f3e812] [cursor=pointer]
+                - link "9" [ref=f3e815] [cursor=pointer]:
+                  - /url: /forum/thread/4f1e6b8a-9e98-454a-91cf-249a8c7567e9
+            - generic [ref=f3e819]:
+              - generic [ref=f3e820]:
+                - generic [ref=f3e821]:
+                  - link "老" [ref=f3e822] [cursor=pointer]:
+                    - /url: /user/bf3a08f7-d530-4630-a29e-10088568b913
+                  - generic [ref=f3e824]:
+                    - button "老北京茶缸" [ref=f3e826]
+                    - generic [aria-hidden] [ref=f3e827]: ·
+                    - generic [ref=f3e828]: 14 天前
+                    - generic [aria-hidden] [ref=f3e829]: ·
+                    - link "习茶问道" [ref=f3e830] [cursor=pointer]:
+                      - /url: /forum/knowledge
+                  - generic [ref=f3e831]:
+                    - generic [ref=f3e832]: 分享
+                    - generic "精华" [ref=f3e833]: ⭐
+                - link "惠风熟饼开汤：轻发酵路子，转出木质香了" [ref=f3e834] [cursor=pointer]:
+                  - /url: /forum/thread/187fdf5a-259d-45a1-b4f7-e32df0639b62
+              - generic [ref=f3e836]:
+                - paragraph [ref=f3e837]: 今儿把一款 惠风熟饼 翻出来喝，这茶当年走的就不是传统重堆味那路子，轻发酵底子，放到现在已经有明显转化感。 开汤叶底一瞧， 棕褐色偏多，朴梗不少，颜色深浅不一 ，明显是几种料拼在一起的，拼配痕迹看得出来。汤色红浓透亮，入口几无苦涩，茶汤柔顺，厚度是有的。香气这块儿，轻微糖香打底， 转出一点木质香 ，发酵味几乎吃不出来，这是典型轻发酵熟茶放了几年的状态。 重头戏在后面。第一水咽下，香气留存挺久，回甘轻微，生津很弱——成熟发酵的熟茶喝完基本就那样，没啥回甘，但这款口腔还有一点 收敛感 ，回味还带点菌香。二水开始茶汤明显 浓稠起来 ，醇厚度上来了，偏甜，无苦。三水四水延续性都稳，生津感也跟着出来，那种舒服的收敛感一直挂着——这玩意儿一般只有生茶才有，熟茶里出现挺少见。耐泡度偏上， 六七泡没问题 。 总体打个分：耐泡度OK，茶汤浓厚度不错，醇和也行，就是 香气辨识度差点意思 ，没有那种标志性的香型抓人。转化感是肉眼（其实是口舌）可见的，从叶底和口感判断，用料应该是春料。 顺手又把一款 2012年金尊熟饼（孟海福今七子饼） 拿出来对比着喝。同样偏轻发酵路子，但这货堆味还很明显，转化完全跟
+                - button "展开全文 ▼" [ref=f3e838]
+              - link "‹ › 1/9" [ref=f3e839] [cursor=pointer]:
+                - /url: /forum/thread/187fdf5a-259d-45a1-b4f7-e32df0639b62
+                - generic [ref=f3e840]:
+                  - button "‹" [ref=f3e841]
+                  - button "›" [ref=f3e842]
+                - generic [ref=f3e843]:
+                  - button [ref=f3e844]
+                  - button [ref=f3e845]
+                  - button [ref=f3e846]
+                  - button [ref=f3e847]
+                  - button [ref=f3e848]
+                  - button [ref=f3e849]
+                  - button [ref=f3e850]
+                  - button [ref=f3e851]
+                  - button [ref=f3e852]
+                  - generic [ref=f3e853]: 1/9
+              - generic [ref=f3e854]:
+                - generic [ref=f3e855]:
+                  - button "推荐" [ref=f3e856] [cursor=pointer]
+                  - generic [ref=f3e859]: "18"
+                  - button "不推荐" [ref=f3e860] [cursor=pointer]
+                - link "6" [ref=f3e863] [cursor=pointer]:
+                  - /url: /forum/thread/187fdf5a-259d-45a1-b4f7-e32df0639b62
+            - generic [ref=f3e867]:
+              - generic [ref=f3e868]:
+                - generic [ref=f3e869]:
+                  - link [ref=f3e870] [cursor=pointer]:
+                    - /url: /user/4c40d835-3bae-41d8-b030-89e605a1dcdc
+                  - generic [ref=f3e871]:
+                    - button "一泡成名" [ref=f3e873]
+                    - generic [aria-hidden] [ref=f3e874]: ·
+                    - generic [ref=f3e875]: 1 天前
+                    - generic [aria-hidden] [ref=f3e876]: ·
+                    - link "经典普洱" [ref=f3e877] [cursor=pointer]:
+                      - /url: /forum/classics
+                  - generic [ref=f3e878]:
+                    - generic [ref=f3e879]: 讨论
+                    - generic "经典普洱" [ref=f3e880]: 🏵️ 经典
+                - link "【跟进】2005-大益501-8592双益" [ref=f3e881] [cursor=pointer]:
+                  - /url: /forum/thread/cmuur5gbw0002n301e1s5mpm1
+              - paragraph [ref=f3e884]: 双益版也是05年的经典熟茶，价格和8592a不相上下，但是喝起来品质差异明显。从用料来看，没有8592a那么多梗，黄片比较多，喝起来是陈香轻微木质香，无发酵味，有粗老感，水比较粗，香气不够迷人，缺少点令人上头的东西，这个很奇怪。
+              - link "‹ › 1/9" [ref=f3e885] [cursor=pointer]:
+                - /url: /forum/thread/cmuur5gbw0002n301e1s5mpm1
+                - generic [ref=f3e886]:
+                  - button "‹" [ref=f3e887]
+                  - button "›" [ref=f3e888]
+                - generic [ref=f3e889]:
+                  - button [ref=f3e890]
+                  - button [ref=f3e891]
+                  - button [ref=f3e892]
+                  - button [ref=f3e893]
+                  - button [ref=f3e894]
+                  - button [ref=f3e895]
+                  - button [ref=f3e896]
+                  - button [ref=f3e897]
+                  - button [ref=f3e898]
+                  - generic [ref=f3e899]: 1/9
+              - generic [ref=f3e900]:
+                - generic [ref=f3e901]:
+                  - button "推荐" [ref=f3e902] [cursor=pointer]
+                  - generic [ref=f3e905]: "18"
+                  - button "不推荐" [ref=f3e906] [cursor=pointer]
+                - link "12" [ref=f3e909] [cursor=pointer]:
+                  - /url: /forum/thread/cmuur5gbw0002n301e1s5mpm1
+            - generic [ref=f3e913]:
+              - generic [ref=f3e914]:
+                - generic [ref=f3e915]:
+                  - link [ref=f3e916] [cursor=pointer]:
+                    - /url: /user/e0bde961-2469-439a-9f21-16d91b31f700
+                  - generic [ref=f3e917]:
+                    - button "古道茶人" [ref=f3e919]
+                    - generic [aria-hidden] [ref=f3e920]: ·
+                    - generic [ref=f3e921]: 3 小时前
+                    - generic [aria-hidden] [ref=f3e922]: ·
+                    - link "经典普洱" [ref=f3e923] [cursor=pointer]:
+                      - /url: /forum/classics
+                  - generic [ref=f3e924]:
+                    - generic [ref=f3e925]: 分享
+                    - generic "经典普洱" [ref=f3e926]: 🏵️ 经典
+                - link "【跟进】2002-鸿庆号易武熟" [ref=f3e927] [cursor=pointer]:
+                  - /url: /forum/thread/cmuw38dse001eof01g3nx8vi0
+              - paragraph [ref=f3e930]: 这个茶每次喝都能给人很大的愉悦感，为什么？是因为香气滋味比较特别，它是那种木质香混合着樟烟香的浓郁香气，加上不错的甜度和厚度，茶汤含在嘴里有一种物质丰富的饱满感，非常难得一款非勐海厂好熟茶。
+              - link "‹ › 1/5" [ref=f3e931] [cursor=pointer]:
+                - /url: /forum/thread/cmuw38dse001eof01g3nx8vi0
+                - generic [ref=f3e932]:
+                  - button "‹" [ref=f3e933]
+                  - button "›" [ref=f3e934]
+                - generic [ref=f3e935]:
+                  - button [ref=f3e936]
+                  - button [ref=f3e937]
+                  - button [ref=f3e938]
+                  - button [ref=f3e939]
+                  - button [ref=f3e940]
+                  - generic [ref=f3e941]: 1/5
+              - generic [ref=f3e942]:
+                - generic [ref=f3e943]:
+                  - button "推荐" [ref=f3e944] [cursor=pointer]
+                  - generic [ref=f3e947]: "0"
+                  - button "不推荐" [ref=f3e948] [cursor=pointer]
+                - link "评论" [ref=f3e951] [cursor=pointer]:
+                  - /url: /forum/thread/cmuw38dse001eof01g3nx8vi0
+            - generic [ref=f3e954]: 上滑/滚动加载更多 ↓
+  - alert [ref=f3e955]

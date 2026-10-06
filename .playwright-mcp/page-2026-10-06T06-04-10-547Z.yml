@@ -1,0 +1,93 @@
+- generic [active] [ref=f4e1]:
+  - banner [ref=f4e2]:
+    - generic [ref=f4e3]:
+      - link "Puê ~ r" [ref=f4e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f4e11]:
+          - text: Pu
+          - generic [ref=f4e12]:
+            - text: ê
+            - generic [ref=f4e13]: ~
+          - text: r
+      - navigation [ref=f4e14]:
+        - link "论坛" [ref=f4e15] [cursor=pointer]:
+          - /url: /forum
+        - link "茶品库" [ref=f4e16] [cursor=pointer]:
+          - /url: /tea
+        - link "互换大厅" [ref=f4e17] [cursor=pointer]:
+          - /url: /exchange
+        - link "云喝茶" [ref=f4e18] [cursor=pointer]:
+          - /url: /sessions
+        - link "茶问" [ref=f4e19] [cursor=pointer]:
+          - /url: /ask
+        - link "茶记" [ref=f4e20] [cursor=pointer]:
+          - /url: /tasting
+      - generic [ref=f4e23]:
+        - textbox "搜索帖子..." [ref=f4e24]
+        - generic [ref=f4e25]: ⌘K
+      - generic [ref=f4e26]:
+        - button "切换语言" [ref=f4e27]: 繁體
+        - generic [ref=f4e28]:
+          - button "通知" [ref=f4e30]
+          - button "云水禅心" [ref=f4e35]
+  - main [ref=f4e40]:
+    - generic [ref=f4e41]:
+      - navigation [ref=f4e42]:
+        - link "论坛" [ref=f4e43] [cursor=pointer]:
+          - /url: /forum
+        - text: /
+        - link "普洱醇香" [ref=f4e44] [cursor=pointer]:
+          - /url: /forum/puer
+      - article [ref=f4e45]:
+        - generic [ref=f4e46]:
+          - generic [ref=f4e47]:
+            - button "一泡成名" [ref=f4e49]
+            - button "💬 留言" [ref=f4e50]
+            - generic [ref=f4e51]: ·
+            - generic [ref=f4e52]: "#1"
+            - generic [ref=f4e53]: ·
+            - generic [ref=f4e54]: 发表于 2026/9/20 02:28:43
+          - generic [ref=f4e55]:
+            - generic [ref=f4e56]: 分享
+            - generic [ref=f4e57]: 精华
+          - heading "2006年大益勐海之星400克" [level=1] [ref=f4e58]
+          - paragraph [ref=f4e60]: 这个茶还有个200克的小饼没有对比过，我这片400克的，现在也是越来越喜欢了：没有发酵味，熟米汤香带一点咸咸的味道，经典的大益熟茶滋味，这款茶不属于轻发酵，和501的表现不同，属于那种暖暖洋洋喝了舒服的生活熟茶，个性不算鲜明。
+          - generic [ref=f4e62]:
+            - generic [ref=f4e63]:
+              - generic [ref=f4e64]:
+                - button "推荐" [ref=f4e65] [cursor=pointer]
+                - generic [ref=f4e68]: "19"
+                - button "不推荐" [ref=f4e69] [cursor=pointer]
+              - button "0" [ref=f4e72]
+              - button "收藏" [ref=f4e76]
+              - button "分享" [ref=f4e81]
+            - generic [ref=f4e86]:
+              - generic [ref=f4e87]: 49 次查看 · 8 条回复
+              - button "举报" [ref=f4e88]
+              - link "编辑" [ref=f4e91] [cursor=pointer]:
+                - /url: /forum/thread/cmu96zyx6000sqk01p2uhc4sr/edit
+              - button "删除" [ref=f4e92]
+          - generic [ref=f4e93]:
+            - button "置顶" [ref=f4e94]
+            - button "取消精华" [ref=f4e95]
+      - generic [ref=f4e97]:
+        - heading "💬 回复 (0)" [level=2] [ref=f4e99]
+        - generic [ref=f4e100]:
+          - generic [ref=f4e101]:
+            - button "B" [ref=f4e102]
+            - button "I" [ref=f4e103]
+            - button "A⁻" [ref=f4e106]
+            - button "A" [ref=f4e107]
+            - button "A⁺" [ref=f4e108]
+            - button "A⁺⁺" [ref=f4e109]
+            - button "文字颜色" [ref=f4e112]
+            - button "😊" [ref=f4e116]
+            - generic "上传图片/视频" [ref=f4e117] [cursor=pointer]
+          - textbox "写下你的想法...支持粗体、颜色、emoji 和图片" [ref=f4e122]
+          - generic [ref=f4e123]:
+            - generic [ref=f4e124]: 0/1000支持 HTML 标签
+            - button "提交回复" [disabled] [ref=f4e125]
+        - generic [ref=f4e126]: 加载中...
+      - link "💬 8 条回复 — 点击查看" [ref=f4e128] [cursor=pointer]:
+        - /url: "#comments"
+  - alert [ref=f4e129]

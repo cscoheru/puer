@@ -36,7 +36,7 @@ COPY --from=builder /app/src/generated ./src/generated
 COPY --from=builder /app/prisma ./prisma
 
 # Create writable uploads directories
-RUN mkdir -p /app/public/uploads/forum /app/public/uploads/videos /app/public/uploads/sessions /app/public/uploads/inventory /app/public/uploads/.tmp
+RUN mkdir -p /app/public/uploads/forum /app/public/uploads/videos /app/public/uploads/sessions /app/public/uploads/inventory /app/public/uploads/tea /app/public/uploads/.tmp
 
 # Placeholder .jpg so Next.js indexes .jpg in videos/ at build time
 RUN touch /app/public/uploads/videos/.placeholder.jpg
@@ -45,7 +45,7 @@ RUN touch /app/public/uploads/videos/.placeholder.jpg
 RUN apk add --no-cache su-exec
 
 # Entrypoint: fix volume permissions as root, then drop to nextjs
-RUN printf '#!/bin/sh\nfor d in forum videos sessions inventory .tmp; do\n  chown -R nextjs:nodejs /app/public/uploads/$d 2>/dev/null\ndone\nexec su-exec nextjs "$@"\n' > /sbin/entrypoint.sh && chmod +x /sbin/entrypoint.sh
+RUN printf '#!/bin/sh\nfor d in forum videos sessions inventory tea .tmp; do\n  chown -R nextjs:nodejs /app/public/uploads/$d 2>/dev/null\ndone\nexec su-exec nextjs "$@"\n' > /sbin/entrypoint.sh && chmod +x /sbin/entrypoint.sh
 
 EXPOSE 3000
 ENV PORT=3000

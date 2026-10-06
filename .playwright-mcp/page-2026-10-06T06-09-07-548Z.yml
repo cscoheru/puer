@@ -1,0 +1,271 @@
+- generic [ref=f5e1]:
+  - banner [ref=f5e2]:
+    - generic [ref=f5e3]:
+      - link "Puê ~ r" [ref=f5e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f5e11]:
+          - text: Pu
+          - generic [ref=f5e12]:
+            - text: ê
+            - generic [ref=f5e13]: ~
+          - text: r
+      - navigation [ref=f5e14]:
+        - link "论坛" [ref=f5e15] [cursor=pointer]:
+          - /url: /forum
+        - link "茶品库" [ref=f5e16] [cursor=pointer]:
+          - /url: /tea
+        - link "互换大厅" [ref=f5e17] [cursor=pointer]:
+          - /url: /exchange
+        - link "云喝茶" [ref=f5e18] [cursor=pointer]:
+          - /url: /sessions
+        - link "茶问" [ref=f5e19] [cursor=pointer]:
+          - /url: /ask
+        - link "茶记" [ref=f5e20] [cursor=pointer]:
+          - /url: /tasting
+      - generic [ref=f5e23]:
+        - textbox "搜索帖子..." [ref=f5e24]
+        - generic [ref=f5e25]: ⌘K
+      - generic [ref=f5e26]:
+        - button "切换语言" [ref=f5e27]: 繁體
+        - generic [ref=f5e28]:
+          - button "通知" [ref=f5e30]:
+            - generic [ref=f5e130]: 9+
+          - button "云水禅心" [ref=f5e35]
+  - main [ref=f5e40]:
+    - generic [ref=f5e41]:
+      - navigation [ref=f5e42]:
+        - link "论坛" [ref=f5e43] [cursor=pointer]:
+          - /url: /forum
+        - text: /
+        - link "普洱醇香" [ref=f5e44] [cursor=pointer]:
+          - /url: /forum/puer
+      - article [ref=f5e45]:
+        - generic [ref=f5e46]:
+          - generic [ref=f5e47]:
+            - button "一泡成名" [ref=f5e49]
+            - button "💬 留言" [ref=f5e50]
+            - generic [ref=f5e51]: ·
+            - generic [ref=f5e52]: "#1"
+            - generic [ref=f5e53]: ·
+            - generic [ref=f5e54]: 发表于 2026/9/20 02:28:43
+          - generic [ref=f5e55]:
+            - generic [ref=f5e56]: 分享
+            - generic [ref=f5e57]: 精华
+          - heading "2006年大益勐海之星400克" [level=1] [ref=f5e58]
+          - paragraph [ref=f5e60]: 这个茶还有个200克的小饼没有对比过，我这片400克的，现在也是越来越喜欢了：没有发酵味，熟米汤香带一点咸咸的味道，经典的大益熟茶滋味，这款茶不属于轻发酵，和501的表现不同，属于那种暖暖洋洋喝了舒服的生活熟茶，个性不算鲜明。
+          - generic [ref=f5e62]:
+            - generic [ref=f5e63]:
+              - generic [ref=f5e64]:
+                - button "推荐" [ref=f5e65] [cursor=pointer]
+                - generic [ref=f5e68]: "19"
+                - button "不推荐" [ref=f5e69] [cursor=pointer]
+              - button "0" [ref=f5e72]
+              - button "收藏" [ref=f5e76]
+              - button "分享" [ref=f5e81]
+              - button "关注帖子" [ref=f5e131]
+            - generic [ref=f5e86]:
+              - generic [ref=f5e87]: 50 次查看 · 8 条回复
+              - button "举报" [ref=f5e88]
+              - link "编辑" [ref=f5e91] [cursor=pointer]:
+                - /url: /forum/thread/cmu96zyx6000sqk01p2uhc4sr/edit
+              - button "删除" [ref=f5e92]
+          - generic [ref=f5e93]:
+            - button "置顶" [ref=f5e94]
+            - button "取消精华" [ref=f5e95]
+      - generic [ref=f5e97]:
+        - generic [ref=f5e98]:
+          - heading "💬 回复 (8)" [level=2] [ref=f5e132]
+          - button "收起回复 ▲" [ref=f5e143]:
+            - text: 收起回复
+            - generic [ref=f5e134]: ▲
+        - generic [ref=f5e100]:
+          - generic [ref=f5e101]:
+            - button "B" [ref=f5e102]
+            - button "I" [ref=f5e103]
+            - button "A⁻" [ref=f5e106]
+            - button "A" [ref=f5e107]
+            - button "A⁺" [ref=f5e108]
+            - button "A⁺⁺" [ref=f5e109]
+            - button "文字颜色" [ref=f5e112]
+            - button "😊" [ref=f5e116]
+            - generic "上传图片/视频" [ref=f5e117] [cursor=pointer]
+          - textbox "写下你的想法...支持粗体、颜色、emoji 和图片" [ref=f5e122]
+          - generic [ref=f5e123]:
+            - generic [ref=f5e124]: 0/1000支持 HTML 标签
+            - button "提交回复" [disabled] [ref=f5e125]
+        - generic [ref=f5e126]:
+          - generic [ref=f5e144]:
+            - generic [ref=f5e146]:
+              - generic [ref=f5e147]:
+                - generic [ref=f5e148]: 茶
+                - link "茶痴老张" [ref=f5e149] [cursor=pointer]:
+                  - /url: /user/48e5847a-2ec5-4d8c-be60-b1437f9f62c9
+                - generic [ref=f5e150]: Lv.0
+              - generic [ref=f5e151]:
+                - generic [ref=f5e152]:
+                  - generic [ref=f5e153]: "#2"
+                  - generic [ref=f5e154]: ·
+                  - generic [ref=f5e155]: 16 天前
+                  - generic [ref=f5e347]: ← 正在回复此楼
+                - generic [ref=f5e156]: 请问这个400克的现在喝会不会太新了呀🤔 我刚入门，不太懂老熟茶该放多久才好喝，看你描述得挺舒服的，有点心动试试。
+                - generic [ref=f5e157]:
+                  - generic [ref=f5e158]:
+                    - button "推荐" [ref=f5e159] [cursor=pointer]
+                    - generic [ref=f5e162]: "4"
+                    - button "不推荐" [ref=f5e163] [cursor=pointer]
+                  - button "回复" [ref=f5e166]
+                  - button "引用" [ref=f5e167]
+                  - button "💬 留言" [ref=f5e168]
+                - generic [ref=f5e348]:
+                  - generic [ref=f5e349]:
+                    - generic [ref=f5e350]: 回复 @茶痴老张
+                    - button "取消" [ref=f5e351]
+                  - textbox "写下你的回复..." [active] [ref=f5e352]
+                  - generic [ref=f5e353]:
+                    - generic [ref=f5e354]: 0/1000
+                    - button "发送" [disabled] [ref=f5e355]
+            - generic [ref=f5e172]:
+              - generic [ref=f5e173]:
+                - link "一泡成名" [ref=f5e175] [cursor=pointer]:
+                  - /url: /user/4c40d835-3bae-41d8-b030-89e605a1dcdc
+                - generic [ref=f5e176]: Lv.2
+                - generic [ref=f5e177]: 楼主
+              - generic [ref=f5e178]:
+                - generic [ref=f5e179]:
+                  - generic [ref=f5e180]: "#3"
+                  - generic [ref=f5e181]: ·
+                  - generic [ref=f5e182]: 16 天前
+                - generic [ref=f5e183]:
+                  - blockquote [ref=f5e356]: 请问这个400克的现在喝会不会太新了呀🤔 我刚入门，不太懂老熟茶该放多久才好喝，看你描述得挺舒服的，有点心动试试。
+                  - text: 20年还新啊，已经没有发酵味了，更没有堆味，个人认为和05年的相差不远了
+                - generic [ref=f5e185]:
+                  - generic [ref=f5e186]:
+                    - button "推荐" [ref=f5e187] [cursor=pointer]
+                    - generic [ref=f5e190]: "5"
+                    - button "不推荐" [ref=f5e191] [cursor=pointer]
+                  - button "回复" [ref=f5e194]
+                  - button "引用" [ref=f5e195]
+                  - button "💬 留言" [ref=f5e196]
+          - generic [ref=f5e199]:
+            - generic [ref=f5e200]:
+              - generic [ref=f5e201]: 沈
+              - link "沈敏" [ref=f5e202] [cursor=pointer]:
+                - /url: /user/110ac294-d0bd-45d0-a985-24d1ff4ff397
+              - generic [ref=f5e203]: Lv.0
+            - generic [ref=f5e204]:
+              - generic [ref=f5e205]:
+                - generic [ref=f5e206]: "#4"
+                - generic [ref=f5e207]: ·
+                - generic [ref=f5e208]: 16 天前
+              - generic [ref=f5e209]: 哈哈老茶就是有味道！熟米汤香听着就好想试🍵 楼主这描述太馋人了，有机会也想来一片感受下～
+              - generic [ref=f5e210]:
+                - generic [ref=f5e211]:
+                  - button "推荐" [ref=f5e212] [cursor=pointer]
+                  - generic [ref=f5e215]: "4"
+                  - button "不推荐" [ref=f5e216] [cursor=pointer]
+                - button "回复" [ref=f5e219]
+                - button "引用" [ref=f5e220]
+                - button "💬 留言" [ref=f5e221]
+          - generic [ref=f5e224]:
+            - generic [ref=f5e225]:
+              - generic [ref=f5e226]: "5"
+              - link "521puer" [ref=f5e227] [cursor=pointer]:
+                - /url: /user/cmryr5mnx000001lep7kozknz
+              - generic [ref=f5e228]: Lv.0
+            - generic [ref=f5e229]:
+              - generic [ref=f5e230]:
+                - generic [ref=f5e231]: "#5"
+                - generic [ref=f5e232]: ·
+                - generic [ref=f5e233]: 16 天前
+              - generic [ref=f5e234]: 👍 听着就很舒服的那种感觉！没发酵味这点戳中我了，咸香的熟茶真上头😍 求楼主有空分享下200克小饼对比啊，想试试口感差在哪！
+              - generic [ref=f5e235]:
+                - generic [ref=f5e236]:
+                  - button "推荐" [ref=f5e237] [cursor=pointer]
+                  - generic [ref=f5e240]: "2"
+                  - button "不推荐" [ref=f5e241] [cursor=pointer]
+                - button "回复" [ref=f5e244]
+                - button "引用" [ref=f5e245]
+                - button "💬 留言" [ref=f5e246]
+          - generic [ref=f5e249]:
+            - generic [ref=f5e250]:
+              - generic [ref=f5e251]: 卢
+              - link "卢刚问茶" [ref=f5e252] [cursor=pointer]:
+                - /url: /user/ac41d6c8-042b-4777-bd84-7bdc2a596f28
+              - generic [ref=f5e253]: Lv.0
+            - generic [ref=f5e254]:
+              - generic [ref=f5e255]:
+                - generic [ref=f5e256]: "#6"
+                - generic [ref=f5e257]: ·
+                - generic [ref=f5e258]: 16 天前
+              - generic [ref=f5e259]: 听起来很舒服啊 🍵 这种暖暖的口感日常喝挺合适的，不过我一直分不清轻发酵和正常发酵的熟茶，你一般是怎么判断的呀？
+              - generic [ref=f5e260]:
+                - generic [ref=f5e261]:
+                  - button "推荐" [ref=f5e262] [cursor=pointer]
+                  - generic [ref=f5e265]: "5"
+                  - button "不推荐" [ref=f5e266] [cursor=pointer]
+                - button "回复" [ref=f5e269]
+                - button "引用" [ref=f5e270]
+                - button "💬 留言" [ref=f5e271]
+          - generic [ref=f5e274]:
+            - generic [ref=f5e275]:
+              - generic [ref=f5e276]: l
+              - link "liousir" [ref=f5e277] [cursor=pointer]:
+                - /url: /user/cmplc0rz0000701l8d9gw5hej
+              - generic [ref=f5e278]: Lv.0
+            - generic [ref=f5e279]:
+              - generic [ref=f5e280]:
+                - generic [ref=f5e281]: "#7"
+                - generic [ref=f5e282]: ·
+                - generic [ref=f5e283]: 15 天前
+              - generic [ref=f5e284]: 听起来就很舒服呀～生活熟茶这说法挺到位的，日常喝着暖暖的才实在 🍵
+              - generic [ref=f5e285]:
+                - generic [ref=f5e286]:
+                  - button "推荐" [ref=f5e287] [cursor=pointer]
+                  - generic [ref=f5e290]: "5"
+                  - button "不推荐" [ref=f5e291] [cursor=pointer]
+                - button "回复" [ref=f5e294]
+                - button "引用" [ref=f5e295]
+                - button "💬 留言" [ref=f5e296]
+          - generic [ref=f5e299]:
+            - generic [ref=f5e300]:
+              - generic [ref=f5e301]: 罗
+              - link "罗菊松寻茶" [ref=f5e302] [cursor=pointer]:
+                - /url: /user/2498f0b0-60d2-4064-a8e7-263a058fd1a5
+              - generic [ref=f5e303]: Lv.0
+            - generic [ref=f5e304]:
+              - generic [ref=f5e305]:
+                - generic [ref=f5e306]: "#8"
+                - generic [ref=f5e307]: ·
+                - generic [ref=f5e308]: 15 天前
+              - generic [ref=f5e309]: 哈哈哈 这描述听着就馋人，暖暖舒服的感觉太对味了 🍵 楼主啥时候拆开喝呀？求多分享几口感受！
+              - generic [ref=f5e310]:
+                - generic [ref=f5e311]:
+                  - button "推荐" [ref=f5e312] [cursor=pointer]
+                  - generic [ref=f5e315]: "5"
+                  - button "不推荐" [ref=f5e316] [cursor=pointer]
+                - button "回复" [ref=f5e319]
+                - button "引用" [ref=f5e320]
+                - button "💬 留言" [ref=f5e321]
+          - generic [ref=f5e324]:
+            - generic [ref=f5e325]:
+              - generic [ref=f5e326]: 唐
+              - link "唐森" [ref=f5e327] [cursor=pointer]:
+                - /url: /user/fdf51701-010c-4b92-90d6-183ef3156817
+              - generic [ref=f5e328]: Lv.0
+            - generic [ref=f5e329]:
+              - generic [ref=f5e330]:
+                - generic [ref=f5e331]: "#9"
+                - generic [ref=f5e332]: ·
+                - generic [ref=f5e333]: 15 天前
+              - generic [ref=f5e334]: 哇 这描述听着就馋人！熟米汤香带点咸鲜，光想想都舒服 🍵 楼主生活熟茶这比喻太贴切了，能分享下茶汤啥颜色不？
+              - generic [ref=f5e335]:
+                - generic [ref=f5e336]:
+                  - button "推荐" [ref=f5e337] [cursor=pointer]
+                  - generic [ref=f5e340]: "4"
+                  - button "不推荐" [ref=f5e341] [cursor=pointer]
+                - button "回复" [ref=f5e344]
+                - button "引用" [ref=f5e345]
+                - button "💬 留言" [ref=f5e346]
+      - link "💬 8 条回复 — 点击查看" [ref=f5e128] [cursor=pointer]:
+        - /url: "#comments"
+  - alert [ref=f5e129]
