@@ -87,6 +87,7 @@ services:
       - ./uploads/videos:/app/public/uploads/videos
       - ./uploads/sessions:/app/public/uploads/sessions
       - ./uploads/inventory:/app/public/uploads/inventory
+      - ./uploads/tea:/app/public/uploads/tea
       - ./uploads/collected:/app/public/uploads/collected
       - ./evernote_export/images:/app/public/uploads/evernote:ro
       - ./scripts/auto-post.mjs:/app/scripts/auto-post.mjs:ro
