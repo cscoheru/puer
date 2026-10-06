@@ -372,7 +372,21 @@ export default async function ThreadPage({ params }: PageProps) {
       </article>
 
       {/* Comments / Replies */}
-      <CommentSection articleId={id} articleAuthorId={article.author.id} />
+      <div id="comments">
+        <CommentSection articleId={id} articleAuthorId={article.author.id} />
+      </div>
+
+      {/* Sticky comment prompt bar */}
+      {article._count.comments > 0 && (
+        <div className="sticky bottom-0 z-30 -mx-3 md:-mx-6 px-3 md:px-6 pb-2 pt-8 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent pointer-events-none">
+          <a
+            href="#comments"
+            className="flex items-center justify-center gap-2 py-2.5 px-4 bg-white border border-stone-200 rounded-xl shadow-lg pointer-events-auto hover:border-amber-300 hover:shadow-xl transition text-sm text-stone-600 font-medium"
+          >
+            💬 {article._count.comments} 条回复 — 点击查看
+          </a>
+        </div>
+      )}
     </div>
   );
 }

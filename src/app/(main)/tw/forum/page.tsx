@@ -107,7 +107,7 @@ export default async function TwForumPage(props: {
           }),
         }}
       />
-      <div className="pt-4 pb-1">
+      <div className="pt-4 pb-1 hidden md:block">
         <h1 className="text-lg md:text-xl font-serif font-bold text-stone-800">{convertText("普洱茶论坛")}</h1>
         <p className="text-xs md:text-sm text-stone-500 mt-1">{convertText(SC_INTRO)}</p>
       </div>

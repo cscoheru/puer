@@ -64,7 +64,7 @@ export default async function ForumPage(props: {
     <div className="max-w-screen-2xl mx-auto px-2 md:px-4">
       {/* P0-3：/forum 子树此前零个 h1，爬虫拿不到页面主题。此 h1 同时是页面
           可见标题，与 metadata.title 语义一致（不堆词）。 */}
-      <div className="pt-4 pb-1">
+      <div className="pt-4 pb-1 hidden md:block">
         <h1 className="text-lg md:text-xl font-serif font-bold text-stone-800">普洱茶论坛</h1>
         <p className="text-xs md:text-sm text-stone-500 mt-1">
           生普/熟普品鉴交流、大益等经典中老期茶档案、仓储行情讨论与茶友问答。

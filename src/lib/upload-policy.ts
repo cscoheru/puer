@@ -142,21 +142,22 @@ export function deriveExtension(mime: string): string {
 
 // ── Category → destination subdirectory ──────────────────────────────────
 // subDir is ALWAYS one of these fixed strings, never raw input.
-const VALID_CATEGORIES = new Set(["", "session", "avatar", "inventory"]);
+const VALID_CATEGORIES = new Set(["", "session", "avatar", "inventory", "tea"]);
 
-export function parseCategory(raw: unknown): "" | "session" | "avatar" | "inventory" {
+export function parseCategory(raw: unknown): "" | "session" | "avatar" | "inventory" | "tea" {
   if (raw === undefined || raw === null || raw === "") return "";
   if (typeof raw !== "string" || !VALID_CATEGORIES.has(raw)) {
     throw new UploadPolicyError("bad_category", "invalid category");
   }
-  return raw as "" | "session" | "avatar" | "inventory";
+  return raw as "" | "session" | "avatar" | "inventory" | "tea";
 }
 
-export function categoryToSubdir(category: "" | "session" | "avatar" | "inventory", kind: FileKind): string {
+export function categoryToSubdir(category: "" | "session" | "avatar" | "inventory" | "tea", kind: FileKind): string {
   switch (category) {
     case "session": return "sessions";
     case "avatar": return "avatars";
     case "inventory": return "inventory";
+    case "tea": return "tea";
     default: return kind === "video" ? "videos" : "forum";
   }
 }
@@ -272,7 +273,7 @@ export interface UploadManifest {
   uploadId: string;
   kind: FileKind;
   mime: string;
-  category: "" | "session" | "avatar" | "inventory";
+  category: "" | "session" | "avatar" | "inventory" | "tea";
   subDir: string;
   totalChunks: number;
   totalBytes: number;

@@ -163,6 +163,13 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
       .finally(() => setLoading(false));
   }, [articleId]);
 
+  // Auto-expand when navigated via #comments hash
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#comments") {
+      setCommentsCollapsed(false);
+    }
+  }, []);
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) setShowEmoji(false);

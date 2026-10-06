@@ -19,6 +19,7 @@ export const teaListSelect = {
   avgRating: true,
   tastingNoteCount: true,
   marketInfo: true,
+  createdAt: true,
   updatedAt: true,
   _count: { select: { articles: true } },
   // P2-R6：封面/图库皆空时，fallback 到最近品鉴笔记的图片（Evernote 导入茶记是主要图源）
@@ -42,6 +43,7 @@ export type TeaListRow = {
   avgRating: number | null;
   tastingNoteCount: number;
   marketInfo: unknown;
+  createdAt: Date;
   _count: { articles: number };
 };
 
@@ -63,19 +65,29 @@ export function firstTeaImage(tea: {
   return null;
 }
 
-/** 茶品热度：品鉴数为主 + 评分加权 + 行情快照/跟进帖加成 */
+/** 茶品热度：品鉴数为主 + 评分加权 + 行情快照/跟进帖加成 + 新茶加成 */
 export function heatScore(t: {
   tastingNoteCount: number;
   avgRating: number | null;
   marketInfo: unknown;
   _count?: { articles: number };
+  createdAt?: Date;
 }) {
-  return (
+  let score =
     t.tastingNoteCount * 10 +
     (t.avgRating ?? 0) * 2 +
     (t.marketInfo ? 3 : 0) +
-    (t._count?.articles || 0)
-  );
+    (t._count?.articles || 0);
+
+  // Recency boost: new teas (≤30 days) get up to 30 bonus points, decaying linearly
+  if (t.createdAt) {
+    const daysSince = (Date.now() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince <= 30) {
+      score += Math.max(0, 30 - daysSince);
+    }
+  }
+
+  return score;
 }
 
 /** 按热度就地排序（不改原数组） */

@@ -2,8 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import ForumSidebar from "@/components/forum-sidebar";
-import LatestPosts from "@/components/latest-posts";
-import { TeaList } from "@/components/tea/tea-list";
+import BrandCard from "@/components/tea/classic/brand-card";
+import ClassicTeaCard from "@/components/tea/classic/classic-tea-card";
 import { sortByHeat, teaListSelect } from "@/lib/tea-query";
 import { extractFeedImages } from "@/lib/forum-feed-server";
 
@@ -44,7 +44,7 @@ export default async function ClassicsPage({
   searchParams: Promise<{ bar?: string; type?: string; q?: string }>;
 }) {
   const params = await searchParams;
-  const session = await auth(); // P2-R6：发布新经典按钮仅 Lv.2+
+  const session = await auth();
   const barKey = params.bar || "all";
   const type = params.type || "";
   const search = params.q || "";
@@ -58,12 +58,17 @@ export default async function ClassicsPage({
   if (type) where.type = type;
   if (search) where.name = { contains: search, mode: "insensitive" } as const;
 
-  // 并行查询：茶品分组 + 主列表 + 最近活动流
-  const [grouped, teas, totalCount, recentArticles, classicsBoard] = await Promise.all([
+  // 并行查询：经典分组 + 全品牌分组 + 品牌品鉴数 + 主列表 + 最近活动流
+  const [classicGrouped, allGrouped, brandNoteSums, teas, totalCount, recentArticles, classicsBoard] = await Promise.all([
     prisma.tea.groupBy({ by: ["brand"], where: { isClassic: true, deletedAt: null }, _count: { _all: true } }).catch(() => []),
+    prisma.tea.groupBy({ by: ["brand"], where: { deletedAt: null }, _count: { _all: true } }).catch(() => []),
+    prisma.tea.groupBy({
+      by: ["brand"],
+      where: { deletedAt: null },
+      _sum: { tastingNoteCount: true },
+    }).catch(() => []),
     prisma.tea.findMany({ where, orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }], take: 120, select: teaListSelect }).catch(() => []),
     prisma.tea.count({ where }).catch(() => 0),
-    // V1: 最近活动 = classics 吧最新 20 帖（含未互动的跟进帖——这里不是 feed，是档案目录的活动流）
     prisma.board
       .findUnique({ where: { slug: "classics" }, select: { id: true } })
       .then((b) =>
@@ -104,19 +109,25 @@ export default async function ClassicsPage({
     prisma.board.findUnique({ where: { slug: "classics" }, select: { id: true } }).catch(() => null),
   ]);
 
-  const brandCount = new Map(grouped.map((g) => [g.brand, g._count._all]));
-  const countForBar = (brands: string[]) => brands.reduce((sum, b) => sum + (brandCount.get(b) || 0), 0);
-  const otherCount = countForBar([...knownBrands]) === 0 ? 0 : grouped.reduce((s, g) => s + g._count._all, 0) - countForBar([...knownBrands]);
-  const totalClassic = grouped.reduce((s, g) => s + g._count._all, 0);
+  const classicCount = new Map(classicGrouped.map((g) => [g.brand, g._count._all]));
+  const allCount = new Map(allGrouped.map((g) => [g.brand, g._count._all]));
+  const noteCount = new Map(brandNoteSums.map((g) => [g.brand, g._sum.tastingNoteCount || 0]));
+  const countForBar = (brands: string[]) => brands.reduce((sum, b) => sum + (classicCount.get(b) || 0), 0);
+  const allCountForBar = (brands: string[]) => brands.reduce((sum, b) => sum + (allCount.get(b) || 0), 0);
+  const noteCountForBar = (brands: string[]) => brands.reduce((sum, b) => sum + (noteCount.get(b) || 0), 0);
+  const otherCount = countForBar([...knownBrands]) === 0 ? 0 : classicGrouped.reduce((s, g) => s + g._count._all, 0) - countForBar([...knownBrands]);
+  const otherAllCount = allGrouped.reduce((s, g) => s + g._count._all, 0) - allCountForBar([...knownBrands]);
+  const otherNoteCount = brandNoteSums.reduce((s, g) => s + (g._sum.tastingNoteCount || 0), 0) - noteCountForBar([...knownBrands]);
+  const totalClassic = classicGrouped.reduce((s, g) => s + g._count._all, 0);
 
   const rankedTeas = sortByHeat(teas);
 
   const barLabel = bar ? bar.label : barKey === "other" ? "其他吧" : "全部茶品";
   const barDesc = bar
-    ? `${bar.label}收录的经典茶品（按热度排序），点击查看品种档案与转化跟进`
+    ? `${bar.label}收录的经典茶品（按热度+新茶加成排序），点击查看品种档案与转化跟进`
     : barKey === "other"
-      ? "六大厂牌之外的经典茶品合集（按热度排序）"
-      : "全部经典茶品（按热度排序）";
+      ? "六大厂牌之外的经典茶品合集（按热度+新茶加成排序）"
+      : "全部经典茶品（按热度+新茶加成排序）";
 
   const pillHref = (key: string) => `/forum/classics${key === "all" ? "" : `?bar=${key}`}`;
 
@@ -124,14 +135,12 @@ export default async function ClassicsPage({
     <div className="flex gap-4 md:gap-6 px-2 md:px-4 max-w-screen-2xl mx-auto py-4">
       <ForumSidebar />
       <div className="flex-1 min-w-0">
-        {/* Page header — V1 减肥为 1 行 */}
+        {/* Page header */}
         <div className="flex items-center gap-2.5 mb-3 px-1 flex-wrap">
           <span className="text-2xl shrink-0">🏵️</span>
           <h1 className="text-lg md:text-xl font-serif font-bold text-amber-900">
             经典普洱 <span className="text-stone-400 font-normal text-sm">· 共 {totalClassic} 款</span>
           </h1>
-          {/* P2-R6：「发布新经典」= 创建茶品档案并入选经典普洱吧（Lv.2+）；
-              跟进帖入口在每个茶品档案页内（所有登录用户可发） */}
           {(session?.user?.level ?? 0) >= 2 && (
             <Link
               href="/encyclopedia/new?classic=1"
@@ -142,32 +151,42 @@ export default async function ClassicsPage({
           )}
         </div>
 
-        {/* 吧导航（横向滚动 pills） */}
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-1 px-1">
-          {[
-            { key: "all", label: `全部 ${totalClassic}` },
-            ...bars.map((b) => ({ key: b.key as string, label: `${b.label} ${countForBar([...b.brands])}` })),
-            { key: "other", label: `其他吧 ${otherCount}` },
-          ].map((p) => {
-            const active = (p.key === "all" && !bar && barKey !== "other") || p.key === barKey;
-            return (
-              <Link
-                key={p.key}
-                href={pillHref(p.key)}
-                className={`shrink-0 px-3.5 py-2 rounded-full text-sm font-medium border transition ${
-                  active
-                    ? "bg-amber-800 text-white border-amber-800"
-                    : "bg-white text-stone-600 border-stone-200 hover:border-amber-300 hover:text-amber-800"
-                }`}
-              >
-                {p.label}
-              </Link>
-            );
-          })}
+        {/* 品牌卡片横排 */}
+        <div className="flex gap-3 overflow-x-auto pb-3 mb-4 snap-x snap-mandatory -mx-1 px-1">
+          <BrandCard
+            label="全部"
+            icon="🏵️"
+            href={pillHref("all")}
+            classicCount={totalClassic}
+            totalCount={allGrouped.reduce((s, g) => s + g._count._all, 0)}
+            noteCount={brandNoteSums.reduce((s, g) => s + (g._sum.tastingNoteCount || 0), 0)}
+            active={barKey === "all" && !bar}
+          />
+          {bars.map((b) => (
+            <BrandCard
+              key={b.key}
+              label={b.label}
+              icon={b.icon}
+              href={pillHref(b.key)}
+              classicCount={countForBar([...b.brands])}
+              totalCount={allCountForBar([...b.brands])}
+              noteCount={noteCountForBar([...b.brands])}
+              active={b.key === barKey}
+            />
+          ))}
+          <BrandCard
+            label="其他吧"
+            icon="📦"
+            href={pillHref("other")}
+            classicCount={otherCount}
+            totalCount={otherAllCount}
+            noteCount={otherNoteCount}
+            active={barKey === "other"}
+          />
         </div>
 
         <div className="flex gap-4">
-          {/* 主区：当前吧的茶品列表（热度排序） */}
+          {/* 主区：当前吧的茶品列表 */}
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
               <div>
@@ -189,7 +208,11 @@ export default async function ClassicsPage({
             </div>
 
             {rankedTeas.length > 0 ? (
-              <TeaList teas={rankedTeas} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {rankedTeas.map((tea) => (
+                  <ClassicTeaCard key={tea.id} tea={tea} />
+                ))}
+              </div>
             ) : (
               <div className="text-center py-16 border border-dashed border-stone-200 rounded-lg bg-white">
                 <p className="text-stone-300 text-lg mb-1">🏵️</p>
@@ -203,17 +226,15 @@ export default async function ClassicsPage({
             )}
           </div>
 
-          {/* 右栏：最近活动流（桌面显示） */}
+          {/* 右栏：最近活动流 */}
           <RecentActivityPanel articles={recentArticles} boardId={classicsBoard?.id} />
         </div>
       </div>
-      <LatestPosts />
     </div>
   );
 }
 
-/** 右栏最近活动流：classics 吧最新 20 帖，每条卡片链接到帖子详情。
- *  桌面 lg+ 显示（≥1024px）；移动端隐藏避免与 LatestPosts 重复 */
+/** 右栏最近活动流：classics 吧最新 20 帖，每条卡片链接到帖子详情。 */
 function RecentActivityPanel({
   articles,
   boardId,
@@ -254,7 +275,7 @@ function RecentActivityPanel({
             <div className="divide-y divide-stone-100 max-h-[70vh] overflow-y-auto overscroll-contain">
               {articles.map((a) => {
                 const { coverImage } = extractFeedImages({ content: a.content, images: a.images });
-                const isTastingDraft = !a.teaId && a.images && a.images.length > 0; // 茶记自动帖
+                const isTastingDraft = !a.teaId && a.images && a.images.length > 0;
                 return (
                   <Link
                     key={a.id}
@@ -262,6 +283,7 @@ function RecentActivityPanel({
                     className="flex gap-2 p-2.5 hover:bg-amber-50/50 transition group"
                   >
                     {coverImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={coverImage}
                         alt=""

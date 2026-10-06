@@ -14,6 +14,7 @@ const teaSchema = z.object({
   weightSpec: z.string().max(50).optional().nullable(),
   storageCondition: z.string().max(100).optional().nullable(),
   coverImage: z.string().optional().nullable(),
+  gallery: z.array(z.string()).optional().nullable(),
   description: z.string().optional().nullable(),
   marketInfo: z.record(z.string(), z.unknown()).optional().nullable(),
 });
@@ -57,6 +58,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     data.marketInfo = Prisma.DbNull;
   } else if (parsed.marketInfo !== undefined) {
     data.marketInfo = parsed.marketInfo as Prisma.InputJsonValue;
+  }
+  if (parsed.gallery === null) {
+    data.gallery = Prisma.DbNull;
+  } else if (parsed.gallery !== undefined) {
+    data.gallery = parsed.gallery as Prisma.InputJsonValue;
   }
 
   const tea = await prisma.tea.update({

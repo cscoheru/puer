@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { uploadWithRetry } from "@/lib/upload-client";
 
 export default function EditTeaPage() {
   const { data: session, status } = useSession();
@@ -23,7 +24,10 @@ export default function EditTeaPage() {
   const [batch, setBatch] = useState("");
   const [originRegion, setOriginRegion] = useState("");
   const [weightSpec, setWeightSpec] = useState("");
-  const [coverImage, setCoverImage] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [description, setDescription] = useState("");
   const [marketText, setMarketText] = useState("");
 
@@ -45,7 +49,9 @@ export default function EditTeaPage() {
         setBatch(tea.batch ?? "");
         setOriginRegion(tea.originRegion ?? "");
         setWeightSpec(tea.weightSpec ?? "");
-        setCoverImage(tea.coverImage ?? "");
+        // Load gallery images: prefer gallery array, fallback to single coverImage
+        const gallery: string[] = Array.isArray(tea.gallery) ? tea.gallery : tea.coverImage ? [tea.coverImage] : [];
+        setImages(gallery.filter(Boolean));
         setDescription(tea.description ?? "");
         // marketInfo is a JSON blob; extract the price text for editing
         if (tea.marketInfo && typeof tea.marketInfo === "object" && typeof tea.marketInfo.price === "string") {
@@ -84,7 +90,8 @@ export default function EditTeaPage() {
       batch: batch.trim() || undefined,
       originRegion: originRegion.trim() || undefined,
       weightSpec: weightSpec.trim() || undefined,
-      coverImage: coverImage.trim() || undefined,
+      coverImage: images[0] || null,
+      gallery: images.length > 0 ? images : null,
       description: description.trim() || undefined,
     };
 
@@ -217,17 +224,64 @@ export default function EditTeaPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-stone-700 mb-1">封面图片 URL</label>
+          <label className="block text-sm font-medium text-stone-700 mb-1">封面图片（最多 2 张：正面/背面）</label>
+          <div className="flex gap-3 flex-wrap">
+            {images.map((url, idx) => (
+              <div key={url} className="relative group">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`茶品图片 ${idx + 1}`} className="w-32 h-32 object-cover rounded-lg border border-stone-200" />
+                <span className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
+                  {idx === 0 ? "正面" : "背面"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
+                  className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                >
+                  ✕
+                </button>
+                {uploadProgress[url] !== undefined && uploadProgress[url] < 100 && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
+                    <span className="text-white text-sm font-medium">{uploadProgress[url]}%</span>
+                  </div>
+                )}
+              </div>
+            ))}
+            {images.length < 2 && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="w-32 h-32 border-2 border-dashed border-stone-300 rounded-lg flex flex-col items-center justify-center text-stone-400 hover:border-amber-400 hover:text-amber-600 transition disabled:opacity-50"
+              >
+                <span className="text-2xl mb-1">+</span>
+                <span className="text-xs">{uploading ? "上传中..." : "添加图片"}</span>
+              </button>
+            )}
+          </div>
           <input
-            name="coverImage"
-            value={coverImage}
-            onChange={(e) => setCoverImage(e.target.value)}
-            placeholder="https://..."
-            className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file || images.length >= 2) return;
+              e.target.value = "";
+              setUploading(true);
+              const tempId = `temp-${Date.now()}`;
+              try {
+                const result = await uploadWithRetry(file, (pct) => setUploadProgress((prev) => ({ ...prev, [tempId]: pct })), 3, "tea");
+                setImages((prev) => [...prev, result.url]);
+              } catch {
+                alert("图片上传失败，请重试");
+              } finally {
+                setUploading(false);
+                setUploadProgress((prev) => { const n = { ...prev }; delete n[tempId]; return n; });
+              }
+            }}
           />
-          {coverImage && (
-            <img src={coverImage} alt="封面预览" className="mt-2 max-h-40 rounded-lg object-cover border border-stone-200" />
-          )}
+          <p className="text-xs text-stone-400 mt-1">支持 JPG/PNG/WebP，最大 5MB</p>
         </div>
 
         <div>
