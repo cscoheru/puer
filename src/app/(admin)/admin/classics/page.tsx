@@ -178,7 +178,7 @@ export default function AdminClassicsPage() {
   }
 
   // ── P2-R14 品牌吧管理：品牌必须从现有品牌中勾选 ──────────────────
-  interface Bar { id: string; key: string; label: string; icon: string | null; brands: string[]; sortOrder: number }
+  interface Bar { id: string; key: string; label: string; icon: string | null; logo: string | null; brands: string[]; sortOrder: number }
   const [showBars, setShowBars] = useState(false);
   const [bars, setBars] = useState<Bar[]>([]);
   const [brandList, setBrandList] = useState<{ id: string; name: string; teaCount: number }[]>([]);
@@ -198,7 +198,7 @@ export default function AdminClassicsPage() {
     const res = await fetch("/api/admin/brand-bars", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(isNew ? { key: bar.key, label: bar.label, icon: bar.icon, brands: bar.brands } : bar),
+      body: JSON.stringify(isNew ? { key: bar.key, label: bar.label, icon: bar.icon, logo: bar.logo, brands: bar.brands } : bar),
     });
     if (res.ok) {
       await loadBars();
@@ -281,6 +281,33 @@ export default function AdminClassicsPage() {
           {bars.map((b, i) => (
             <div key={i} className="border border-stone-200 rounded-lg p-2 bg-white space-y-1.5">
               <div className="flex flex-wrap items-center gap-1.5">
+                {b.logo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={b.logo} alt="" className="w-8 h-8 rounded object-cover border border-stone-200" />
+                )}
+                <label className="cursor-pointer text-xs text-amber-700 hover:text-amber-900 border border-amber-300 px-2 py-1 rounded hover:bg-amber-50 transition">
+                  {b.logo ? "换logo" : "上传logo"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      e.target.value = "";
+                      const fd = new FormData();
+                      fd.append("file", file);
+                      fd.append("category", "tea");
+                      const res = await fetch("/api/upload", { method: "POST", body: fd });
+                      if (res.ok) {
+                        const data = await res.json();
+                        setBars((prev) => prev.map((x, j) => (j === i ? { ...x, logo: data.url } : x)));
+                      } else {
+                        alert("上传失败");
+                      }
+                    }}
+                  />
+                </label>
                 <input
                   value={b.icon || ""}
                   onChange={(e) => setBars((prev) => prev.map((x, j) => (j === i ? { ...x, icon: e.target.value } : x)))}
@@ -334,7 +361,7 @@ export default function AdminClassicsPage() {
               onClick={() => {
                 const label = newBarLabel.trim();
                 if (!label) return;
-                setBars((prev) => [...prev, { id: "", key: label, label, icon: "", brands: [], sortOrder: 99 }]);
+                setBars((prev) => [...prev, { id: "", key: label, label, icon: "", logo: null, brands: [], sortOrder: 99 }]);
                 setNewBarLabel("");
               }}
               className="px-2 py-1 text-xs bg-stone-700 text-white rounded hover:bg-stone-800 transition"

@@ -244,6 +244,7 @@ model BrandBar {
   key   String  @unique @db.VarChar(50)
   label String  @db.VarChar(50) // 大益吧
   icon  String? @db.VarChar(10) // 🏷️
+  logo  String? // 品牌 logo 图片 URL
   brands String[] // 该吧包含的品牌名
   sortOrder Int  @default(0)
 

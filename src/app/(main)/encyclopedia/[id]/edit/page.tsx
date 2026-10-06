@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { uploadWithRetry } from "@/lib/upload-client";
 
 export default function EditTeaPage() {
   const { data: session, status } = useSession();
@@ -271,10 +270,24 @@ export default function EditTeaPage() {
               setUploading(true);
               const tempId = `temp-${Date.now()}`;
               try {
-                const result = await uploadWithRetry(file, (pct) => setUploadProgress((prev) => ({ ...prev, [tempId]: pct })), 3, "tea");
-                setImages((prev) => [...prev, result.url]);
-              } catch {
-                alert("图片上传失败，请重试");
+                // Compress on client if > 512KB (reuse upload-client logic)
+                let toUpload: File = file;
+                if (file.size > 512 * 1024 && file.type.startsWith("image/") && file.type !== "image/gif") {
+                  const { compressImage } = await import("@/lib/upload-client");
+                  toUpload = await compressImage(file);
+                }
+                const fd = new FormData();
+                fd.append("file", toUpload);
+                fd.append("category", "tea");
+                const res = await fetch("/api/upload", { method: "POST", body: fd });
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  throw new Error(err.error || `上传失败 (${res.status})`);
+                }
+                const data = await res.json();
+                setImages((prev) => [...prev, data.url]);
+              } catch (err) {
+                alert(err instanceof Error ? err.message : "图片上传失败，请重试");
               } finally {
                 setUploading(false);
                 setUploadProgress((prev) => { const n = { ...prev }; delete n[tempId]; return n; });

@@ -3,6 +3,7 @@ import Link from "next/link";
 interface BrandCardProps {
   label: string;
   icon: string | null;
+  logo?: string | null;
   href: string;
   classicCount: number;
   totalCount: number;
@@ -10,8 +11,8 @@ interface BrandCardProps {
   active?: boolean;
 }
 
-/** 品牌吧卡片：圆角矩形 + icon + 品牌名 + 三列统计 */
-export default function BrandCard({ label, icon, href, classicCount, totalCount, noteCount, active }: BrandCardProps) {
+/** 品牌吧卡片：logo/icon + 品牌名 + 三列统计 */
+export default function BrandCard({ label, icon, logo, href, classicCount, totalCount, noteCount, active }: BrandCardProps) {
   return (
     <Link
       href={href}
@@ -22,7 +23,12 @@ export default function BrandCard({ label, icon, href, classicCount, totalCount,
       }`}
     >
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-xl">{icon || "🏷️"}</span>
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logo} alt={label} className="w-8 h-8 rounded-lg object-cover border border-stone-200" />
+        ) : (
+          <span className="text-xl">{icon || "🏷️"}</span>
+        )}
         <span className="font-medium text-stone-800 text-sm truncate">{label}</span>
       </div>
       <div className="flex gap-3 text-[0.625rem] text-stone-500">

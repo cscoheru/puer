@@ -610,18 +610,27 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
   }
 
   return (
-    <section className="mt-6 border-t border-stone-200 pt-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-bold text-stone-800">
-          回复 ({comments.length})
+    <section className="mt-6">
+      {/* Prominent comment header bar */}
+      <div className={`flex items-center justify-between px-4 py-3 rounded-xl mb-4 transition ${
+        commentsCollapsed && comments.length > 0
+          ? "bg-amber-50 border border-amber-200"
+          : "border-t border-stone-200 pt-4"
+      }`}>
+        <h2 className={`font-bold ${commentsCollapsed && comments.length > 0 ? "text-lg text-amber-900" : "text-base text-stone-800"}`}>
+          💬 回复 ({comments.length})
         </h2>
         {comments.length > 0 && (
           <button
             onClick={() => setCommentsCollapsed(!commentsCollapsed)}
-            className="text-xs text-stone-400 hover:text-amber-700 transition flex items-center gap-1"
+            className={`text-sm font-medium transition flex items-center gap-1.5 ${
+              commentsCollapsed
+                ? "text-amber-700 hover:text-amber-900 bg-amber-100 px-3 py-1.5 rounded-lg"
+                : "text-stone-400 hover:text-amber-700"
+            }`}
           >
-            {commentsCollapsed ? "展开回复" : "收起回复"}
-            <span className="text-[10px]">{commentsCollapsed ? "▼" : "▲"}</span>
+            {commentsCollapsed ? "展开查看" : "收起回复"}
+            <span className="text-xs">{commentsCollapsed ? "▼" : "▲"}</span>
           </button>
         )}
       </div>

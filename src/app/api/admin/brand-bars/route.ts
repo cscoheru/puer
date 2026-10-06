@@ -7,6 +7,7 @@ interface BarInput {
   key?: string;
   label: string;
   icon?: string;
+  logo?: string;
   brands: string[];
   sortOrder?: number;
 }
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json()) as BarInput;
-  const { id, key, label, icon, brands, sortOrder } = body;
+  const { id, key, label, icon, logo, brands, sortOrder } = body;
   if (!label?.trim() || !Array.isArray(brands)) {
     return NextResponse.json({ error: "缺少参数（label + brands 数组）" }, { status: 400 });
   }
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
           data: {
             label: label.trim().slice(0, 50),
             icon: icon?.trim().slice(0, 10) || null,
+            logo: logo?.trim() || null,
             brands: cleanBrands,
             ...(typeof sortOrder === "number" ? { sortOrder } : {}),
           },
@@ -65,6 +67,7 @@ export async function POST(req: NextRequest) {
             key: (key?.trim() || label.trim()).slice(0, 50),
             label: label.trim().slice(0, 50),
             icon: icon?.trim().slice(0, 10) || null,
+            logo: logo?.trim() || null,
             brands: cleanBrands,
             sortOrder: typeof sortOrder === "number" ? sortOrder : 99,
           },

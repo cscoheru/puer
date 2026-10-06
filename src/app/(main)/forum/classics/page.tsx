@@ -28,14 +28,14 @@ const DEFAULT_BARS = [
   { key: "xinghai", label: "兴海吧", icon: "🌊", brands: ["兴海"] },
 ] as const;
 
-type BarConfig = { key: string; label: string; icon: string | null; brands: string[] };
+type BarConfig = { key: string; label: string; icon: string | null; logo: string | null; brands: string[] };
 
 async function loadBars(): Promise<BarConfig[]> {
   const bars = await prisma.brandBar
-    .findMany({ orderBy: { sortOrder: "asc" }, select: { key: true, label: true, icon: true, brands: true } })
+    .findMany({ orderBy: { sortOrder: "asc" }, select: { key: true, label: true, icon: true, logo: true, brands: true } })
     .catch(() => []);
   if (bars.length > 0) return bars;
-  return DEFAULT_BARS.map((b) => ({ key: b.key, label: b.label, icon: b.icon, brands: [...b.brands] }));
+  return DEFAULT_BARS.map((b) => ({ key: b.key, label: b.label, icon: b.icon, logo: null, brands: [...b.brands] }));
 }
 
 export default async function ClassicsPage({
@@ -167,6 +167,7 @@ export default async function ClassicsPage({
               key={b.key}
               label={b.label}
               icon={b.icon}
+              logo={b.logo}
               href={pillHref(b.key)}
               classicCount={countForBar([...b.brands])}
               totalCount={allCountForBar([...b.brands])}
