@@ -7,13 +7,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { STYLES, styleFor, styleByKey, type StyleKey } from "./styles.ts";
 
-test("STYLES: five distinct styles, each with a key, label and voice", () => {
+test("STYLES: five distinct styles, each with a key, label, voice and structure", () => {
   assert.equal(STYLES.length, 5);
   const keys = new Set<string>(STYLES.map((s) => s.key));
   assert.equal(keys.size, STYLES.length, "style keys must be unique");
   for (const s of STYLES) {
     assert.ok(s.label.trim().length > 0, `style ${s.key} has an empty label`);
     assert.ok(s.voice.trim().length > 0, `style ${s.key} has an empty voice`);
+    // Tone alone lets the model fall back to the source note's own
+    // steep-by-steep order — the empty structure is exactly what made three of
+    // these five styles ship 第一水/第二水 ledgers.
+    assert.ok(s.structure.trim().length > 0, `style ${s.key} has an empty structure`);
   }
 });
 

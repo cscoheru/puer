@@ -19,7 +19,7 @@ import {
   checkAdaptLength,
   deepSeekAdapt,
 } from "./adapt.ts";
-import { styleFor } from "./styles.ts";
+import { STYLES, styleFor } from "./styles.ts";
 import type { NormalizedNote } from "./normalize.ts";
 
 // ─── fixtures ───────────────────────────────────────────────────────────
@@ -606,6 +606,46 @@ test("deepSeekAdapt: the prompt carries the dispatched style voice", async () =>
   assert.ok(sent.includes("避坑测评"), "style label missing from prompt");
   assert.ok(sent.includes("劝退点"), "style voice missing from prompt");
   assert.ok(!sent.includes("朋友圈"), "wrong style voice leaked into the prompt");
+});
+
+test("deepSeekAdapt: the prompt carries the structure mandate and the anti-ledger rule", async () => {
+  const sink: { body?: string } = {};
+  const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+  await deepSeekAdapt({
+    source,
+    style: "caveat",
+    fetcher: captureFetcher(okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY }), sink),
+  });
+  const sent = sink.body ?? "";
+  // The production notes are logged 第一水/第二水. Without an explicit structure
+  // AND an explicit permission to reorganize, the model mirrors the note's own
+  // order and the "rewrite" ships as the same ledger in new wording — which is
+  // exactly what shipped before this test existed.
+  assert.ok(sent.includes("【结构】"), "prompt lost the structure section");
+  assert.ok(sent.includes("结论先行"), "the dispatched style's structure is missing");
+  assert.ok(sent.includes("逐泡编号罗列"), "prompt lost the anti-ledger rule");
+  assert.ok(sent.includes("改写 ≠ 编造"), "prompt lost the reorganization authorization");
+  // The structures ask for elements the notes may not contain (the story's
+  // scene, the caveat's flaws). isGrounded only polices arabic digits, so this
+  // guard is the only thing stopping the model from inventing a scene to fill
+  // a slot the source never had.
+  assert.ok(sent.includes("不要为凑结构而编造"), "prompt lost the no-fabrication guard");
+});
+
+test("deepSeekAdapt: every style's structure reaches the prompt", async () => {
+  // A style whose structure never makes it into the prompt is silently back to
+  // ledger-shaped output; sweep the whole set rather than trusting one sample.
+  const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+  for (const s of STYLES) {
+    const sink: { body?: string } = {};
+    const r = await deepSeekAdapt({
+      source,
+      style: s.key,
+      fetcher: captureFetcher(okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY }), sink),
+    });
+    assert.equal(r.ok, true, `style ${s.key} was rejected`);
+    assert.ok((sink.body ?? "").includes(s.structure), `style ${s.key} structure missing`);
+  }
 });
 
 test("deepSeekAdapt: success echoes back the style it was given", async () => {
