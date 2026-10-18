@@ -30,6 +30,21 @@ export default function EditTeaPage() {
   const [description, setDescription] = useState("");
   const [marketText, setMarketText] = useState("");
 
+  /**
+   * Swap two images in place. Copy-then-swap (not splice) so React sees a new
+   * array reference and re-renders — mutating `prev` in place would compare
+   * equal by reference and silently drop the update.
+   */
+  function moveImage(idx: number, dir: -1 | 1) {
+    setImages((prev) => {
+      const j = idx + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[j]] = [next[j]!, next[idx]!];
+      return next;
+    });
+  }
+
   const isEligible = status === "authenticated" && session.user.level >= 2;
 
   // Load existing tea data
@@ -229,19 +244,43 @@ export default function EditTeaPage() {
               <div key={url} className="relative group">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={url} alt={`茶品图片 ${idx + 1}`} className="w-32 h-32 object-cover rounded-lg border border-stone-200" />
-                <span className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
-                  {idx === 0 ? "正面" : "背面"}
+                <span className={`absolute top-1 left-1 text-white text-[10px] px-1.5 py-0.5 rounded ${idx === 0 ? "bg-amber-700" : "bg-black/60"}`}>
+                  {idx === 0 ? "正面（封面）" : "背面"}
                 </span>
                 <button
                   type="button"
                   onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
                   className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                  aria-label={`删除${idx === 0 ? "封面" : "背面"}图`}
                 >
                   ✕
                 </button>
                 {uploadProgress[url] !== undefined && uploadProgress[url] < 100 && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
                     <span className="text-white text-sm font-medium">{uploadProgress[url]}%</span>
+                  </div>
+                )}
+                {/* 封面 = images[0]，所以「换封面」就是把目标图移到第一位 */}
+                {images.length > 1 && (
+                  <div className="absolute bottom-1 left-1 right-1 flex justify-between">
+                    <button
+                      type="button"
+                      onClick={() => moveImage(idx, -1)}
+                      disabled={idx === 0}
+                      className="w-7 h-7 bg-white/90 text-stone-700 text-xs rounded shadow hover:bg-white disabled:opacity-30 disabled:hover:bg-white/90"
+                      aria-label={`将第 ${idx + 1} 张前移`}
+                    >
+                      ◀
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveImage(idx, 1)}
+                      disabled={idx === images.length - 1}
+                      className="w-7 h-7 bg-white/90 text-stone-700 text-xs rounded shadow hover:bg-white disabled:opacity-30 disabled:hover:bg-white/90"
+                      aria-label={`将第 ${idx + 1} 张后移`}
+                    >
+                      ▶
+                    </button>
                   </div>
                 )}
               </div>
@@ -294,7 +333,7 @@ export default function EditTeaPage() {
               }
             }}
           />
-          <p className="text-xs text-stone-400 mt-1">支持 JPG/PNG/WebP，最大 5MB</p>
+          <p className="text-xs text-stone-400 mt-1">支持 JPG/PNG/WebP，最大 5MB。用 ◀ ▶ 调整顺序——<span className="text-amber-700">第一张即封面</span>，把想设为封面的图移到最左即可。</p>
         </div>
 
         <div>
