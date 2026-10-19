@@ -4,6 +4,19 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 
+/**
+ * 登录后回跳目标。只接受**站内绝对路径**：必须以单个 `/` 开头，
+ * 拒绝 `//evil.com`（协议相对 URL）、`/\evil.com`（部分浏览器按 `//` 解析）
+ * 和任何含 `:` 的值（`javascript:`、`https:`）。回跳参数来自 URL，
+ * 不做这层校验就是开放重定向。
+ */
+function safeNextPath(raw: string | null): string {
+  if (!raw) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/";
+  if (raw.includes(":") || raw.includes("\\")) return "/";
+  return raw;
+}
+
 export default function LoginPage() {
   const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +42,9 @@ export default function LoginPage() {
       // Hard redirect: forces SessionProvider to re-init so useSession()
       // reflects the just-set JWT cookie. A soft router.push() leaves the
       // stale pre-login session cached → header still shows "登录/注册".
-      window.location.href = "/";
+      // `next` 从 window 读取而非 useSearchParams()，与本仓库其它客户端页一致
+      // （避免客户端组件 prerender 需要 Suspense 包裹）。
+      window.location.href = safeNextPath(new URLSearchParams(window.location.search).get("next"));
     }
   };
 

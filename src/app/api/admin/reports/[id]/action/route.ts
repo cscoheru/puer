@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin-auth";
+import { removeTastingNotesForArticles } from "@/lib/tasting-note-sync";
 
 /** Composite action: delete reported content + mark report as actioned */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,6 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (action === "delete_content") {
     if (report.targetType === "article") {
+      await removeTastingNotesForArticles([report.targetId]);
       await prisma.article.delete({ where: { id: report.targetId } }).catch(() => {});
     } else if (report.targetType === "comment") {
       await prisma.comment.delete({ where: { id: report.targetId } }).catch(() => {});

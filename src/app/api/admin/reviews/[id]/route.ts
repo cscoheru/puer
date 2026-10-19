@@ -5,6 +5,7 @@ import { grantExp } from "@/lib/exp";
 import { pingSearchEngines } from "@/lib/sitemap-ping";
 import { createNotification } from "@/lib/notifications";
 import { publishCommentEffects } from "@/lib/comment-effects";
+import { syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
 
 /**
  * PUT /api/admin/reviews/[id] — 审批一条待审内容。
@@ -52,6 +53,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       const expType = article.type === "tasting" ? "post_tasting" : "post_article";
       await grantExp(article.authorId, expType, article.id).catch(() => {});
       pingSearchEngines();
+      // 这条路径**不经过** publishArticles（直接 update status），所以镜像品鉴笔记
+      // 必须在这里单独补一次 —— 否则所有送审后才放行的跟进帖都会漏掉品鉴笔记。
+      await syncTastingNoteForArticle(article.id);
       await createNotification(
         article.authorId, "system",
         `你的帖子「${titlePreview}」已通过审核`,

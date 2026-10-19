@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { absImageUrl } from "@/lib/seo-image";
 import { auth } from "@/lib/auth";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import ArticleCard from "@/components/tea/article-card";
 import TastingCard from "@/components/tea/tasting-card";
@@ -14,6 +14,7 @@ import { safeJsonLdStringify } from "@/lib/json-ld";
 import { parseMarket } from "@/lib/market-info";
 import { TEA_TYPE_LABELS, normalizeTeaType } from "@/lib/tea-query";
 import { loadFacets } from "@/lib/tea-landing-server";
+import { isMirrorNoteLive } from "@/lib/tasting-note-plan";
 
 export const dynamic = "force-dynamic";
 
@@ -36,11 +37,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     select: { name: true, brand: true, year: true, type: true, description: true, coverImage: true, isClassic: true },
   });
   if (!tea) return { title: "茶品未找到" };
-  // P2-R23 茶品库绝对隐藏：非经典（私人档案）仅 admin 可访问。正文 `:74` 会 notFound()，
-  // 但 metadata 是随 404 响应体的 RSC payload 一起下发的 —— 不在这里也拦一道，
-  // 未登录者就能从 404 的 HTML 里直接读到茶名/厂牌/年份。可见 <head> 会回退到根 layout，
-  // 所以 Google 看不到，但原始 HTML 谁都能提取。
-  if (!tea.isClassic && (await auth())?.user?.role !== "admin") {
+  // 茶品库 = 全集；非经典（在建档/私人档案）的**详情**要求登录。
+  // 正文 `:82` 会对未登录者 notFound()，但 metadata 是随 404 响应体的 RSC payload
+  // 一起下发的 —— 不在这里也拦一道，未登录者就能从 404 的 HTML 里直接读到茶名/厂牌/年份。
+  // 可见 <head> 会回退到根 layout，所以 Google 看不到，但原始 HTML 谁都能提取。
+  if (!tea.isClassic && !(await auth())?.user) {
     return { title: "茶品未找到", robots: { index: false, follow: false } };
   }
   const teaType = tea.type === "raw" ? "生茶" : "熟茶";
@@ -72,16 +73,24 @@ export default async function TeaDetailPage({ params }: PageProps) {
 
   const tea = await prisma.tea.findFirst({
     where: { id, deletedAt: null },
+    // 不再取 `_count`：两个计数都已改为直接用页面里实际渲染的条目数
+    // （tastingNotes.length / articles.length），全表 _count 不带可见性过滤，
+    // 会与渲染结果不一致。
     include: {
-      _count: { select: { articles: true, tastingNotes: true } },
       user: { select: { username: true } },
     },
   }).catch(() => null);
 
-  // P2-R23 茶品库绝对隐藏：非经典茶档案仅 admin 可访问（经典茶详情页是 classics 流量承接页，保持公开）
-  if (!tea || (!isAdmin && !tea.isClassic)) notFound();
+  // 茶品库 = 全集：经典茶公开；非经典茶（在建档/私人档案）详情**需登录**。
+  // 列表页对所有人列出全部茶品，所以未登录者点进来是常见路径 —— 这里引导登录
+  // 并带回跳，而不是 404（404 会让「列表里明明有」变成死链）。
+  // 经典茶详情页是 classics 流量承接页，保持公开。
+  if (!tea) notFound();
+  if (!tea.isClassic && !session?.user) {
+    redirect(`/login?next=${encodeURIComponent(`/tea/${id}`)}`);
+  }
 
-  const [tastingNotes, articles, facets] = await Promise.all([
+  const [allTastingNotes, articles, facets] = await Promise.all([
     prisma.tastingNote.findMany({
       where: { teaId: id },
       orderBy: { createdAt: "desc" },
@@ -96,6 +105,11 @@ export default async function TeaDetailPage({ params }: PageProps) {
         aftertaste: true,
         images: true,
         createdAt: true,
+        // 跟进帖会在发布时镜像出一条笔记（source="article" / sourceId=帖子 id）。
+        // 这两个字段是**读取侧抑制**的依据：TastingNote 没有 status/visibility 列，
+        // 笔记本身不知道源帖是否已下架/翻私密，只能靠 sourceId 回查。
+        source: true,
+        sourceId: true,
         author: { select: { username: true, avatar: true, level: true } },
       },
     }),
@@ -109,6 +123,20 @@ export default async function TeaDetailPage({ params }: PageProps) {
     // 「未知」排除 → 28 款 brand="未知" 的经典茶挂出指向 /tea/brand/未知 的 404 面包屑。
     loadFacets(),
   ]);
+
+  // 镜像笔记的可见性跟随源帖：只保留源帖**当前**处于「已发布且非私密」的笔记。
+  // `articles` 已由 visibleArticleWhere 过滤掉 archived / pending_review / 私密（非本人）；
+  // 再显式剔除私密项，因为 visibleArticleWhere 会把「本人的私密帖」放进结果集 ——
+  // 那条帖子的镜像笔记不该挂到公开的茶档案页上。
+  // 这里刻意用**读取时抑制**而不是在下架时删笔记：归档是内容管理的可逆操作，
+  // 而 Comment.tastingNoteId 是 onDelete: Cascade —— 删笔记会把笔记下的评论一起
+  // 删掉。抑制是零写入的，重新发布后笔记连同评论原样回来。
+  const liveNoteArticleIds = new Set(
+    articles.filter((a) => a.visibility !== "private").map((a) => a.id),
+  );
+  const tastingNotes = allTastingNotes.filter((n) =>
+    isMirrorNoteLive({ source: n.source, sourceId: n.sourceId }, liveNoteArticleIds),
+  );
 
   // P2-R2 经典普洱：品鉴全文仍 admin-only（私人笔记），
   // 但对所有人公开"转化档案"摘要时间线（标题 + summary + 评分 + 首图）。
@@ -302,8 +330,12 @@ export default async function TeaDetailPage({ params }: PageProps) {
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6 text-center">
           {[
-            { label: "品鉴笔记", value: tea._count.tastingNotes },
-            { label: "论坛帖子", value: tea._count.articles },
+            // 用页面里实际渲染的条目数，而不是 `_count.tastingNotes`：
+            // 镜像笔记会因源帖下架/翻私密而被读取侧抑制，两者会不等，
+            // 出现「标 3 篇、只列 2 篇」的自相矛盾。_count 是全表计数，不带任何过滤。
+            { label: "品鉴笔记", value: tastingNotes.length },
+            // 同理：_count.articles 从未套过 visibleArticleWhere，会把归档/私密帖算进去。
+            { label: "论坛帖子", value: articles.length },
             { label: "综合评分", value: avgScore ? `★ ${avgScore}` : "暂无" },
             { label: "规格", value: tea.weightSpec || "未知" },
             { label: "仓储", value: tea.storageCondition || "未知" },

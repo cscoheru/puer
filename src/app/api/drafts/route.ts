@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { publishArticles } from "@/lib/article-publish";
+import { removeTastingNotesForArticles } from "@/lib/tasting-note-sync";
 import { noteIdFromDraftId } from "@/lib/tea-drafts/id";
 import { sanitizeNoteHtml } from "@/lib/tea-drafts/sanitize";
 import { planVideoSync, validateDraftImages } from "@/lib/tea-drafts/draft-media";
@@ -306,6 +307,7 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json();
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
 
+  await removeTastingNotesForArticles([id]);
   await prisma.article.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

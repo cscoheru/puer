@@ -26,9 +26,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     where: { id, deletedAt: null },
     include: { _count: { select: { articles: true } } },
   });
-  // P2-R23 茶品库绝对隐藏：非经典茶档案 JSON 仅 admin 可读
+  // 茶品库 = 全集：经典茶 JSON 公开；非经典茶 JSON 需登录（与 /tea/[id] 页面闸门一致）
   const session = await auth();
-  if (!tea || (tea.isClassic !== true && session?.user?.role !== "admin")) {
+  if (!tea || (tea.isClassic !== true && !session?.user)) {
     return NextResponse.json({ error: "茶品不存在" }, { status: 404 });
   }
 

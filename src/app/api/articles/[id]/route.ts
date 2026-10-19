@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { screenContent } from "@/lib/moderation";
 import { canViewArticleDetail } from "@/lib/article-visibility";
+import { removeTastingNotesForArticles, syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -81,6 +82,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     data,
   });
 
+  // 镜像笔记是源帖的派生副本：标题/正文/图/视频改了要跟着同步，
+  // 否则品鉴时间线永远显示发布时的旧内容。sync 内部按帖子当前状态判断
+  // （重新送审/翻私密会被规划器跳过，已镜像的那条则改由读取侧抑制）。
+  if (data.title || data.content !== undefined || data.images !== undefined || data.videoUrl !== undefined || data.visibility) {
+    await syncTastingNoteForArticle(id);
+  }
+
   return NextResponse.json(updated);
 }
 
@@ -111,6 +119,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       },
     });
   }
+
+  // 先删镜像品鉴笔记再删帖：反过来的话，帖子没了而笔记删失败，就会在茶档案页
+  // 留下一张永远指向已删除帖子的孤儿笔记（TastingNote 与 Article 之间没有外键，
+  // 删 Article 不会级联）。这个顺序的最坏情况只是「帖子还在但没笔记」，可被 backfill 修复。
+  await removeTastingNotesForArticles([id]);
 
   await prisma.article.delete({ where: { id } });
 

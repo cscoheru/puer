@@ -8,6 +8,7 @@ import { z } from "zod";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_POST } from "@/lib/rate-limit";
 import { screenContent } from "@/lib/moderation";
 import { visibleArticleWhere } from "@/lib/article-visibility";
+import { syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
 
 const articleSchema = z.object({
   type: z.enum(["article", "tasting", "discussion"]),
@@ -107,6 +108,8 @@ export async function POST(req: NextRequest) {
     const expType = data.type === "tasting" ? "post_tasting" : "post_article";
     await grantExp(session.user.id, expType, article.id);
     pingSearchEngines();
+    // 关联了茶品的帖子 = 该茶的一篇品鉴笔记，发布时同步建档
+    await syncTastingNoteForArticle(article.id);
   }
 
   return NextResponse.json({ ...article, pendingReview: !isPublish }, { status: 201 });

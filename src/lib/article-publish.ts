@@ -32,6 +32,7 @@
 import { prisma } from "@/lib/prisma";
 import { EXP_REWARDS } from "@/lib/exp";
 import { planPublishSideEffects } from "./article-publish-plan";
+import { syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
 
 export type {
   WinnerArticle,
@@ -148,6 +149,18 @@ export async function publishArticles({ ids, actorId }: PublishInput): Promise<P
       });
     }
   });
+
+  // 发布后镜像品鉴笔记（关联了茶品的帖子 = 该茶的一篇品鉴笔记）。
+  //
+  // 必须放在事务**外面**：publishArticles 自己持有一个交互式事务，而同步函数
+  // 内部还要开事务，嵌套会死锁；而且单条坏数据不该回滚整批的经验与版块计数。
+  // publishedIds 与 republishedIds 都同步：republished（archived → published）通常
+  // 早就有镜像，但「功能上线前被归档、从未镜像过」的老帖重新发布会落在这一类，
+  // sync 本身幂等，重复跑只是返回 exists，不会造重复笔记。
+  // syncTastingNoteForArticle 自身不抛异常（失败只记日志），由 backfill 兜底。
+  for (const id of [...result.publishedIds, ...result.republishedIds]) {
+    await syncTastingNoteForArticle(id);
+  }
 
   return result;
 }

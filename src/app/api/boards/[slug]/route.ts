@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { screenContent } from "@/lib/moderation";
 import { visibleArticleWhere } from "@/lib/article-visibility";
+import { syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
 import type { Prisma } from "@/generated/prisma/client";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
@@ -130,6 +131,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         lastPostedAt: now,
       },
     });
+    // 跟进帖 = 一篇独立的品鉴笔记（只是关联了具体茶品）→ 发布时同步建笔记。
+    // 送审的帖在这里**不建**，等审核通过由 /api/admin/reviews 补建。
+    await syncTastingNoteForArticle(article.id);
   }
 
   return NextResponse.json({ ...article, pendingReview: !isPublish }, { status: 201 });

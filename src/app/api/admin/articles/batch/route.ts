@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin-auth";
 import { publishArticles } from "@/lib/article-publish";
 import { pingSearchEngines } from "@/lib/sitemap-ping";
+import { removeTastingNotesForArticles } from "@/lib/tasting-note-sync";
 
 export async function POST(req: NextRequest) {
   const { session, error } = await requireAdmin();
@@ -32,6 +33,9 @@ export async function POST(req: NextRequest) {
 
   switch (action) {
     case "archive":
+      // 归档不删镜像品鉴笔记：归档是可逆的（重新发布后笔记要原样回来），
+      // 而删笔记会连带删掉 Comment.tastingNoteId 的级联评论。归档期间的不可见
+      // 由茶档案页的读取侧抑制（isMirrorNoteLive）负责。
       await prisma.article.updateMany({ where: { id: { in: ids } }, data: { status: "archived" } });
       break;
     case "publish": {
@@ -50,6 +54,9 @@ export async function POST(req: NextRequest) {
       });
     }
     case "delete":
+      // 先删镜像品鉴笔记再删帖：TastingNote 与 Article 之间没有外键，
+      // deleteMany 不会级联，反序会留下指向已删帖子的孤儿笔记。
+      await removeTastingNotesForArticles(ids);
       await prisma.article.deleteMany({ where: { id: { in: ids } } });
       break;
     case "pin":

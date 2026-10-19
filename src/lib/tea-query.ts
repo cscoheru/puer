@@ -18,6 +18,9 @@ export const teaListSelect = {
   gallery: true, // P2-R6：列表缩略图 fallback 到图库第一张
   avgRating: true,
   tastingNoteCount: true,
+  // 茶品库 = 全集（经典 + 非经典）；列表要标出哪些是经典子集，故 select 必须带上。
+  // 加字段时记得同步 TeaListRow（Prisma select 是白名单，漏了会静默丢字段）。
+  isClassic: true,
   marketInfo: true,
   createdAt: true,
   updatedAt: true,
@@ -42,6 +45,7 @@ export type TeaListRow = {
   tastingNotes: { images: unknown }[]; // 最近 3 篇品鉴（图源 fallback）
   avgRating: number | null;
   tastingNoteCount: number;
+  isClassic: boolean;
   marketInfo: unknown;
   createdAt: Date;
   _count: { articles: number };

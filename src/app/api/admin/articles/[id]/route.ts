@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin-auth";
 import { publishArticles } from "@/lib/article-publish";
+import { removeTastingNotesForArticles, syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const fresh = await prisma.article.findUnique({ where: { id } });
     return Response.json({ ok: true, article: fresh ?? article });
   }
+
+  // 管理员改标题/正文后同步镜像品鉴笔记（镜像笔记是源帖的派生副本）。
+  // 归档（data.status === "archived"）不在这里同步 —— 归档期间笔记由读取侧抑制，
+  // 重新发布时 publishArticles 会再同步一次。
+  if (data.title || data.content !== undefined) {
+    await syncTastingNoteForArticle(id);
+  }
+
   return Response.json({ ok: true, article });
 }
 
@@ -91,6 +100,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     );
   }
 
+  await removeTastingNotesForArticles([id]);
   await prisma.article.delete({ where: { id } });
   return Response.json({ ok: true });
 }

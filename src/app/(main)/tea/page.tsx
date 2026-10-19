@@ -7,10 +7,10 @@ import { LANDING_MIN_TEAS, PREFERRED_BRANDS, normalizeTeaType, teaListSelect } f
 import { pageWindow } from "@/lib/pagination";
 
 export const metadata: Metadata = {
-  title: "普洱茶库 - 经典普洱茶品大全（大益/下关/福今）",
+  title: "普洱茶库 - 普洱茶品大全（大益/下关/福今）",
   description:
-    "普洱茶品大全：收录各大品牌、各年份经典普洱茶档案，含生茶/熟茶分类、口感评分、历年品鉴记录与东和行情。按品牌、年份、生熟筛选。",
-  keywords: ["普洱茶", "普洱茶品牌", "茶品库", "茶叶评测", "普洱茶评分", "大益生普", "下关沱茶"],
+    "普洱茶品大全：收录各大品牌、各年份普洱茶档案，含经典普洱子集、生茶/熟茶分类、口感评分、历年品鉴记录与东和行情。按品牌、年份、生熟筛选。",
+  keywords: ["普洱茶", "普洱茶品牌", "茶品库", "经典普洱", "茶叶评测", "普洱茶评分", "大益生普", "下关沱茶"],
   alternates: { canonical: "/tea" },
 };
 
@@ -19,12 +19,14 @@ export const dynamic = "force-dynamic";
 const LIMIT = 24;
 
 interface PageProps {
-  searchParams: Promise<{ brand?: string; year?: string; type?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ brand?: string; year?: string; type?: string; q?: string; page?: string; classic?: string }>;
 }
 
 export default async function TeaListPage({ searchParams }: PageProps) {
-  // P1-1（原 P2-R23 茶品库对用户隐藏）：改为公开的经典茶浏览入口。
-  // 非经典茶（私人档案/在建档）不进列表 —— 与 /tea/[id] 的 notFound 条件一致。
+  // 茶品库 = **全部**茶品（经典 + 非经典）。经典普洱只是它的一个子集，
+  // 用 ?classic=1 筛出来（`/forum/classics` 是同一子集的策展视图）。
+  // 非经典的**详情页**要求登录（见 /tea/[id]），但列表本身公开 —— 列表只
+  // 暴露名称/厂牌/年份等索引信息，正文与行情仍在详情页闸门之后。
   const session = await auth();
   const isAdmin = session?.user?.role === "admin";
   const params = await searchParams;
@@ -32,19 +34,21 @@ export default async function TeaListPage({ searchParams }: PageProps) {
   const year = params.year || "";
   const type = normalizeTeaType(params.type) ?? "";
   const search = (params.q || "").slice(0, 64);
+  const classicOnly = params.classic === "1";
   // 公开页必须容错：`?year=abc` 会让 parseInt 得到 NaN，而 Prisma 对 Int 字段收到
   // NaN 会抛 PrismaClientValidationError（500）；`?page=1e21` 同理会让 skip 溢出 Int。
   const parsedYear = Number.parseInt(year, 10);
   const parsedPage = Number.parseInt(params.page || "1", 10);
   const page = Math.min(Math.max(1, Number.isFinite(parsedPage) ? parsedPage : 1), 500);
 
-  const where: Record<string, unknown> = { deletedAt: null, isClassic: true };
+  const where: Record<string, unknown> = { deletedAt: null };
+  if (classicOnly) where.isClassic = true;
   if (brand) where.brand = brand;
   if (Number.isFinite(parsedYear)) where.year = parsedYear;
   if (type) where.type = type;
   if (search) where.name = { contains: search, mode: "insensitive" } as const;
 
-  const [teas, total, brandGroups] = await Promise.all([
+  const [teas, total, brandGroups, classicTotal, allTotal] = await Promise.all([
     prisma.tea.findMany({
       where,
       orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }, { name: "asc" }],
@@ -54,6 +58,8 @@ export default async function TeaListPage({ searchParams }: PageProps) {
     }),
     prisma.tea.count({ where }),
     // 品牌落地页导航（只列够厚的，与 sitemap / 落地页 notFound 阈值一致）
+    // 注意：这里必须**保持经典口径** —— /tea/brand/[x] 落地页是经典子集的 SEO 页，
+    // 用全集分组会造出指向不存在落地页的内链（阈值判定在 loadFacets 里，含「未知」排除）。
     prisma.tea
       .groupBy({
         by: ["brand"],
@@ -61,6 +67,9 @@ export default async function TeaListPage({ searchParams }: PageProps) {
         _count: { _all: true },
       })
       .catch(() => []),
+    // 子集口径的总数：始终是「全库经典款数」，不受当前筛选影响
+    prisma.tea.count({ where: { deletedAt: null, isClassic: true } }),
+    prisma.tea.count({ where: { deletedAt: null } }),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
@@ -69,7 +78,14 @@ export default async function TeaListPage({ searchParams }: PageProps) {
     .sort((a, b) => b._count._all - a._count._all);
 
   const filterHref = (over: Record<string, string>) => {
-    const sp = new URLSearchParams({ brand, year, type, q: search, ...over });
+    const sp = new URLSearchParams({
+      brand,
+      year,
+      type,
+      q: search,
+      classic: classicOnly ? "1" : "",
+      ...over,
+    });
     for (const [k, v] of [...sp.entries()]) if (!v || (k === "page" && v === "1")) sp.delete(k);
     const qs = sp.toString();
     return `/tea${qs ? `?${qs}` : ""}`;
@@ -96,10 +112,43 @@ export default async function TeaListPage({ searchParams }: PageProps) {
         )}
       </div>
 
-      <p className="text-sm text-stone-500 leading-relaxed mb-6">
-        收录经典普洱茶档案 {total} 款，含大益、下关、福今等厂牌各年份生茶与熟茶：
-        品种档案、历年品鉴记录、口感评分与东和行情快照。
+      <p className="text-sm text-stone-500 leading-relaxed mb-4">
+        {classicOnly ? (
+          <>
+            经典普洱子集，当前筛选下 {total} 款（全库经典共 {classicTotal} 款）。含大益、下关、福今等厂牌各年份生茶与熟茶：
+            品种档案、历年品鉴记录、口感评分与东和行情快照。
+          </>
+        ) : (
+          <>
+            收录普洱茶档案 {total} 款，其中经典普洱 {classicTotal} 款。含大益、下关、福今等厂牌各年份生茶与熟茶：
+            品种档案、历年品鉴记录、口感评分与东和行情快照。
+          </>
+        )}
       </p>
+
+      {/* 子集切换：茶品库是全集，经典普洱是它的策展子集（同一子集另有 /forum/classics 策展视图） */}
+      <div className="flex flex-wrap items-center gap-2 mb-6 text-sm">
+        <Link
+          href={filterHref({ classic: "", page: "" })}
+          className={`px-3 py-1.5 rounded-lg border transition ${
+            classicOnly
+              ? "border-stone-200 text-stone-600 hover:border-amber-300"
+              : "border-amber-700 bg-amber-800 text-white"
+          }`}
+        >
+          全部茶品 <span className={classicOnly ? "text-stone-400" : "text-amber-200"}>{allTotal}</span>
+        </Link>
+        <Link
+          href={filterHref({ classic: "1", page: "" })}
+          className={`px-3 py-1.5 rounded-lg border transition ${
+            classicOnly
+              ? "border-amber-700 bg-amber-800 text-white"
+              : "border-stone-200 text-stone-600 hover:border-amber-300"
+          }`}
+        >
+          🏵️ 经典普洱 <span className={classicOnly ? "text-amber-200" : "text-stone-400"}>{classicTotal}</span>
+        </Link>
+      </div>
 
       {/* 聚合落地页内链（爬虫与用户都能由此进入品牌/生熟/年份页） */}
       <div className="flex flex-wrap items-center gap-2 mb-6 text-xs">
@@ -119,6 +168,8 @@ export default async function TeaListPage({ searchParams }: PageProps) {
 
       {/* Filters */}
       <form method="GET" className="flex flex-wrap gap-3 mb-6">
+        {/* 子集筛选是 URL 状态，表单提交（GET）必须带上，否则一筛选就掉回全集 */}
+        {classicOnly && <input type="hidden" name="classic" value="1" />}
         <select name="brand" defaultValue={brand}
           className="px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/40"
         >
@@ -147,7 +198,7 @@ export default async function TeaListPage({ searchParams }: PageProps) {
 
       {/* Grid */}
       {teas.length > 0 ? (
-        <TeaGrid teas={teas} />
+        <TeaGrid teas={teas} loggedIn={!!session?.user} />
       ) : (
         <p className="text-center text-stone-400 py-16 bg-white rounded-xl border border-dashed border-stone-200 text-sm">
           暂无茶品数据，试试调整筛选条件
