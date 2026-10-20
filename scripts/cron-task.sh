@@ -10,7 +10,7 @@
 # resolve dynamically here — replacing the fragile hardcoded 172.18.0.2 in
 # auto-post-cron.sh.
 #
-# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health>
+# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post>
 # On failure an [ALERT] line is appended to backups/health-alerts.log
 # (same file the site-down check writes to).
 
@@ -71,6 +71,15 @@ case "$TASK" in
         # 宿主机直跑(仅 DB+AI 调用,无 /app 文件路径依赖;pg 模块在宿主机 node_modules)
         # rag-post 额外读宿主机 rag-data 语料(茶问 /ask 同一份知识库)
         run node "scripts/${TASK}.mjs"
+        ;;
+      ai-news-draft)
+        # R29:PentAGI 每周检索成果 → AI 忠实改写 → 草稿箱(不直接发布)。
+        # 宿主机直跑:脚本从 pentagi-vps 经 ssh+rsync 拉成果包到 rag-data/news-artifacts,
+        # 再查库+调 MiniMax 改写+写 status=draft。需要能免密 ssh 到 pentagi-vps
+        # (authorized_keys 一次性配置)。拉不到远端不致命:本地已有目录照常处理。
+        # --apply 才写库;脚本默认 dry-run。
+        export PENTAGI_ARTIFACT_HOST="${PENTAGI_ARTIFACT_HOST:-pentagi-vps}"
+        run node --import tsx scripts/ai-news-draft.mjs --apply
         ;;
       *)
         echo "unknown task: $TASK" >&2
