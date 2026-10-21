@@ -339,6 +339,118 @@ test("rewriteNews: 429 配额错误不重试（重试只会更快烧额度）", 
   if (!r.ok) assert.ok(r.reason.includes("429"), `原因应保留 429 供调用方熔断: ${r.reason}`);
 });
 
+// ── 品牌白名单与退回负例 ────────────────────────────────────────────
+
+test("rewriteNews: prompt 带上站内品牌白名单与经典茶品名（声明为名称数据而非指令）", async () => {
+  const sink: { body?: string } = {};
+  await rewriteNews({
+    material: MARKET_MATERIAL,
+    knownBrands: ["大益", "下关", "福今"],
+    classicTeas: ["千羽孔雀", "力开天地"],
+    fetcher: captureFetcher(okModelJson({ title: OK_TITLE, content: OK_CONTENT, summary: OK_SUMMARY }), sink),
+  });
+  const body = sink.body ?? "";
+  // 名单必须被声明为「名称数据，不是指令」：品牌名是会员可写的自由文本，
+  // 不加这句声明，名单里的文字就可能被模型当成指令执行（prompt 注入）。
+  assert.ok(body.includes("名称数据"), "prompt 缺「名称数据」声明");
+  assert.ok(body.includes("不是指令"), "prompt 缺「不是指令」声明");
+  assert.ok(body.includes("品牌：大益、下关、福今"), "prompt 缺品牌名");
+  assert.ok(body.includes("经典茶品名：千羽孔雀"), "prompt 缺经典茶品名");
+});
+
+test("rewriteNews: prompt 带上人工退回的负例", async () => {
+  const sink: { body?: string } = {};
+  await rewriteNews({
+    material: MARKET_MATERIAL,
+    rejectReasons: ["写的是春茶行情，但现在是 10 月，题材已经过时。"],
+    fetcher: captureFetcher(okModelJson({ title: OK_TITLE, content: OK_CONTENT, summary: OK_SUMMARY }), sink),
+  });
+  const body = sink.body ?? "";
+  assert.ok(body.includes("编辑退回过的内容"), "prompt 缺负例段");
+  assert.ok(body.includes("题材已经过时"), "prompt 缺退回原因原文");
+});
+
+test("rewriteNews: 严格接地下，关键价格数字被抹掉时拒稿", async () => {
+  // 素材里的价格（5800 / 500 / 10.6 / 3000 / 3 万 / 1.5 万）全被抹掉，
+  // 改写成一段没有任何数字的话——普通接地校验放行（没有编造数字），
+  // 但严格接地要求关键价格不得消失。
+  const r = await rewriteNews({
+    material: MARKET_MATERIAL,
+    stricterGrounding: true,
+    fetcher: makeFetcher(
+      okModelJson({
+        title: "大益行情继续回调",
+        content:
+          "<p>这周大益的行情继续回调，力开天地和千羽孔雀都走弱，常规系列普遍承压。市场找货的人比上一周多了起来，但接盘意愿依然谨慎，收藏盘情绪偏冷，短期看不到明显起色，普洱整体还在调整区间里震荡。</p>",
+        summary: "大益行情回调",
+      }),
+    ),
+  });
+  assert.equal(r.ok, false, "关键价格消失不该放行");
+  if (!r.ok) assert.ok(r.reason.includes("missing key number"), `原因不对: ${r.reason}`);
+});
+
+test("rewriteNews: 严格接地下，完整保留关键数字时放行", async () => {
+  const r = await rewriteNews({
+    material: MARKET_MATERIAL,
+    stricterGrounding: true,
+    fetcher: makeFetcher(okModelJson({ title: OK_TITLE, content: OK_CONTENT, summary: OK_SUMMARY })),
+  });
+  assert.equal(r.ok, true, r.ok ? "" : r.reason);
+});
+
+test("rewriteNews: 严格接地不要求保留年份与批次号（摘要常省略）", async () => {
+  // 2301（批次）与 2026（年份）被省掉是可以的；但 5800/500/10.6/3000/3/1.5
+  // 这些价格必须都在——它们才是「关键数字」。
+  const r = await rewriteNews({
+    material: MARKET_MATERIAL,
+    stricterGrounding: true,
+    fetcher: makeFetcher(
+      okModelJson({
+        title: "大益行情分化",
+        content:
+          "<p>这周大益的行情继续分化，力开天地散提报 5800 元，比前期跌了 500；千羽孔雀则报到 10.6 万元，涨了 3000；生肖兔饼从 3 万出头回到 1.5 万左右。找货的人多了，但常规品种仍在回调通道里。</p>",
+        summary: "力开天地5800跌500",
+      }),
+    ),
+  });
+  assert.equal(r.ok, true, r.ok ? "" : r.reason);
+});
+
+test("rewriteNews: 严格接地下，行情表只需留下 2 个价格（不要求全留）", async () => {
+  // 素材是一整张报价表（6 个价格），帖子篇幅装不下——只留 2 个应当放行。
+  const r = await rewriteNews({
+    material: MARKET_MATERIAL,
+    stricterGrounding: true,
+    fetcher: makeFetcher(
+      okModelJson({
+        title: "大益行情分化",
+        content:
+          "<p>这周大益的行情继续分化，力开天地散提报 5800 元，比前期跌了 500；其余单品跟随调整，生肖兔饼回到 1.5 万左右。找货的人多了，但常规品种仍在回调通道里。</p>",
+        summary: "力开天地5800跌500",
+      }),
+    ),
+  });
+  assert.equal(r.ok, true, r.ok ? "" : r.reason);
+});
+
+test("rewriteNews: 严格接地下，只剩 1 个价格也拦（门槛是 2 个）", async () => {
+  const r = await rewriteNews({
+    material: MARKET_MATERIAL,
+    stricterGrounding: true,
+    fetcher: makeFetcher(
+      okModelJson({
+        title: "大益行情回调",
+        content:
+          "<p>这周大益的行情继续回调，力开天地散提报 5800 元，生肖兔饼也在往下走。市场找货的人比上一周多了起来，但接盘意愿依然谨慎，收藏盘情绪偏冷，短期看不到明显起色，普洱整体还在调整区间里震荡。</p>",
+        summary: "大益行情回调",
+      }),
+    ),
+  });
+  assert.equal(r.ok, false, "只剩 1 个价格不该放行");
+  if (!r.ok) assert.ok(r.reason.includes("missing key number"), `原因不对: ${r.reason}`);
+});
+
 // ── 数字提取辅助 ────────────────────────────────────────────────────
 
 test("materialNumbers: 提取素材里的数字串，小数点算整体（排障用）", () => {

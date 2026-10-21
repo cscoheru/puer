@@ -21,12 +21,17 @@ export async function POST(req: NextRequest) {
     where: { id: { in: articleIds } },
     select: { id: true, status: true },
   });
-  const ids = found.filter((a) => a.status !== "draft").map((a) => a.id);
+  // draft 与 rejected 都不进批量操作：
+  //  - draft 未审校，批量化会绕过「草稿请到草稿审校中操作」的约束；
+  //  - rejected 是**去重墓碑**（行在 = 那份素材永久不再成稿），批量删掉会让
+  //    它下周一重新生成，编辑的退回决定被悄悄撤销。
+  const BATCH_EXCLUDED_STATUSES = new Set(["draft", "rejected"]);
+  const ids = found.filter((a) => !BATCH_EXCLUDED_STATUSES.has(a.status)).map((a) => a.id);
   const skippedDrafts = articleIds.length - ids.length;
   if (ids.length === 0) {
     return Response.json(
       skippedDrafts > 0
-        ? { ok: true, affected: 0, skippedDrafts, note: "草稿请到「草稿审校」中操作" }
+        ? { ok: true, affected: 0, skippedDrafts, note: "草稿与已退回稿件请到「草稿审校」中操作" }
         : { ok: true, affected: 0 }
     );
   }

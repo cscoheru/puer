@@ -128,6 +128,32 @@ const cases: Case[] = [
     expected: true,
   },
 
+  // ── rejected → author or admin（被编辑打回的草稿）────────────────────────
+  {
+    name: "rejected: anonymous viewer denied",
+    article: { status: "rejected", visibility: "public", authorId: OWNER },
+    viewer: {},
+    expected: false,
+  },
+  {
+    name: "rejected: other user denied",
+    article: { status: "rejected", visibility: "public", authorId: OWNER },
+    viewer: { userId: OTHER },
+    expected: false,
+  },
+  {
+    name: "rejected: owner sees it",
+    article: { status: "rejected", visibility: "public", authorId: OWNER },
+    viewer: { userId: OWNER },
+    expected: true,
+  },
+  {
+    name: "rejected: admin sees it",
+    article: { status: "rejected", visibility: "public", authorId: OWNER },
+    viewer: { isAdmin: true },
+    expected: true,
+  },
+
   // ── archived → admin only (not even author) ──────────────────────────────
   {
     name: "archived: anonymous viewer denied",

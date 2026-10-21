@@ -361,6 +361,10 @@ model Article {
   moderation  Json? // 审核结果 {categories,confidence,reason,source};pending_review 时写入
   moderatedBy String? // 审核管理员 id
   moderatedAt DateTime? // 人工审核时间
+  // 草稿「退回」反馈（资讯草稿管线）：{category,reason,by,at}。
+  // 与 moderation 严格分开——后者是机器内容安全判定，这是人工选题质量反馈，
+  // 脚本侧据此推导下一轮检索/筛选规则。退回即写 status="rejected"，行保留作去重墓碑。
+  reviewFeedback Json?
   viewCount   Int       @default(0)
   upvotes     Int       @default(0)
   downvotes   Int       @default(0)

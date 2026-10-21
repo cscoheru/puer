@@ -11,6 +11,19 @@ import { deepSeekAdapt, toAdaptSource } from "@/lib/tea-drafts/adapt";
 import { normalizeTastingNote } from "@/lib/tea-drafts/normalize";
 import { buildAiOriginal, type AiOriginal } from "@/lib/tea-drafts/runner";
 import { styleFor } from "@/lib/tea-drafts/styles";
+import {
+  normalizeFeedbackReason,
+  parseFeedbackCategory,
+  type FeedbackCategory,
+} from "@/lib/news-draft/feedback-policy";
+
+/**
+ * 允许**直接**写入的状态（不经过专门 action）。
+ *
+ * 只有 `archived`（归档）：草稿箱里的「归档」是纯状态切换，没有副作用。
+ * `rejected` 不在其中——退回必须连带写 reviewFeedback，走 `action: "reject"`。
+ */
+const DIRECT_STATUS_ALLOWED = new Set(["archived"]);
 
 /**
  * Read-only source-note view for a tasting-note draft. Resolves only for
@@ -179,6 +192,79 @@ async function rewriteDraft(id: string) {
   });
 }
 
+/**
+ * `action: "reject"` — 退回草稿并记录选题质量反馈。
+ *
+ * 退回**不是删除**：行保留、状态改为 `rejected`，从待审队列移出。
+ * 保留的理由是**幂等墓碑**——资讯稿主键是 `news-draft_<hash(sourceKey)>`，
+ * 同一份素材永远生成同一个 id；行在，脚本下次跑到它就会按「已存在」跳过，
+ * 所以被退回的素材**永久不会再成稿**。删掉行反而会让它复活。
+ *
+ * 反馈写 `reviewFeedback`（不是 `moderation`——后者是机器内容安全判定，
+ * 语义不同，混用会污染审校统计）。
+ */
+async function rejectDraft(
+  id: string,
+  actorId: string,
+  body: { category?: unknown; reason?: unknown },
+) {
+  const category = parseFeedbackCategory(body.category);
+  if (!category) {
+    return NextResponse.json({ error: "退回分类不合法" }, { status: 400 });
+  }
+  const reason = normalizeFeedbackReason(body.reason);
+  if (!reason) {
+    return NextResponse.json(
+      { error: "退回必须说明原因（4–500 字）" },
+      { status: 400 },
+    );
+  }
+
+  const pre = await prisma.article.findUnique({
+    where: { id },
+    select: { id: true, status: true },
+  });
+  if (!pre) return NextResponse.json({ error: "草稿不存在" }, { status: 404 });
+  // 幂等：已退回的直接返回成功，但**明确标记 skipped**——否则第二个管理员的
+  // 反馈会被静默丢弃，而客户端把 2xx 当成功，他以为自己记下了。
+  // （rewrite 路径用的是同一个 skipped 形状。）
+  if (pre.status === "rejected") {
+    const fresh = await prisma.article.findUnique({ where: { id } });
+    return NextResponse.json({
+      ...(fresh ?? {}),
+      skipped: true,
+      reason: "该稿已退回，未重复记录反馈",
+    });
+  }
+  if (pre.status !== "draft") {
+    return NextResponse.json({ error: "仅草稿可退回" }, { status: 400 });
+  }
+
+  const feedback = {
+    category,
+    reason,
+    by: actorId,
+    at: new Date().toISOString(),
+  } satisfies { category: FeedbackCategory; reason: string; by: string; at: string };
+
+  // 原子状态迁移：WHERE 里带上 status="draft"，并发场景下不会与「发布/归档」
+  // 交错出「已发布却被标成已退回」的错位（先查后改的 TOCTOU）。
+  // count===0 说明状态已被别人改掉（发布/归档/另一次退回），此时不覆盖。
+  const { count } = await prisma.article.updateMany({
+    where: { id, status: "draft" },
+    data: { status: "rejected", reviewFeedback: feedback },
+  });
+  if (count !== 1) {
+    // 400 而非 409：本仓库对「状态不允许」一律用 400（见 admin/reviews/[id]）。
+    return NextResponse.json(
+      { error: "草稿状态已变化（可能已发布或归档），未退回" },
+      { status: 400 },
+    );
+  }
+  const updated = await prisma.article.findUnique({ where: { id } });
+  return NextResponse.json(updated);
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user || (session.user as any).role !== "admin") {
@@ -209,6 +295,33 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1");
   const limit = parseInt(searchParams.get("limit") || "30");
 
+  // 已退回列表：反馈闭环的可观测面。管理员要能看到「我退回了什么、为什么」，
+  // 否则退回就只是个黑洞动作；下游脚本也靠这些 reviewFeedback 推导选题规则。
+  //
+  // 响应信封与普通列表**完全一致**（drafts/total/page/limit）——同一个 `drafts`
+  // 键返回两种形状会让客户端读 total 时拿到 undefined，分页参数也会失效。
+  if (searchParams.get("rejected") === "1") {
+    const where = { status: "rejected" };
+    const [rejected, rejectedTotal] = await Promise.all([
+      prisma.article.findMany({
+        where,
+        orderBy: { updatedAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          reviewFeedback: true,
+          updatedAt: true,
+          author: { select: { username: true } },
+        },
+      }),
+      prisma.article.count({ where }),
+    ]);
+    return NextResponse.json({ drafts: rejected, total: rejectedTotal, page, limit });
+  }
+
   const [drafts, total] = await Promise.all([
     prisma.article.findMany({
       where: { status: "draft" },
@@ -226,13 +339,33 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ drafts, total, page, limit });
 }
 
+/**
+ * `PUT /api/drafts` — 草稿字段编辑与状态迁移（仅管理员）。
+ *
+ * 请求体契约：
+ * ```
+ * {
+ *   id: string,                    // 必填
+ *   action?: "rewrite" | "reject", // 动作分支，互斥于下面的字段编辑
+ *   title?: string, content?: string, tags?: string[], images?: string[],
+ *   status?: "published" | "archived",
+ * }
+ * ```
+ * - `action: "rewrite"`：品鉴草稿的 AI 重写（只改 content/summary/aiOriginal）。
+ * - `action: "reject"`：退回资讯草稿并记录选题反馈，必须带
+ *   `category`（五选一）与 `reason`（4–500 字），并把状态改为 `rejected`。
+ * - 不带 action 时：字段编辑 + 可选状态变更。**直接写 status 只允许
+ *   `archived`**；`published` 走 publishArticles（要发经验、算版块计数），
+ *   `rejected` 必须走 `action: "reject"`（要连带写 reviewFeedback）。
+ */
 export async function PUT(req: NextRequest) {
   const session = await auth();
   if (!session?.user || (session.user as any).role !== "admin") {
     return NextResponse.json({ error: "仅管理员" }, { status: 403 });
   }
 
-  const { id, action, title, content, tags, status, images } = await req.json();
+  const { id, action, title, content, tags, status, images, category, reason } =
+    await req.json();
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
 
   // Rewrite is its own action: it owns the whole body rewrite and writes only
@@ -240,6 +373,13 @@ export async function PUT(req: NextRequest) {
   // make it possible to "rewrite" and edit in one request and lose the
   // human-edit precondition that keeps the reviewer's version safe.
   if (action === "rewrite") return rewriteDraft(id);
+
+  // Reject is its own action for the same reason: it owns the status transition
+  // (draft → rejected) and the reviewFeedback write, which must not be
+  // separable from the transition.
+  if (action === "reject") {
+    return rejectDraft(id, session.user.id, { category, reason });
+  }
 
   // Editable fields. The publish transition is owned by publishArticles so the
   // author's exp and board counters fire exactly once on draft→published; apply
@@ -249,7 +389,19 @@ export async function PUT(req: NextRequest) {
   if (title !== undefined) data.title = title;
   if (content !== undefined) data.content = content;
   if (tags !== undefined) data.tags = tags;
-  if (!wantsPublish && status !== undefined) data.status = status;
+  if (!wantsPublish && status !== undefined) {
+    // 白名单：直接写 status 只允许归档。`rejected` 必须走 `action: "reject"`
+    // ——它要连带写 reviewFeedback，绕过它就等于塞一条没有反馈的退回记录，
+    // 污染下游的选题规则推导。其他未知状态一律拒绝。
+    if (!DIRECT_STATUS_ALLOWED.has(status)) {
+      // 不回显原始入参（可能是任意长度的客户端字符串）。
+      return NextResponse.json(
+        { error: "不支持的状态变更（仅支持 archived）" },
+        { status: 400 },
+      );
+    }
+    data.status = status;
+  }
 
   // Image edit (admin): validated against the media allowlist, then keep the
   // slideshow video consistent with the new set (see draft-media.ts).

@@ -51,6 +51,7 @@ export interface ArticleViewer {
  *   published + public       → anyone
  *   published + private      → author or admin
  *   draft / pending_review   → author or admin
+ *   rejected                 → author or admin（被编辑打回的草稿，仍可查看原文）
  *   archived                 → admin only
  *   unknown status           → deny
  */
@@ -68,6 +69,7 @@ export function canViewArticleDetail(
       return true;
     case "draft":
     case "pending_review":
+    case "rejected":
       return isOwner || isAdmin;
     case "archived":
       return isAdmin;

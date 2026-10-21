@@ -56,11 +56,14 @@ function StatusBadge({ status }: { status: string }) {
     published: "bg-green-100 text-green-700",
     draft: "bg-yellow-100 text-yellow-700",
     archived: "bg-gray-100 text-gray-500",
+    // 已退回：草稿箱里被编辑打回的稿子（保留行作去重墓碑）。
+    rejected: "bg-rose-100 text-rose-700",
   };
   const labels: Record<string, string> = {
     published: "已发布",
     draft: "草稿",
     archived: "已归档",
+    rejected: "已退回",
   };
   return (
     <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${styles[status] || "bg-stone-100 text-stone-500"}`}>

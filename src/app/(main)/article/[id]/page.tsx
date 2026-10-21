@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLevelName } from "@/lib/level-config";
+import { canViewArticleDetail } from "@/lib/article-visibility";
 import LikeButton from "@/components/like-button";
 import ShareButton from "@/components/share-button";
 import FavoriteButton from "@/components/favorite-button";
@@ -28,13 +29,19 @@ export default async function ArticleDetailPage({ params }: PageProps) {
   }).catch(() => { console.warn("[ArticleDetail] DB unavailable"); return null; });
 
   const session = await auth();
-  // 待审帖仅作者本人和管理员可见(与 forum/thread/[id] 同逻辑);archived 全不可见
+  // 可见性判定与 forum/thread/[id] **同源**（canViewArticleDetail）：只有
+  // published+public 对所有人可见；draft/pending/rejected 仅作者与管理员可见；
+  // archived 仅管理员；未知状态一律拒绝（fail-closed）。
+  //
+  // 之前这里是手写的白名单（只排 archived 与 pending_review），漏掉了 draft
+  // 与新加的 rejected —— 知道 id 就能在公网读到未发布的稿子。改用共享判定后
+  // 两处页面口径一致，且新状态值不需要再逐个补白名单。
   if (
     !article ||
-    article.status === "archived" ||
-    (article.status === "pending_review" &&
-      session?.user?.id !== article.authorId &&
-      session?.user?.role !== "admin")
+    !canViewArticleDetail(
+      { status: article.status, visibility: article.visibility, authorId: article.authorId },
+      { userId: session?.user?.id, isAdmin: session?.user?.role === "admin" },
+    )
   ) {
     notFound();
   }

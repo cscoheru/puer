@@ -8,12 +8,11 @@ import ArticleCard from "@/components/tea/article-card";
 import TastingCard from "@/components/tea/tasting-card";
 import PromoteButton from "@/components/tea/promote-button";
 import { LockedTip, LockedWallOverlay } from "@/components/tea/locked-tip";
+import TeaBackButton from "@/components/tea/back-button";
 import type { Prisma } from "@/generated/prisma/client";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import { parseMarket } from "@/lib/market-info";
-import { TEA_TYPE_LABELS, normalizeTeaType } from "@/lib/tea-query";
-import { loadFacets } from "@/lib/tea-landing-server";
 import { isMirrorNoteLive } from "@/lib/tasting-note-plan";
 
 export const dynamic = "force-dynamic";
@@ -90,7 +89,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
     redirect(`/login?next=${encodeURIComponent(`/tea/${id}`)}`);
   }
 
-  const [allTastingNotes, articles, facets] = await Promise.all([
+  const [allTastingNotes, articles] = await Promise.all([
     prisma.tastingNote.findMany({
       where: { teaId: id },
       orderBy: { createdAt: "desc" },
@@ -118,10 +117,6 @@ export default async function TeaDetailPage({ params }: PageProps) {
       include: articleIncludes,
       orderBy: { createdAt: "desc" },
     }).catch(() => [] as ArticleWithRelations[]),
-    // P1-3：品牌/生熟面包屑的"该 hub 是否建页"判定必须与落地页**同源**，否则闸门必然漂移。
-    // 教训：原先本地算 `brandTeaCount >= LANDING_MIN_TEAS`，漏掉了 loadFacets 里的
-    // 「未知」排除 → 28 款 brand="未知" 的经典茶挂出指向 /tea/brand/未知 的 404 面包屑。
-    loadFacets(),
   ]);
 
   // 镜像笔记的可见性跟随源帖：只保留源帖**当前**处于「已发布且非私密」的笔记。
@@ -219,41 +214,9 @@ export default async function TeaDetailPage({ params }: PageProps) {
   const heroImgAbs = absImageUrl(heroImgSrc);
   const teaTypeLabel = tea.type === "raw" ? "生茶" : "熟茶";
 
-  // P1-3：可见面包屑与 BreadcrumbList JSON-LD 同源（不造假层级）。
-  // 恢复 /tea 一级（P2-R23 曾因茶品库隐藏而删）。
-  // 品牌/生熟两级只在「对应 hub 真的建了页」时才挂 —— 判据直接取自 loadFacets()，
-  // 与 /tea/brand|type/[x] 的 notFound 闸门是同一份数据，不可能再产生 404 内链。
-  const normalizedType = normalizeTeaType(tea.type);
-  const typeHub =
-    normalizedType && facets.types.some((t) => t.key === normalizedType) ? normalizedType : null;
-  const crumbs: { name: string; path: string }[] = [
-    { name: "品茶论坛", path: "/forum" },
-    { name: "茶品库", path: "/tea" },
-    ...(facets.brands.some((b) => b.brand === tea.brand)
-      ? [{ name: `${tea.brand}普洱茶`, path: `/tea/brand/${encodeURIComponent(tea.brand)}` }]
-      : []),
-    ...(typeHub ? [{ name: TEA_TYPE_LABELS[typeHub], path: `/tea/type/${typeHub}` }] : []),
-    { name: tea.name, path: `/tea/${id}` },
-  ];
-
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-8 lg:px-16 py-6 md:py-10">
-      {/* Breadcrumb JSON-LD（P1-3：可见 nav 早已存在但缺结构化数据，富摘要拿不到层级） */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: safeJsonLdStringify({
-            "@context": "https://schema.org",
-            "@type": "BreadcrumbList",
-            itemListElement: crumbs.map((c, i) => ({
-              "@type": "ListItem",
-              position: i + 1,
-              name: c.name,
-              item: `https://puer.im${c.path}`,
-            })),
-          }),
-        }}
-      />
+      {/* 不输出 BreadcrumbList：层级路径会暴露站内结构，产品上统一改为「返回」。 */}
       {/* Product JSON-LD（P2-R11：image + aggregateRating 提升图片收录与富摘要） */}
       <script
         type="application/ld+json"
@@ -281,19 +244,8 @@ export default async function TeaDetailPage({ params }: PageProps) {
           }),
         }}
       />
-      {/* Breadcrumb（P1-3：恢复「茶品库」一级；茶品库已公开，不再是死链） */}
-      <nav aria-label="面包屑" className="text-xs md:text-sm text-stone-400 mb-4">
-        {crumbs.map((c, i) => (
-          <span key={c.path}>
-            {i > 0 && <span className="mx-2">/</span>}
-            {i === crumbs.length - 1 ? (
-              <span className="text-stone-600">{c.name}</span>
-            ) : (
-              <Link href={c.path} className="hover:text-amber-700 transition">{c.name}</Link>
-            )}
-          </span>
-        ))}
-      </nav>
+      {/* 返回（从哪里来回哪里去；不展示层级路径） */}
+      <TeaBackButton />
 
       {/* Header */}
       <div className="bg-white rounded-xl border border-stone-200 p-5 md:p-8 mb-6">

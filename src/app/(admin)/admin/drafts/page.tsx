@@ -9,6 +9,8 @@ import DraftReviewPanel, {
 } from "./drafts-client";
 import { isTastingDraftId } from "@/lib/tea-drafts/id";
 import { styleByKey } from "@/lib/tea-drafts/styles";
+import { FEEDBACK_CATEGORY_LABELS, type FeedbackCategory } from "@/lib/news-draft/feedback-policy";
+import RejectDraftDialog from "./reject-dialog";
 
 /**
  * What a list row must carry to show its markers. Structural subset of the
@@ -45,6 +47,90 @@ function StyleChip({ draft }: { draft: RowMark }) {
   if (draft.aiOriginal?.adapted !== true) return null;
   const style = styleByKey(draft.aiOriginal?.style);
   return <span className="ml-1 text-stone-400">· {style?.label ?? "风格未记录"}</span>;
+}
+
+/**
+ * 已退回列表：反馈闭环的可观测面。
+ *
+ * 退回不是删除——稿子移出队列，但「退回了什么、为什么」要看得见，
+ * 管理员才知道自己的反馈真的在影响下一轮的选题规则（分类 → 收紧时效闸/
+ * 品牌白名单/接地严格度）。
+ */
+function RejectedList() {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<any[] | null>(null);
+  const [total, setTotal] = useState(0);
+
+  const load = async () => {
+    const res = await fetch("/api/drafts?rejected=1&limit=30");
+    const data = await res.json().catch(() => null);
+    setItems(data?.drafts ?? []);
+    setTotal(data?.total ?? 0);
+  };
+
+  // 每次展开都重新拉取：退回刚发生时列表要能立刻看到新条目，
+  // 也不能因为首次加载过就永远显示旧数组。
+  useEffect(() => {
+    if (open) load();
+  }, [open]);
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-xs text-stone-400 hover:text-stone-600 underline underline-offset-2"
+      >
+        查看已退回稿件
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-8 pt-6 border-t border-stone-200">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-medium text-stone-700">
+          已退回稿件（{total}）
+        </h2>
+        <button
+          onClick={() => setOpen(false)}
+          className="text-xs text-stone-400 hover:text-stone-600"
+        >
+          收起
+        </button>
+      </div>
+      {items === null ? (
+        <p className="text-xs text-stone-400">加载中...</p>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-stone-400">还没有退回过稿件。</p>
+      ) : (
+        <>
+          {total > items.length && (
+            <p className="text-xs text-stone-400 mb-2">仅显示最近 {items.length} 条</p>
+          )}
+          <div className="space-y-2">
+          {items.map((d) => {
+            const fb = d.reviewFeedback || {};
+            const cat = (fb.category as FeedbackCategory) || "other";
+            return (
+              <div key={d.id} className="p-3 bg-stone-50 rounded-lg border border-stone-200">
+                <p className="text-sm text-stone-700 truncate">{d.title}</p>
+                <p className="text-xs text-stone-500 mt-1">
+                  <span className="inline-block px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded mr-2">
+                    {FEEDBACK_CATEGORY_LABELS[cat] ?? cat}
+                  </span>
+                  {fb.reason}
+                </p>
+                <p className="text-[11px] text-stone-400 mt-1">
+                  {new Date(d.updatedAt).toLocaleString("zh-CN")}
+                </p>
+              </div>
+            );
+          })}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function DraftsPage() {
@@ -169,6 +255,11 @@ export default function DraftsPage() {
                 >
                   删除
                 </button>
+                <RejectDraftDialog
+                  draftId={d.id}
+                  draftTitle={d.title}
+                  onDone={fetchDrafts}
+                />
               </div>
             </div>
           ))}
@@ -205,6 +296,8 @@ export default function DraftsPage() {
           onChanged={fetchDrafts}
         />
       )}
+
+      <RejectedList />
     </div>
   );
 }
