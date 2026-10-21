@@ -56,6 +56,11 @@ next-env.d.ts
 # user-uploaded assets inside public/ (next.js public dir)
 /public/uploads/
 
+# private upload tier (unwatermarked video originals + chunk staging).
+# Lives outside public/ on purpose; in local dev process.cwd() is the repo root,
+# so a local upload creates it here — never commit user media.
+/private/
+
 # evernote raw export (source material, 3k+ files - processed into public/uploads on server)
 /evernote_export/
 /export_images.log

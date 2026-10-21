@@ -5,6 +5,11 @@ import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { Readable } from "stream";
 import path from "path";
+import {
+  PUBLIC_UPLOADS_ROOT,
+  RAW_VIDEOS_ROOT,
+  isInside,
+} from "@/lib/upload-storage";
 
 // GET /api/admin/videos/[articleId]/download — 管理员专用视频下载。
 // 流式返回帖子原视频,带 Content-Disposition: attachment 触发浏览器下载。
@@ -26,17 +31,20 @@ export async function GET(
     return NextResponse.json({ error: "该帖无视频" }, { status: 404 });
   }
 
-  // ?raw=1 → unwatermarked (videos-raw/, for 无水印 下载); default → public
-  // watermarked file (防盗). Raw missing falls back to watermarked.
+  // ?raw=1 → unwatermarked (private/videos-raw/, for 无水印 下载); default →
+  // public watermarked file (防盗). The raw twin lives OUTSIDE public/ so it
+  // is never reachable by URL — this admin-gated route is the only door.
+  // Raw missing falls back to watermarked.
   const wantRaw = new URL(_req.url).searchParams.get("raw") === "1";
-  const rawPath = path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "videos-raw",
-    path.basename(article.videoUrl)
-  );
-  let filePath = path.join(process.cwd(), "public", article.videoUrl);
+  const rawPath = path.join(RAW_VIDEOS_ROOT, path.basename(article.videoUrl));
+  // videoUrl is stored verbatim from the post body, so it is NOT a trusted
+  // path: resolve it against the uploads root and refuse anything that
+  // escapes it. Without this, a crafted videoUrl would let this route read
+  // any file in the container — including the private raw tier.
+  let filePath = path.join(PUBLIC_UPLOADS_ROOT, path.basename(article.videoUrl));
+  if (!isInside(PUBLIC_UPLOADS_ROOT, filePath)) {
+    return NextResponse.json({ error: "视频文件不存在" }, { status: 404 });
+  }
   if (wantRaw) {
     try {
       await stat(rawPath);

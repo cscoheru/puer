@@ -33,11 +33,13 @@ import {
   maxBytesForKind,
 } from "@/lib/upload-policy";
 import { maybeSweepUploadTemp } from "@/lib/upload-cleanup";
+import {
+  CHUNK_ROOT,
+  PUBLIC_UPLOADS_ROOT as UPLOADS_ROOT,
+  RAW_VIDEOS_ROOT,
+} from "@/lib/upload-storage";
 
 const execFileAsync = promisify(execFile);
-
-const CHUNK_ROOT = path.join(process.cwd(), "public", "uploads", ".tmp");
-const UPLOADS_ROOT = path.join(process.cwd(), "public", "uploads");
 
 // ffmpeg is CPU-heavy; cap concurrent transcodes process-wide so one user
 // cannot starve the box. 2 leaves headroom for the app + DB on the small VPS.
@@ -554,16 +556,12 @@ async function extractVideoThumbnail(filename: string, filepath: string): Promis
  *  pass via filter_complex — no second transcode. */
 async function compressVideo(filepath: string, addWatermark = true): Promise<void> {
   const tmpPath = filepath + ".tmp.mp4";
-  // Unwatermarked twin: same basename under videos-raw/ — the admin → 小红书
-  // download source. 存量 restored from pre-watermark backup; new uploads write
-  // it here too (double-store). Front-end still serves the watermarked file.
-  const rawPath = path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "videos-raw",
-    path.basename(filepath),
-  );
+  // Unwatermarked twin: same basename under private/videos-raw/ — the admin →
+  // 小红书 download source. Kept OUTSIDE public/ so it is never web-served
+  // (the watermark would otherwise be bypassable by guessing the filename),
+  // and bind-mounted so it survives container recreates. Front-end still
+  // serves the watermarked copy.
+  const rawPath = path.join(RAW_VIDEOS_ROOT, path.basename(filepath));
   try {
     await execFileAsync("ffprobe", [
       "-v", "error",
@@ -580,11 +578,27 @@ async function compressVideo(filepath: string, addWatermark = true): Promise<voi
   const useWm = addWatermark && existsSync(wmPath);
   const scaleVf = "scale=min(720\\,iw):min(720\\,ih):force_original_aspect_ratio=decrease";
 
-  // videos-raw is a mounted volume; mkdir is cheap & idempotent
-  await mkdir(path.dirname(rawPath), { recursive: true }).catch(() => {});
-
+  // videos-raw is a mounted volume; mkdir is cheap & idempotent.
+  // A failure here (missing mount, read-only fs) must NOT abort the public
+  // watermark pass below: if it did, the original unwatermarked upload would
+  // stay in place and be served publicly — losing the watermark is a worse
+  // outcome than losing the raw twin. Log it and keep going.
   try {
-    // Pass 1: compress UNWATERMARKED → videos-raw (admin download source)
+    await mkdir(path.dirname(rawPath), { recursive: true });
+  } catch (err) {
+    console.error(
+      "[upload] private videos-raw dir unavailable:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // Pass 1: compress UNWATERMARKED → private/videos-raw (admin download
+  // source). A failure here does NOT abort the upload — the public watermarked
+  // copy is still produced below — but it degrades the admin download to the
+  // watermarked version with no visible sign, which is exactly how the
+  // originals were lost before. Log it loudly instead of swallowing it.
+  let rawOk = false;
+  try {
     await execFileAsync("ffmpeg", [
       "-i", filepath,
       "-vf", scaleVf,
@@ -593,7 +607,15 @@ async function compressVideo(filepath: string, addWatermark = true): Promise<voi
       "-movflags", "+faststart",
       "-y", rawPath,
     ], { timeout: 120_000 });
+    rawOk = true;
+  } catch (err) {
+    console.error(
+      `[upload] unwatermarked twin failed (${path.basename(filepath)}):`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 
+  try {
     if (useWm) {
       // Pass 2: compress + watermark → videos (public front-end version)
       await execFileAsync("ffmpeg", [
@@ -615,9 +637,20 @@ async function compressVideo(filepath: string, addWatermark = true): Promise<voi
         await rm(tmpPath).catch(() => {});
       }
     } else {
-      // no watermark: public file = unwatermarked (same as raw)
-      await rm(filepath);
-      await copyFile(rawPath, filepath);
+      // no watermark overlay available: public file = unwatermarked copy.
+      // Needs the raw twin, so it can only run when pass 1 succeeded.
+      if (rawOk) {
+        await rm(filepath);
+        await copyFile(rawPath, filepath);
+      } else {
+        // The public file stays as the ORIGINAL upload — uncompressed and
+        // unwatermarked. That is a visible degradation, not a no-op, so it
+        // gets its own log line (AGENTS.md: 静默降级 = 延迟爆炸).
+        console.warn(
+          `[upload] no watermark overlay and no raw twin (${path.basename(filepath)}): ` +
+            "public file left as the original upload (uncompressed, unwatermarked)",
+        );
+      }
     }
   } catch {
     await rm(tmpPath).catch(() => {});

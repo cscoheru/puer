@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { mkdir, copyFile, writeFile, rm, access, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
+import { PUBLIC_VIDEOS_ROOT } from "./upload-storage.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -66,7 +67,7 @@ export async function generateSlideshowVideo(
 
       // Output paths
       const videoId = randomUUID();
-      const videoDir = path.join(process.cwd(), "public", "uploads", "videos");
+      const videoDir = PUBLIC_VIDEOS_ROOT;
       await mkdir(videoDir, { recursive: true });
       const outputPath = path.join(videoDir, `${videoId}.mp4`);
       const thumbPath = path.join(videoDir, `${videoId}.jpg`);

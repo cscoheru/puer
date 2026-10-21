@@ -1,5 +1,6 @@
 import { readFile } from "fs/promises";
 import path from "path";
+import { PUBLIC_UPLOADS_ROOT as UPLOADS_ROOT, isInside } from "@/lib/upload-storage";
 
 /**
  * P2-R26：uploads 静态文件兜底路由。
@@ -23,8 +24,6 @@ const MIME: Record<string, string> = {
   ".webm": "video/webm",
 };
 
-const UPLOADS_ROOT = path.join(process.cwd(), "public", "uploads");
-
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ path: string[] }> }
@@ -36,7 +35,10 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
   const abs = path.join(UPLOADS_ROOT, rel);
-  if (!abs.startsWith(UPLOADS_ROOT + path.sep)) {
+  // 共享的 containment 判定（与 upload-policy.ts / upload-storage.ts 同一语义）：
+  // 解析后的绝对路径必须仍在 public/uploads 之内。分隔符敏感的前缀比较，
+  // "/uploads/foo2" 不算 "/uploads/foo" 的子路径。
+  if (!isInside(UPLOADS_ROOT, abs)) {
     return new Response("Not found", { status: 404 });
   }
   try {

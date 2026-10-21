@@ -89,6 +89,19 @@ services:
       - ./uploads/inventory:/app/public/uploads/inventory
       - ./uploads/tea:/app/public/uploads/tea
       - ./uploads/collected:/app/public/uploads/collected
+      # Avatars are public images, but they must survive a container recreate:
+      # an unmounted directory lives in the container's writable layer and is
+      # destroyed on every `docker compose up --build`.
+      - ./uploads/avatars:/app/public/uploads/avatars
+      # Private tier — mounted OUTSIDE public/ so neither Next.js's static
+      # handler nor the /uploads/[...path] fallback route can serve it.
+      #   videos-raw  : unwatermarked video originals (admin download only)
+      #   uploads-tmp : chunk staging for in-progress uploads
+      # Deliberately a SIBLING of uploads/, not a subdirectory of it: the
+      # rag-service container mounts ./uploads read-only, so keeping the
+      # originals under ./uploads/ would hand them to that container too.
+      - ./private/videos-raw:/app/private/videos-raw
+      - ./private/uploads-tmp:/app/private/uploads-tmp
       - ./evernote_export/images:/app/public/uploads/evernote:ro
       - ./scripts/auto-post.mjs:/app/scripts/auto-post.mjs:ro
       - ./src/lib/tea-drafts:/app/src/lib/tea-drafts:ro
