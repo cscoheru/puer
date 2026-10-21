@@ -361,8 +361,27 @@ model Article {
 
   flair       String?   @db.VarChar(30) // 帖子标签
   tags        String[]
-  status      String    @default("published") // draft | published | archived | pending_review
+  status      String    @default("published") // draft | published | archived | pending_review | rejected
   visibility  String    @default("public") // public | private（仅作者/管理员可见）
+
+  // ── F0 内容来源（PRD v0.3 §6/F0）─────────────────────────────────────
+  // human | ai_from_notes | ai_autonomous。新帖由各写入管线显式赋值；
+  // 存量帖由一次性回填脚本按 src/lib/content-origin.ts 的规则推断。
+  // 可空只服务回填窗口，回填后全量非空；读取侧遇 NULL 一律按「不可进数据层」
+  // 处理（originCanFeedDataLayer(null)===false），所以未回填期不会误放行。
+  origin        String?  @db.VarChar(20)
+  // ai_from_notes 必填：本帖所依据的站长原始品鉴笔记 id（TastingNote.id）。
+  // 其余 origin 恒为空数组。Json 而非外键约束：草稿可能引用多条，且原始笔记
+  // 被删时这里保留墓碑 id 即可，不做级联。
+  originNoteIds String[] @default([])
+  // 统一署名账号 id（F0：AI 内容只用一个带标注的账号发，不再多账号扮演真人）。
+  // 可空：human 帖与回填窗口允许为空。
+  postedAsAccountId String?
+  // 人审记录：发布动作发生时的审核管理员与时间。AI 管线只写 draft，发布永远
+  // 经过人工，所以 published 的 AI 帖这两列必须非空（由发布路径写入）。
+  reviewedBy String?
+  reviewedAt DateTime?
+
   moderation  Json? // 审核结果 {categories,confidence,reason,source};pending_review 时写入
   moderatedBy String? // 审核管理员 id
   moderatedAt DateTime? // 人工审核时间

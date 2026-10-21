@@ -35,6 +35,7 @@ const A = (over: Partial<NoteSourceArticle> = {}): NoteSourceArticle => ({
   teaId: "tea-1",
   status: "published",
   visibility: "public",
+  origin: "human",
   createdAt: new Date("2026-03-01T08:00:00.000Z"),
   ...over,
 });
@@ -102,6 +103,41 @@ test("已同步过则跳过（幂等）", () => {
     action: "skip",
     reason: "already-synced",
   });
+});
+
+// ── F0 单向流动闸 ───────────────────────────────────────────
+
+test("F0：AI 来源的帖子不镜像进品鉴笔记数据层", () => {
+  for (const origin of ["ai_from_notes", "ai_autonomous"]) {
+    assert.deepEqual(planArticleTastingNote(A({ origin }), NO_SYNC), {
+      action: "skip",
+      reason: "non-human-origin",
+    });
+  }
+});
+
+test("F0：来源尚未回填（null/undefined）也不镜像——宁可漏建，不可错放", () => {
+  assert.deepEqual(planArticleTastingNote(A({ origin: null }), NO_SYNC), {
+    action: "skip",
+    reason: "non-human-origin",
+  });
+  // 构造一个完全不给 origin 键的对象
+  const { origin: _omit, ...withoutOrigin } = A();
+  assert.deepEqual(planArticleTastingNote(withoutOrigin, NO_SYNC), {
+    action: "skip",
+    reason: "non-human-origin",
+  });
+});
+
+test("F0：合成账号发的帖子不镜像——独立于 origin 标注的第二道闸", () => {
+  // 即使 origin 标成了 human（回填滞后/人工误标），合成账号的帖子仍不得进
+  // 数据层。账号身份是即时可判的，不依赖回填完成。
+  assert.deepEqual(planArticleTastingNote(A({ authorIsSynthetic: true }), NO_SYNC), {
+    action: "skip",
+    reason: "synthetic-author",
+  });
+  // 真人作者 + human origin 才放行
+  assert.equal(planArticleTastingNote(A(), NO_SYNC).action, "create");
 });
 
 // ── 创建计划 ────────────────────────────────────────────────

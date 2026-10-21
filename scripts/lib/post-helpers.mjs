@@ -228,14 +228,16 @@ export async function insertPost({ title, content, videoUrl, boardId, userId, no
       "boardId", "authorId", "videoUrl",
       "isPinned", "isEssence", "replyCount", "viewCount",
       "upvotes", "downvotes", status, flair,
-      tags, images, "createdAt", "updatedAt"
+      tags, images, "createdAt", "updatedAt",
+      origin, "originNoteIds", "postedAsAccountId"
     ) VALUES (
       '${id}', 'discussion', '${escapeSql(title)}', '${escapeSql(content)}${marker}', '${escapeSql(summary)}',
       '${boardId}', '${userId}', '${videoUrl}',
       false, false, 0, 0,
       0, 0, 'published', 'share',
       ARRAY['品鉴', '茶友分享']::varchar[], ARRAY[]::varchar[],
-      NOW(), NOW()
+      NOW(), NOW(),
+      'ai_from_notes', ARRAY[${noteId ? `'${escapeSql(noteId)}'` : "''"}]::varchar[], '${userId}'
     )
   `);
 

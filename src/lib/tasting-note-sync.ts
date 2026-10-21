@@ -44,6 +44,7 @@ export const NOTE_SOURCE_SELECT = {
   teaId: true,
   status: true,
   visibility: true,
+  origin: true,
   createdAt: true,
 } satisfies Prisma.ArticleSelect;
 
@@ -67,6 +68,14 @@ export async function syncTastingNoteForArticle(articleId: string): Promise<Sync
     });
     if (!article) return "skipped";
 
+    // F0：作者是否为系统控制的合成账号。规划器据此做第二道闸（与 origin
+    // 标注相互独立 —— 标注可能因回填滞后而缺失，账号身份是即时可判的）。
+    const author = await prisma.user.findUnique({
+      where: { id: article.authorId ?? "" },
+      select: { isSynthetic: true },
+    });
+    const authorIsSynthetic = author?.isSynthetic === true;
+
     // `sourceId` 只有普通索引、没有唯一约束，并发发布理论上能建出两条镜像。
     // 不用迁移加唯一索引（那要先排查存量数据是否已有重复），改成**自愈**：
     // 这里把同一 sourceId 的镜像全捞出来，保留最早的一条，多的删掉。
@@ -85,8 +94,23 @@ export async function syncTastingNoteForArticle(articleId: string): Promise<Sync
     // 刻意传 alreadySynced: false：规划器在 alreadySynced=true 时会返回 skip，
     // 那样就拿不到用于更新的字段映射。是否走「更新」分支由下面 alreadySynced 决定，
     // 规划器只负责产出「这条帖子该长什么样」。
-    const plan = planArticleTastingNote(article as NoteSourceArticle, { alreadySynced: false });
-    if (plan.action === "skip") return alreadySynced ? "exists" : "skipped";
+    const plan = planArticleTastingNote(
+      { ...(article as NoteSourceArticle), authorIsSynthetic },
+      { alreadySynced: false },
+    );
+    if (plan.action === "skip") {
+      // F0：源帖被判为不可进数据层（AI 内容 / 合成账号 / 状态不允许）时，
+      // 已存在的旧镜像必须删掉 —— 否则口径改了，历史污染却留在库里。
+      // 走 removeTastingNotesForArticles 同一条路径（它只删 source=article
+      // 的镜像并重算茶品统计，不动其它笔记）。
+      if (existing) {
+        await removeTastingNotesForArticles([articleId]);
+        console.warn(
+          `[tasting-note-sync] F0 单向流动：已删除不可入数据层的镜像笔记 article=${articleId} note=${existing.id} reason=${plan.reason}`,
+        );
+      }
+      return alreadySynced ? "exists" : "skipped";
+    }
     const d = plan.data;
 
     // 笔记 + 茶品统计放进同一个事务：统计是冗余缓存，不该出现「笔记写进去了、

@@ -274,14 +274,16 @@ async function insertDraft({ title, content, question, boardId, authorId, source
       "boardId", "authorId",
       "isPinned", "isEssence", "replyCount", "viewCount",
       "upvotes", "downvotes", status, flair,
-      tags, images, "videoUrl", "createdAt", "updatedAt"
+      tags, images, "videoUrl", "createdAt", "updatedAt",
+      origin, "originNoteIds", "postedAsAccountId"
     ) VALUES (
       '${id}', 'discussion', '${escapeSql(title)}', '${escapeSql(content)}${ending}${marker}', '${escapeSql(summary)}',
       '${boardId}', '${authorId}',
       false, false, 0, 0,
       0, 0, 'draft', 'share',
       ARRAY['品鉴', '茶友分享']::varchar[], ${imgsSql}, ${videoSql},
-      NOW(), NOW()
+      NOW(), NOW(),
+      'ai_from_notes', ARRAY[]::varchar[], '${authorId}'
     )
   `);
   return id;

@@ -70,7 +70,6 @@ const FIRST_PUBLICATION_STATES = ["draft", "pending_review"] as const;
  * (e.g. only ping search engines when something actually went live).
  */
 export async function publishArticles({ ids, actorId }: PublishInput): Promise<PublishResult> {
-  void actorId; // reserved for future attribution; exp always goes to the author
   const uniqueIds = [...new Set(ids.filter((id): id is string => !!id))];
   const result: PublishResult = {
     publishedIds: [],
@@ -98,7 +97,15 @@ export async function publishArticles({ ids, actorId }: PublishInput): Promise<P
       if ((FIRST_PUBLICATION_STATES as readonly string[]).includes(existing.status)) {
         await tx.article.update({
           where: { id },
-          data: { status: "published", createdAt: new Date() },
+          data: {
+            status: "published",
+            createdAt: new Date(),
+            // F0：发布动作就是「人工审核通过」这一事实的落点。exp 仍归作者
+            // （不变），但审核人必须留痕 —— AI 内容的前台标注依赖这条链路
+            // 「AI 产出 → 人工审核 → 发布」。
+            reviewedBy: actorId ?? null,
+            reviewedAt: new Date(),
+          },
         });
         result.publishedIds.push(id);
         continue;
@@ -107,7 +114,12 @@ export async function publishArticles({ ids, actorId }: PublishInput): Promise<P
       if (existing.status === "archived") {
         await tx.article.update({
           where: { id },
-          data: { status: "published", createdAt: new Date() },
+          data: {
+            status: "published",
+            createdAt: new Date(),
+            reviewedBy: actorId ?? null,
+            reviewedAt: new Date(),
+          },
         });
         result.republishedIds.push(id);
         continue;

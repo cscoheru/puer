@@ -722,6 +722,14 @@ export async function runTeaDraftRunner(opts: {
               tags: draft.tags,
               status: draft.status,
               authorId: draft.authorId,
+              // F0 内容来源（PRD v0.3 §7 F0）：茶记草稿是「AI 依据站长原始品鉴
+              // 笔记整理」的产物 → ai_from_notes；来源笔记 id 从确定性主键里
+              // 解出来（tasting-draft_{noteId}）。这条标注同时是单向流动的
+              // 依据：ai_from_notes 不得进入 TastingNote 数据层。
+              origin: "ai_from_notes",
+              originNoteIds: noteIdFromDraftId(draft.id)
+                ? [noteIdFromDraftId(draft.id) as string]
+                : [],
               brewMethod: draft.brewMethod,
               waterTemp: draft.waterTemp,
               teaWeight: draft.teaWeight,

@@ -7,6 +7,7 @@ import VideoPlayer from "@/components/video-player";
 import AuthorHover from "@/components/author-hover";
 import FollowThreadButton from "@/components/follow-thread-button";
 import { getFlair } from "@/lib/forum-constants";
+import OriginDisclosure from "@/components/article/origin-disclosure";
 import { useLocale } from "@/i18n/context";
 import { t, twHref } from "@/i18n/translations";
 
@@ -48,6 +49,8 @@ interface FeedArticle {
   images?: string[];
   videoUrl?: string | null;
   flair: string | null;
+  /** F0 内容来源（human | ai_from_notes | ai_autonomous | null）。 */
+  origin: string | null;
   board: { slug: string; name: string } | null;
   author: { id: string; username: string; avatar: string | null; level: number; followerCount: number; karma: number };
   initialVote: number;
@@ -464,6 +467,12 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
             {isNew && (
               <span className="text-[0.625rem] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium">{_("新")}</span>
             )}
+            {/* F0 来源标注（PRD v0.3 §7 F0）：AI 内容必须可区分 */}
+            <OriginDisclosure
+              origin={article.origin}
+              translate={_}
+              className="text-[0.625rem] leading-none px-1.5 py-0.5"
+            />
             {flairDef && (
               <span className={`inline-flex items-center px-1.5 py-0.5 text-[0.625rem] leading-none font-medium rounded-full ${flairDef.color}`}>
                 {_(flairDef.label)}

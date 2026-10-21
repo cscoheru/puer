@@ -44,6 +44,30 @@ export interface NoteSourceArticle {
   status: string;
   visibility: string;
   createdAt: Date;
+  /**
+   * F0 内容来源（human | ai_from_notes | ai_autonomous | null 回填窗口）。
+   * 单向流动规则：只有真人内容能进 TastingNote 数据层，所以非 human 一律
+   * 不镜像。null 也不镜像——宁可漏建（backfill 后补跑即自愈），不可错放。
+   */
+  origin?: string | null;
+  /**
+   * 作者是否为系统控制的合成账号。F0：其行为不计入任何指标，也不得成为
+   * 数据层的来源。origin 标注与这个标记是两道独立的闸 —— 标注可能因回填
+   * 滞后而缺失，但账号身份是即时可判的。
+   */
+  authorIsSynthetic?: boolean;
+}
+
+/**
+ * F0 单向流动闸：只有明确标注为 human、且作者不是合成账号的内容才允许进
+ * 品鉴笔记数据层。
+ *
+ * 这里内联判定而不是 import content-origin.ts —— 本模块是 node --test 与
+ * Next 双解析器都要吃的「零导入」模块（见文件头）。语义与
+ * `originCanFeedDataLayer` 一致，content-origin 侧的测试已钉住该谓词。
+ */
+export function isHumanOrigin(origin: string | null | undefined): boolean {
+  return origin === "human";
 }
 
 export type NoteSkipReason =
@@ -53,6 +77,10 @@ export type NoteSkipReason =
   | "not-published"
   | "private"
   | "no-author"
+  /** F0：AI 生成内容（或来源尚未回填）永不进入 TastingNote 数据层 */
+  | "non-human-origin"
+  /** F0：系统控制的合成账号所发内容永不进入 TastingNote 数据层 */
+  | "synthetic-author"
   | "already-synced";
 
 export interface NoteCreateData {
@@ -120,6 +148,11 @@ export function planArticleTastingNote(
   if (article.status !== "published") return { action: "skip", reason: "not-published" };
   if (article.visibility === "private") return { action: "skip", reason: "private" };
   if (!article.authorId) return { action: "skip", reason: "no-author" };
+  // F0 单向流动：AI 内容与「尚未回填来源」的帖子都不进数据层。
+  if (!isHumanOrigin(article.origin)) return { action: "skip", reason: "non-human-origin" };
+  // F0：合成账号发的帖子不计入任何指标，也不得成为数据层来源。
+  // 这是独立于 origin 标注的第二道闸 —— 标注可能滞后，账号身份不会。
+  if (article.authorIsSynthetic) return { action: "skip", reason: "synthetic-author" };
   if (opts.alreadySynced) return { action: "skip", reason: "already-synced" };
 
   return {

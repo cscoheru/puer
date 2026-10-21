@@ -619,6 +619,14 @@ async function main() {
             status: "draft",
             // 不写 aiOriginal：资讯稿一次成型，没有「AI 原版 vs 人工改后」的
             // 双轨需求；写了反而会让后台的「⚠ 待重写」徽章逻辑误判。
+            //
+            // F0 内容来源（PRD v0.3 §7 F0）：资讯稿是「AI 自行检索、选题、
+            // 创作」的产物，不基于站长一手品鉴 → ai_autonomous。署名账号
+            // 固定为该管线专用账号（茶社资讯），前台显示
+            // 「AI 生成 · 非站长品鉴」。
+            origin: "ai_autonomous",
+            originNoteIds: [],
+            postedAsAccountId: author.id,
           },
         });
         created++;

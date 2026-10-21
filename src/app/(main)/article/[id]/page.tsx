@@ -9,6 +9,7 @@ import ShareButton from "@/components/share-button";
 import FavoriteButton from "@/components/favorite-button";
 import CommentSection from "@/components/comment-section";
 import ForumContent from "@/components/forum-content";
+import OriginDisclosure from "@/components/article/origin-disclosure";
 
 export const dynamic = "force-dynamic";
 
@@ -99,6 +100,11 @@ export default async function ArticleDetailPage({ params }: PageProps) {
           <span>{article._count.likes} 赞</span>
           <span>·</span>
           <span>{article.viewCount} 阅读</span>
+        </div>
+
+        {/* F0 来源标注：AI 整理 / 全自动文章必须可区分（PRD v0.3 §7 F0） */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <OriginDisclosure origin={article.origin} />
         </div>
 
         {/* Tags */}
