@@ -69,3 +69,15 @@ export const LIMIT_API_GENERAL = { max: 60, windowMs: 60 * 1000 };     // 60 per
 export const LIMIT_POST = { max: 10, windowMs: 60 * 60 * 1000 };       // 10 posts per hour
 export const LIMIT_QA = { max: 6, windowMs: 60 * 1000 };               // 6 Q&A per minute (LLM cost)
 export const LIMIT_REVIEW = { max: 3, windowMs: 60 * 60 * 1000 };       // 3 manual review requests per hour
+
+/**
+ * 列表接口的账号级限速（PRD v0.3 §8「按 IP 与账号限速」）。
+ *
+ * proxy 层做的是 IP 级（覆盖匿名爬虫，见 src/proxy.ts）；这里是账号级 ——
+ * 同一个账号换 IP 也逃不掉。阈值比 IP 级宽松：登录用户往往在同一个出口
+ * IP 下（办公室/家里），IP 级对共享出口下的所有人一起计数，账号级才是
+ * 真正区分「一个人」的口径。
+ *
+ * 60 次/分钟：真人翻页与筛选的量级；爬虫脚本通常远高于此。
+ */
+export const LIMIT_LIST_READ = { max: 60, windowMs: 60 * 1000 };

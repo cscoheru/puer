@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
+import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_LIST_READ } from "@/lib/rate-limit";
 
 const teaSchema = z.object({
   name: z.string().min(1).max(200),
@@ -25,15 +27,34 @@ export async function GET(req: NextRequest) {
   const year = searchParams.get("year");
   const type = searchParams.get("type");
   const search = searchParams.get("q");
-  const page = parseInt(searchParams.get("page") || "1");
-  const limit = parseInt(searchParams.get("limit") || "20");
+  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
+  const limit = parseInt(searchParams.get("limit") || "20", 10);
 
   // 茶品库 = 全集：列表对登录用户返回全部茶品；**未登录者只返回经典子集**
   // （与 /tea/[id] 的「非经典详情需登录」闸门一致，避免匿名枚举在建档）。
   // 带关键词的搜索（发帖/发品鉴时选茶）本来就要登录才能用，不受影响。
   const session = await auth();
   const isAdmin = session?.user?.role === "admin";
-  const safeLimit = isAdmin ? limit : Math.min(limit, 60);
+
+  // F0 反滥用：账号级限速（IP 级在 proxy 层，见 src/proxy.ts）。管理员不受限。
+  if (!isAdmin && session?.user?.id) {
+    const ip = getClientIP(req);
+    const { allowed, resetIn } = checkRateLimit(
+      rateLimitKey(ip, `list:teas:${session.user.id}`),
+      LIMIT_LIST_READ,
+    );
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "请求过于频繁，请稍后再试" },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(resetIn / 1000)) } },
+      );
+    }
+  }
+
+  // F0 反滥用：单页条数与翻页深度封顶，管理员不受限（后台要 limit=9999
+  // 一次拉全量茶品）。越界是「收敛」不是报错。
+  const safeLimit = clampListLimit(limit, { isAdmin });
+  const page = clampListPage(requestedPage, { isAdmin });
 
   const where: Record<string, unknown> = {};
   if (!session?.user) where.isClassic = true;
@@ -56,7 +77,13 @@ export async function GET(req: NextRequest) {
     prisma.tea.count({ where: { ...where, deletedAt: null } }),
   ]);
 
-  return NextResponse.json({ teas, total, page, limit });
+  return NextResponse.json({
+    teas,
+    total,
+    page,
+    limit: safeLimit,
+    capped: paginationCapped(requestedPage, page),
+  });
 }
 
 export async function POST(req: NextRequest) {

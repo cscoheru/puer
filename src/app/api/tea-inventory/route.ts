@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -13,15 +14,22 @@ export async function GET(req: NextRequest) {
   const storage = searchParams.get("storage");
   const spec = searchParams.get("spec");
   const sort = searchParams.get("sort") || "newest";
-  const page = parseInt(searchParams.get("page") || "1", 10);
-  const limit = parseInt(searchParams.get("limit") || "20", 10);
+  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
+  const rawLimit = parseInt(searchParams.get("limit") || "20", 10);
+
+  // 会话在这里就要加载一次：既用于 showHidden 的归属判定，也用于判断
+  // 管理员（管理员不受翻页上限约束）。
+  const session = await auth();
+  const isAdmin = session?.user?.role === "admin";
+  // F0 反滥用：单页条数与翻页深度封顶，管理员不受限。
+  const limit = clampListLimit(rawLimit, { isAdmin });
+  const page = clampListPage(requestedPage, { isAdmin });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = { status: "active" };
 
   // Use showHidden only when the requester owns the inventory
   if (showHidden && userId) {
-    const session = await auth();
     if (session?.user?.id === userId) {
       // Owner requesting hidden items — skip hidden: false filter
     } else {
@@ -66,7 +74,13 @@ export async function GET(req: NextRequest) {
     prisma.teaInventoryItem.count({ where }),
   ]);
 
-  return NextResponse.json({ data: items, total, page, limit });
+  return NextResponse.json({
+    data: items,
+    total,
+    page,
+    limit,
+    capped: paginationCapped(requestedPage, page),
+  });
 }
 
 export async function POST(req: NextRequest) {

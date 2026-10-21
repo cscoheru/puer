@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { fetchForumFeed, toTraditionalFeed } from "@/lib/forum-feed-server";
+import { clampOffset, paginationCapped } from "@/lib/pagination-limits";
 
 /**
  * 移动端推荐流懒加载（P2-R3）。
@@ -15,11 +16,15 @@ import { fetchForumFeed, toTraditionalFeed } from "@/lib/forum-feed-server";
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const tab = searchParams.get("tab") || "week";
-  const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10) || 0);
+  const requestedOffset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10) || 0);
   const limit = Math.min(30, Math.max(1, parseInt(searchParams.get("limit") || "10", 10) || 10));
   const locale = searchParams.get("locale");
 
   const session = await auth();
+  const isAdmin = session?.user?.role === "admin";
+  // F0 反滥用：信息流滚到底有上限（管理员不受限）。offset 是服务端游标，
+  // 越界时收敛到上限并告知客户端「已到底」，避免客户端无限下滑。
+  const offset = clampOffset(requestedOffset, { isAdmin });
   try {
     const { articles, hasMore } = await fetchForumFeed({
       tab,
@@ -32,6 +37,7 @@ export async function GET(req: NextRequest) {
       hasMore,
       offset,
       limit,
+      capped: paginationCapped(requestedOffset, offset),
     });
   } catch (e) {
     console.error("[api/forum/feed]", e);

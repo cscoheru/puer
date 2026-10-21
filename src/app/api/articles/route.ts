@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { grantExp } from "@/lib/exp";
 import { pingSearchEngines } from "@/lib/sitemap-ping";
 import { z } from "zod";
-import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_POST } from "@/lib/rate-limit";
+import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_POST, LIMIT_LIST_READ } from "@/lib/rate-limit";
+import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
 import { screenContent } from "@/lib/moderation";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
@@ -28,10 +29,32 @@ const articleSchema = z.object({
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const type = searchParams.get("type");
-  const page = parseInt(searchParams.get("page") || "1");
-  const limit = parseInt(searchParams.get("limit") || "20");
 
   const session = await auth();
+  const isAdmin = session?.user?.role === "admin";
+
+  // F0 反滥用：账号级限速（IP 级在 proxy 层，见 src/proxy.ts）。
+  // 管理员不受限 —— 后台要一次拉全量。
+  if (!isAdmin && session?.user?.id) {
+    const ip = getClientIP(req);
+    const { allowed, resetIn } = checkRateLimit(
+      rateLimitKey(ip, `list:articles:${session.user.id}`),
+      LIMIT_LIST_READ,
+    );
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "请求过于频繁，请稍后再试" },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(resetIn / 1000)) } },
+      );
+    }
+  }
+
+  // F0 反滥用：翻页深度与单页条数封顶（管理员不受限 —— 后台要一次拉全量）。
+  // 越界是「收敛」不是报错：公开 URL 应当降级而不是失败。
+  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
+  const page = clampListPage(requestedPage, { isAdmin });
+  const limit = clampListLimit(searchParams.get("limit"), { isAdmin });
+
   const where: Record<string, unknown> = { ...visibleArticleWhere(session?.user?.id) };
   if (type) where.type = type;
 
@@ -60,7 +83,14 @@ export async function GET(req: NextRequest) {
     prisma.article.count({ where }),
   ]);
 
-  return NextResponse.json({ articles, total, page, limit });
+  return NextResponse.json({
+    articles,
+    total,
+    page,
+    limit,
+    // 客户端请求的页被封顶时告知它「已经到底」，而不是假装还有更多。
+    capped: paginationCapped(requestedPage, page),
+  });
 }
 
 export async function POST(req: NextRequest) {
