@@ -47,6 +47,11 @@ model User {
   muteReason   String?   @db.Text
   warningCount Int       @default(0)
 
+  // 自动化账号（PRD F0）：cron 任务（auto-vote/auto-reply/auto-boost-new 等）
+  // 只允许在此类账号中活动，不得冒用真人；其发帖/投票/回复不计入 DAU、
+  // 留存、社区带与任何前台展示计数。真实用户与未来注册默认 false。
+  isSynthetic Boolean @default(false)
+
   // 关联
   accounts              Account[]
   sessions              Session[]

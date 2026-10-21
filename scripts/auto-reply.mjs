@@ -190,9 +190,8 @@ async function pickUser(excludeAuthorId, articleId) {
       WHERE "articleId" = '${articleId}'
     )
     SELECT id, username FROM users
-    WHERE level >= 1
+    WHERE "isSynthetic" = true
       AND "banStatus" = 'active'
-      AND "createdAt" < '2026-05-23'
       AND id != '${excludeAuthorId}'
       AND id NOT IN (SELECT "authorId" FROM replied)
     ORDER BY RANDOM() LIMIT 3
@@ -200,11 +199,12 @@ async function pickUser(excludeAuthorId, articleId) {
 
   if (rows.length > 0) return pickRandom(rows);
 
-  // Fallback: any active user except author
+  // Fallback: any active synthetic user except author
+  // F0（2026-10-21）：池子从「level>=1 且注册<2026-05-23」（曾覆盖真人）
+  // 收窄为 isSynthetic 标记池；真人不再被冒用发言。
   const fallback = await sqlRows(`
     SELECT id, username FROM users
-    WHERE level >= 1 AND "banStatus" = 'active'
-      AND "createdAt" < '2026-05-23'
+    WHERE "isSynthetic" = true AND "banStatus" = 'active'
       AND id != '${excludeAuthorId}'
     ORDER BY RANDOM() LIMIT 1
   `);

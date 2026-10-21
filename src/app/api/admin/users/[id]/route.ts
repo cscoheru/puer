@@ -16,6 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       level: true, karma: true, creditScore: true, noShowCount: true,
       followerCount: true, followingCount: true, onlineStatus: true,
       banStatus: true, bannedAt: true, banReason: true, role: true,
+      isSynthetic: true,
       createdAt: true, registrationIp: true, registrationRegion: true,
       _count: { select: { articles: true, comments: true, teaSessions: true, actions: true } },
     },
@@ -36,6 +37,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (typeof body.level === "number") data.level = body.level;
   if (typeof body.karma === "number") data.karma = body.karma;
   if (typeof body.creditScore === "number") data.creditScore = body.creditScore;
+  // 自动化标记（F0）：打标后该账号进入 cron 池，其行为不计入真人指标。
+  if (typeof body.isSynthetic === "boolean") data.isSynthetic = body.isSynthetic;
   if (body.banStatus === "banned") {
     data.banStatus = "banned";
     data.bannedAt = new Date();

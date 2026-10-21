@@ -109,11 +109,13 @@ async function getCandidatePosts() {
 // ── Step 2: Get eligible bot users (active, registered >7d) ─────────
 
 async function getBotUsers() {
-  // No `level >= 1` filter — that capped the pool at ~56 and (with the votes
-  // unique constraint) froze every post at ~58 votes. level-0 included → ~128.
+  // F0（2026-10-21）：只从标记为 isSynthetic 的账号池抽人——此前从全体
+  // active 用户随机抽，等于冒用真人投票；池子收窄后真人不再被冒用。
+  // 池子由 scripts/mark-synthetic-users.mjs 圈定（~259 个合成账号）。
   return sqlRows(`
     SELECT id, username FROM users
-    WHERE "banStatus" = 'active'
+    WHERE "isSynthetic" = true
+      AND "banStatus" = 'active'
       AND "createdAt" < NOW() - INTERVAL '7 days'
     ORDER BY RANDOM()
   `);

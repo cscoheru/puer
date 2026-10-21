@@ -26,6 +26,8 @@ export async function GET(req: NextRequest) {
   }
   if (level) where.level = parseInt(level, 10);
   if (banStatus) where.banStatus = banStatus;
+  if (searchParams.get("synthetic") === "1") where.isSynthetic = true;
+  if (searchParams.get("synthetic") === "0") where.isSynthetic = false;
 
   const [users, total] = await Promise.all([
     prisma.user.findMany({
@@ -35,6 +37,7 @@ export async function GET(req: NextRequest) {
         level: true, karma: true, creditScore: true, noShowCount: true,
         followerCount: true, onlineStatus: true, banStatus: true,
         muteStatus: true, mutedUntil: true, warningCount: true,
+        isSynthetic: true,
         createdAt: true,
         _count: { select: { articles: true, comments: true } },
       },

@@ -36,9 +36,11 @@ const PERSONAS = [
 ];
 
 async function getBotUsers() {
+  // F0（2026-10-21）：只从 isSynthetic 标记池抽人，真人不再被冒用投票。
   return sqlSingle(`
     SELECT id FROM users
-    WHERE "banStatus" = 'active' AND "createdAt" < NOW() - INTERVAL '7 days'
+    WHERE "isSynthetic" = true
+      AND "banStatus" = 'active' AND "createdAt" < NOW() - INTERVAL '7 days'
   `);
 }
 

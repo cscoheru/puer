@@ -78,8 +78,8 @@ async function main() {
     const id = randomUUID();
     try {
       await sql(`
-        INSERT INTO users (id, uid, username, email, level, "banStatus", "createdAt", "updatedAt")
-        VALUES ('${id}', ${uid}, '${escapeSql(username)}', '${email}', 0, 'active', NOW(), NOW())
+        INSERT INTO users (id, uid, username, email, level, "banStatus", "isSynthetic", "createdAt", "updatedAt")
+        VALUES ('${id}', ${uid}, '${escapeSql(username)}', '${email}', 0, 'active', true, NOW(), NOW())
       `);
       usernames.add(username);
       emails.add(email);

@@ -19,6 +19,7 @@ interface User {
   muteStatus: string;
   mutedUntil: string | null;
   warningCount: number;
+  isSynthetic: boolean;
   createdAt: string;
   _count: { articles: number; comments: number };
 }
@@ -39,6 +40,7 @@ export default function AdminUsersPage() {
   const [keyword, setKeyword] = useState("");
   const [level, setLevel] = useState("");
   const [banStatus, setBanStatus] = useState("");
+  const [synthetic, setSynthetic] = useState("");
   const [message, setMessage] = useState("");
   const [levelLabels, setLevelLabels] = useState<string[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -56,6 +58,7 @@ export default function AdminUsersPage() {
     if (keyword) params.set("keyword", keyword);
     if (level) params.set("level", level);
     if (banStatus) params.set("banStatus", banStatus);
+    if (synthetic) params.set("synthetic", synthetic);
 
     try {
       const res = await fetch(`/api/admin/users?${params}`);
@@ -67,7 +70,7 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, keyword, level, banStatus]);
+  }, [page, keyword, level, banStatus, synthetic]);
 
   useEffect(() => {
     fetchUsers();
@@ -107,6 +110,27 @@ export default function AdminUsersPage() {
       });
       if (res.ok) {
         setMessage(status === "banned" ? "已封禁" : "已解封");
+        fetchUsers();
+      } else {
+        setMessage("操作失败");
+      }
+    } catch {
+      setMessage("操作失败");
+    }
+  };
+
+  // 自动化标记切换（F0）：cron 任务只在 isSynthetic=true 的账号里活动。
+  // 打标前要确认——误标真人会让 cron 冒用他发言。
+  const handleSyntheticToggle = async (id: string, next: boolean) => {
+    if (next && !confirm("确认标记为自动化账号？\n此后自动投票/回复只会使用该账号，其行为不再计入真人指标。")) return;
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isSynthetic: next }),
+      });
+      if (res.ok) {
+        setMessage(next ? "已标记为自动化账号" : "已取消自动化标记");
         fetchUsers();
       } else {
         setMessage("操作失败");
@@ -240,6 +264,15 @@ export default function AdminUsersPage() {
           <option value="active">正常</option>
           <option value="banned">已封禁</option>
         </select>
+        <select
+          value={synthetic}
+          onChange={(e) => { setSynthetic(e.target.value); setPage(1); }}
+          className="px-3 py-2 text-sm border border-stone-200 rounded-lg bg-white focus:outline-none focus:border-amber-400"
+        >
+          <option value="">全部标记</option>
+          <option value="1">自动化账号</option>
+          <option value="0">真人</option>
+        </select>
         <button
           onClick={handleSearch}
           className="px-4 py-2 text-sm bg-amber-800 text-white rounded-lg hover:bg-amber-900 transition"
@@ -274,6 +307,7 @@ export default function AdminUsersPage() {
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">帖子</th>
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">评论</th>
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">状态</th>
+                    <th className="text-center px-4 py-3 text-stone-500 font-medium">标记</th>
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">操作</th>
                   </tr>
                 </thead>
@@ -330,6 +364,13 @@ export default function AdminUsersPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
+                        {u.isSynthetic ? (
+                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-stone-200 text-stone-600">
+                            自动化
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <Link
                             href={`/admin/users/${u.id}`}
@@ -337,6 +378,23 @@ export default function AdminUsersPage() {
                           >
                             查看
                           </Link>
+                          {u.isSynthetic ? (
+                            <button
+                              onClick={() => handleSyntheticToggle(u.id, false)}
+                              className="px-2 py-1 text-xs text-stone-500 hover:bg-stone-100 rounded transition"
+                              title="取消自动化标记（该账号退出 cron 池）"
+                            >
+                              取消标记
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleSyntheticToggle(u.id, true)}
+                              className="px-2 py-1 text-xs text-stone-500 hover:bg-stone-100 rounded transition"
+                              title="标记为自动化账号（进入 cron 池）"
+                            >
+                              标自动化
+                            </button>
+                          )}
                           {u.banStatus === "banned" ? (
                             <button
                               onClick={() => handleBan(u.id, "active")}
