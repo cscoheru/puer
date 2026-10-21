@@ -104,7 +104,7 @@ export default async function ArticleDetailPage({ params }: PageProps) {
 
         {/* F0 来源标注：AI 整理 / 全自动文章必须可区分（PRD v0.3 §7 F0） */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <OriginDisclosure origin={article.origin} />
+          <OriginDisclosure origin={article.origin} sourceUrls={article.sourceUrls} />
         </div>
 
         {/* Tags */}

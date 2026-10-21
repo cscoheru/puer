@@ -19,3 +19,8 @@ rag-data
 # private upload tier (unwatermarked video originals + chunk staging).
 # Runtime-only, bind-mounted — must never end up inside an image layer.
 private
+
+# deploy.sh 的构建上下文快照目录。它含一份**旧版 src**，若被 COPY . . 带进
+# 镜像，Next 的类型检查会连这份旧代码一起检查 —— 表现为「本地 tsc 通过、
+# 服务器构建报类型错误」，且报错路径指向 build-ctx/… 而不是真实源码。
+build-ctx

@@ -17,7 +17,7 @@ async function searchPosts(q: string, userId?: string | null) {
       author_id: string; author_username: string;
     }>>`
       SELECT a.id, a.title, a.upvotes, a.downvotes, a."replyCount",
-             a."createdAt", a."videoUrl", a.origin,
+             a."createdAt", a."videoUrl", a.origin, a."sourceUrls",
              b.slug as board_slug, b.name as board_name,
              u.id as author_id, u.username as author_username
       FROM articles a
@@ -37,7 +37,7 @@ async function searchPosts(q: string, userId?: string | null) {
     return await prisma.article.findMany({
       where: { ...visibleArticleWhere(userId), boardId: { not: null }, AND: [{ OR: [{ title: { contains: q, mode: "insensitive" } }, { content: { contains: q, mode: "insensitive" } }] }] },
       orderBy: { createdAt: "desc" }, take: 50,
-      select: { id: true, title: true, upvotes: true, downvotes: true, replyCount: true, createdAt: true, videoUrl: true, origin: true, board: { select: { slug: true, name: true } }, author: { select: { id: true, username: true } } },
+      select: { id: true, title: true, upvotes: true, downvotes: true, replyCount: true, createdAt: true, videoUrl: true, origin: true, sourceUrls: true, board: { select: { slug: true, name: true } }, author: { select: { id: true, username: true } } },
     });
   }
 }
@@ -104,6 +104,7 @@ export default async function SearchPage(props: {
     createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : String(a.createdAt),
     videoUrl: a.videoUrl ?? a.videourl ?? null,
     origin: a.origin ?? null,
+    sourceUrls: a.sourceUrls ?? [],
     board: a.board_slug ?? a.board?.slug ? { slug: a.board_slug ?? a.board.slug, name: a.board_name ?? a.board.name } : null,
     author: { id: a.author_id ?? a.author?.id, username: a.author_username ?? a.author?.username },
   }));
@@ -133,6 +134,7 @@ export default async function SearchPage(props: {
     isEssence: false, isPinned: false, content: "", videoUrl: a.videoUrl,
     status: "published" as const, flair: null, board: a.board,
     origin: a.origin ?? null,
+    sourceUrls: a.sourceUrls ?? [],
     author: { id: a.author.id, username: a.author.username, avatar: null, level: 0, followerCount: 0, karma: 0 },
     initialVote: voteMap.get(a.id) || 0,
   }));

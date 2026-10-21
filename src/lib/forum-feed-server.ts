@@ -30,6 +30,8 @@ export interface FeedArticleDTO {
   flair: string | null;
   /** F0 内容来源（human | ai_from_notes | ai_autonomous | null）。前台据此显示来源标注。 */
   origin: string | null;
+  /** F0：全自动 AI 文章的来源链接。 */
+  sourceUrls: string[];
   board: { slug: string; name: string } | null;
   author: { id: string; username: string; avatar: string | null; level: number; followerCount: number; karma: number };
   initialVote: number;
@@ -90,6 +92,7 @@ const articleSelect = {
   hotOverride: true,
   hotSortOrder: true,
   origin: true,
+  sourceUrls: true,
   board: { select: { slug: true, name: true } },
   author: { select: { id: true, username: true, avatar: true, level: true, followerCount: true, karma: true } },
 } as const;
@@ -108,6 +111,7 @@ type ArticleRow = {
   videoUrl: string | null;
   flair: string | null;
   origin: string | null;
+  sourceUrls: string[];
   board: { slug: string; name: string } | null;
   author: { id: string; username: string; avatar: string | null; level: number; followerCount: number; karma: number };
 } & Record<string, unknown>;
@@ -177,6 +181,7 @@ async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedAr
     videoUrl: a.videoUrl,
     flair: a.flair,
     origin: a.origin ?? null,
+    sourceUrls: a.sourceUrls ?? [],
     board: a.board,
     author: a.author,
     initialVote: voteMap.get(a.id) || 0,

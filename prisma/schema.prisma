@@ -381,6 +381,9 @@ model Article {
   // 经过人工，所以 published 的 AI 帖这两列必须非空（由发布路径写入）。
   reviewedBy String?
   reviewedAt DateTime?
+  // F0：全自动 AI 文章必须「附信息来源链接」。这里存可点击的原始出处
+  // （URL 数组），前台渲染在来源标注旁。人工文章恒为空数组。
+  sourceUrls String[] @default([])
 
   moderation  Json? // 审核结果 {categories,confidence,reason,source};pending_review 时写入
   moderatedBy String? // 审核管理员 id

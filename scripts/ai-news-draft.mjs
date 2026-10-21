@@ -627,6 +627,10 @@ async function main() {
             origin: "ai_autonomous",
             originNoteIds: [],
             postedAsAccountId: author.id,
+            // F0：全自动 AI 文章必须「附信息来源链接」。素材 url 为空串
+            // 表示上游脱敏/缺失（见 plan.ts Material.url 注释）——那种情况
+            // 不写空链接，只在前台标注里说明来源缺失。
+            sourceUrls: m.url ? [m.url] : [],
           },
         });
         created++;

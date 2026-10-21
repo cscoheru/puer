@@ -133,3 +133,20 @@ test("only human origin can feed the TastingNote data layer", () => {
   assert.equal(originCanFeedDataLayer(null), false);
   assert.equal(originCanFeedDataLayer(undefined), false);
 });
+
+// ── 来源链接安全 ────────────────────────────────────────────
+// 来源链接会被渲染成 href。数据库那一列由写入管线填，但「渲染前不校验」
+// 等于把 javascript: 伪协议放进 href —— 纯 URL 判定放这里便于单测。
+
+test("来源链接只接受 http/https，其余一律丢弃", () => {
+  const accept = (u: string) => /^https?:\/\//i.test(u.trim()) && u.trim().length <= 2048;
+  assert.equal(accept("https://example.com/a"), true);
+  assert.equal(accept("http://example.com/a"), true);
+  assert.equal(accept("  https://example.com/a  "), true);
+  assert.equal(accept("javascript:alert(1)"), false);
+  assert.equal(accept("data:text/html,<script>"), false);
+  assert.equal(accept("//example.com/a"), false);
+  assert.equal(accept("vbscript:x"), false);
+  assert.equal(accept(""), false);
+  assert.equal(accept("https://" + "x".repeat(3000)), false, "超长串拒绝");
+});

@@ -51,6 +51,8 @@ interface FeedArticle {
   flair: string | null;
   /** F0 内容来源（human | ai_from_notes | ai_autonomous | null）。 */
   origin: string | null;
+  /** F0：全自动 AI 文章的来源链接。 */
+  sourceUrls?: string[];
   board: { slug: string; name: string } | null;
   author: { id: string; username: string; avatar: string | null; level: number; followerCount: number; karma: number };
   initialVote: number;
@@ -470,6 +472,7 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
             {/* F0 来源标注（PRD v0.3 §7 F0）：AI 内容必须可区分 */}
             <OriginDisclosure
               origin={article.origin}
+              sourceUrls={article.sourceUrls}
               translate={_}
               className="text-[0.625rem] leading-none px-1.5 py-0.5"
             />

@@ -12,14 +12,15 @@
 --
 -- 回滚：ALTER TABLE articles DROP COLUMN origin, DROP COLUMN "originNoteIds",
 --       DROP COLUMN "postedAsAccountId", DROP COLUMN "reviewedBy",
---       DROP COLUMN "reviewedAt";
+--       DROP COLUMN "reviewedAt", DROP COLUMN "sourceUrls";
 
 ALTER TABLE articles
   ADD COLUMN IF NOT EXISTS origin VARCHAR(20),
   ADD COLUMN IF NOT EXISTS "originNoteIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   ADD COLUMN IF NOT EXISTS "postedAsAccountId" TEXT,
   ADD COLUMN IF NOT EXISTS "reviewedBy" TEXT,
-  ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3);
+  ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "sourceUrls" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
 -- 后续按 origin 过滤（前台标注、镜像闸、茶问检索）都走这个等值条件。
 CREATE INDEX IF NOT EXISTS articles_origin_idx ON articles (origin);
