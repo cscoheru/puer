@@ -25,6 +25,15 @@ const DB_URL = process.env.DATABASE_URL;
 const MIN_TARGET = 80;
 const MAX_TARGET = 120;
 
+// ── 停用开关（PRD v0.3 §12 第3条 / F0）────────────────────────────────
+// 这个脚本也往 votes 表灌票（和 auto-vote / auto-boost-new 同源），所以
+// F0 的「自动投票一律停止」同样适用。默认关闭：不设 BOOST_ESSENCE_ENABLED=1
+// 就退出，退出码 0（主动停用，不是故障）。
+if (process.env.BOOST_ESSENCE_ENABLED !== "1") {
+  log("boost-essence 已按 PRD v0.3 §12 第3条停用（F0：自动投票一律停止）。");
+  process.exit(0);
+}
+
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }

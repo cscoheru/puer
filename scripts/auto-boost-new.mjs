@@ -25,6 +25,16 @@ import {
 // R27:DeepSeek(402 欠费)→ MiniMax M3,与 src/lib/moderation.ts(R25)同一兼容层与参数约定
 const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
 
+// ── 停用开关（PRD v0.3 §12 第3条 / F0）────────────────────────────────
+// 这个任务做两件事：给新帖灌票（+3~5 票）+ 用 7 套人设写 1-2 条 AI 回复。
+// F0 规定「自动投票一律停止」，AI 回复又必须先带上可见的自动化标注才能发
+// （F0 标注尚未上线）。因此 Phase 0 结束前整体停用。
+// 默认关闭：不设 AUTO_BOOST_NEW_ENABLED=1 就退出，退出码 0（主动停用，不是故障）。
+if (process.env.AUTO_BOOST_NEW_ENABLED !== "1") {
+  log("auto-boost-new 已按 PRD v0.3 §12 第3条停用（自动投票停止 + AI 回复待 F0 标注）。");
+  process.exit(0);
+}
+
 const PERSONAS = [
   { style: "好奇小白", tone: "刚入坑,不懂就问,语气真诚谦逊,常说'请问''不太懂'" },
   { style: "普通茶客", tone: "日常喝茶的普通人,分享简单感受,不用专业术语,随和" },

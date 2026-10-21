@@ -20,6 +20,16 @@ const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
 const MINIMAX_MODEL = "MiniMax-M3";
 const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
 
+// ── 停用开关（PRD v0.3 §12 第3条 / F0）────────────────────────────────
+// 这个任务的 prompt 明确要求「绝对不要暴露你是AI」，回复以普通用户身份入库，
+// 而 F0 要求 AI 内容必须带可见的自动化标注 —— 标注机制尚未上线，回复无法被
+// 读者区分。因此 Phase 0 结束前停用。
+// 默认关闭：不设 AUTO_REPLY_ENABLED=1 就退出，退出码 0（主动停用，不是故障）。
+if (process.env.AUTO_REPLY_ENABLED !== "1") {
+  log("auto-reply 已按 PRD v0.3 §12 第3条停用（AI 回复待 F0 标注上线）。");
+  process.exit(0);
+}
+
 // User persona archetypes for reply style diversity
 const PERSONAS = [
   { style: "资深老茶客", tone: "自信、权威、喜欢引用自己存茶和品茶的真实经验，能说出具体年份、仓储变化和口感细节", intensity: 0.6 },

@@ -19,6 +19,15 @@ const TOP_N = 5;       // only the top-N posts by contentScore get votes
 const VOTE_MIN = 15;   // votes per top post per run (random in [MIN, MAX])
 const VOTE_MAX = 25;
 
+// ── 停用开关（PRD v0.3 §12 第3条 / F0「自动投票一律停止」）───────────
+// 默认关闭：不设 AUTO_VOTE_ENABLED=1 就直接退出，退出码 0（是主动停用，
+// 不是故障，cron 包装脚本不应记 ALERT）。
+// 恢复前置条件：F0 标注完成，且投票对象有可见的自动化标注。
+if (process.env.AUTO_VOTE_ENABLED !== "1") {
+  log("auto-vote 已按 PRD v0.3 §12 第3条停用（F0：自动投票一律停止）。");
+  process.exit(0);
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function log(msg) {

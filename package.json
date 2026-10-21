@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:deploy": "bash scripts/test-deploy.sh",
-    "test:unit": "node --test --test-reporter=spec src/lib/*.test.ts src/lib/tea-drafts/*.test.ts src/lib/news-draft/*.test.ts",
+    "test:unit": "node --test --test-reporter=spec src/lib/*.test.ts src/lib/tea-drafts/*.test.ts src/lib/news-draft/*.test.ts scripts/*.test.mjs",
     "test:policy": "node --test --test-reporter=spec src/lib/upload-policy.test.ts",
     "test:cleanup": "node --test --test-reporter=spec src/lib/upload-cleanup.test.ts",
     "test:db": "node --import tsx --test --test-concurrency=1 tests/tea-drafts/runner.integration.test.ts"
