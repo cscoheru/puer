@@ -15,3 +15,7 @@ uploads
 public/uploads
 backups
 rag-data
+
+# private upload tier (unwatermarked video originals + chunk staging).
+# Runtime-only, bind-mounted — must never end up inside an image layer.
+private
