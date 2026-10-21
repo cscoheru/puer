@@ -415,6 +415,7 @@ model Article {
   favorites       Favorite[]
   followedBy      FollowedArticle[]
   xhsPackages     XhsPackage[]
+  views           ArticleView[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -936,4 +937,46 @@ model TeaReview {
   @@index([status, createdAt])
   @@index([userId, createdAt])
   @@map("tea_reviews")
+}
+
+// ─── 真实读者视图（PRD v0.3 §12 真实读者基线）────────────────────────
+//
+// 这是 `Article.viewCount` 的**第二条轨**：去重后的真实读者记录。
+// 两条轨的分工：
+//   Article.viewCount  —— SSR 每渲染一次 +1。含爬虫、含刷新、含站长自己，
+//                         用来做「热度」相对排序（admin/hot 的公式就用它）。
+//   ArticleView        —— 客户端 beacon 触发，只在浏览器执行 JS 时才有，
+//                         按 (article, visitor, day) 去重，剔除爬虫 UA、
+//                         剔除管理员与作者本人。用来算「真实读者数」
+//                         与「来源渠道」。
+//
+// 2026-10-22 之前这张表**从未被创建**（/api/views 里的裸 SQL 引用了一张
+// 不存在的表，异常被 catch 吞掉且仍返回 200 —— 功能全程静默失效）。
+// 现在它进了 schema，迁移是唯一的建表途径，漂移无处可藏。
+model ArticleView {
+  id         String   @id @default(cuid())
+  articleId  String
+  article    Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  /// 访客键：登录用户 = userId；匿名 = sha256(IP|UA) 前 16 位。
+  /// 不存原始 IP —— 基线报表只需要「有多少个不同的人」，不需要「是谁」。
+  visitorKey String   @db.VarChar(64)
+  /// 归属日（数据库时区的 CURRENT_DATE）。按天去重的依据。
+  day        DateTime @db.Date
+  /// 来源渠道（Referer 的 host，规范化后）。空串 = 直接访问/无 Referer。
+  refererHost String? @db.VarChar(120)
+  /// 原始 Referer（截断存）。用于回溯具体来源页面。
+  referer     String? @db.VarChar(500)
+  /// 落地页路径（当时的 URL）。用于「读者从哪篇文章进来」。
+  landingPath String? @db.VarChar(300)
+  /// 浏览器 UA（截断存）。用于识别设备与残留爬虫。
+  userAgent   String? @db.VarChar(300)
+  /// 是否登录用户（true 时 visitorKey 是 userId）。
+  isLoggedIn  Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  // 幂等：同一文章、同一访客、同一天只记一次。
+  @@unique([articleId, visitorKey, day])
+  @@index([day])
+  @@index([refererHost, day])
+  @@map("article_views")
 }

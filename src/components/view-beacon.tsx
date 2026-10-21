@@ -14,7 +14,11 @@ export default function ViewBeacon({ articleId }: Props) {
     fetch("/api/views", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ articleId }),
+      // landingPath = 读者当时所在页面（用于「读者从哪篇文章进来」统计）
+      body: JSON.stringify({
+        articleId,
+        landingPath: typeof window !== "undefined" ? window.location.pathname : "",
+      }),
       keepalive: true,
     }).catch(() => {});
   }, [articleId]);
