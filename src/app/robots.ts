@@ -1,14 +1,9 @@
 import { MetadataRoute } from "next";
+import { buildRobotsRules } from "@/lib/ai-crawler-policy";
 
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: [
-      {
-        userAgent: "*",
-        allow: "/",
-        disallow: ["/api/", "/admin/", "/login", "/register", "/settings", "/forum/search", "/forum?page="],
-      },
-    ],
+    rules: buildRobotsRules(),
     sitemap: "https://puer.im/sitemap.xml",
   };
 }

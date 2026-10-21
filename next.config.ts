@@ -13,6 +13,16 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // PRD v0.3 §8：在响应头中声明 AI 爬虫策略。`noai` 是通用的
+        // 「内容不要用于 AI 训练/引用」声明，Google 明确它**不是**排名信号，
+        // 不影响普通搜索的收录与排序（noindex 才会）。各家爬虫真正遵守的仍是
+        // robots.txt —— 那里才有「屏蔽训练类、放行搜索类」的精确区分。
+        source: "/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noai, noimageai" },
+        ],
+      },
+      {
         source: "/sitemap.xml",
         headers: [
           { key: "Cache-Control", value: "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400" },
