@@ -73,6 +73,17 @@ function intEnv(name, fallback) {
   return n;
 }
 
+// F0「定时发布设每日上限和一键暂停开关」的一键暂停。
+// 位置很关键：**必须早于所有 env 校验**（required() 会 process.exit(1)）。
+// 暂停时要连「缺不缺配置」都不管 —— 站长按下暂停开关后，env 哪怕不完整
+// 也应该安静地什么都不做，而不是报错刷屏。
+// 改 .env 里的 AUTO_DRAFT_PAUSED=1 即为暂停，删除该行或设为 0 即恢复 ——
+// 不用发版、不用重启容器。
+if (process.env.AUTO_DRAFT_PAUSED === "1") {
+  console.log("[auto-post] 已暂停（AUTO_DRAFT_PAUSED=1），不生成任何草稿。");
+  process.exit(0);
+}
+
 const AUTHOR_ID = process.env.AUTO_TEA_DRAFT_AUTHOR_ID || undefined;
 const BOARD_ID = required("AUTO_TEA_DRAFT_BOARD_ID");
 // NOTE_IDS is optional: an empty/unset value = wildcard mode (any of the

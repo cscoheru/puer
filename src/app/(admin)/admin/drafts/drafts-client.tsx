@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import RichEditor from "@/components/rich-editor";
 import { isTastingDraftId } from "@/lib/tea-drafts/id";
+import FactCheckPanel from "./fact-check-panel";
 import { styleByKey } from "@/lib/tea-drafts/styles";
 
 interface TeaInfo {
@@ -496,6 +497,9 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
               />
             )}
           </div>
+
+          {/* F0 事实核对：价格/年份/产地/仓储/批次逐项勾选 */}
+          <FactCheckPanel content={content} title={title} />
 
           {/* Source note (tasting drafts only) */}
           {sourceNote && (

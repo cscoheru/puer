@@ -409,6 +409,13 @@ function listLocalDirs() {
 // ── 主流程 ──────────────────────────────────────────────────────────
 
 async function main() {
+  // F0「一键暂停开关」。暂停时连网络与数据库都不碰，直接退出 0
+  // （主动暂停不是故障，cron 不该记 ALERT）。改 .env 里的
+  // AUTO_NEWS_DRAFT_PAUSED=1 即为暂停，删除该行或设为 0 即恢复 —— 不用发版。
+  if (process.env.AUTO_NEWS_DRAFT_PAUSED === "1") {
+    log("ai-news-draft 已暂停（AUTO_NEWS_DRAFT_PAUSED=1），不生成任何草稿。");
+    return;
+  }
   // Fail fast on missing env before touching the network or the DB.
   required("DATABASE_URL");
   required("MINIMAX_API_KEY");
