@@ -385,6 +385,13 @@ for attempt in $(seq 1 30); do
   running_image_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
   if [[ "$running_image_id" == "$new_image_id" ]] && curl --fail --silent --show-error --max-time 5 "$health_url" >/dev/null; then
     trap - ERR
+    # 旧镜像与构建缓存清理（2026-10-21 磁盘事故后加入）。
+    # 每次构建产生 2.43G 镜像，不清理会把 88G 磁盘压满 —— 表现为构建卡在
+    # COPY 阶段（实为 ENOSPC），很容易被误判成网络或 SSH 断连。
+    # 脚本是宿主脚本，不在 APP_CONTEXT 白名单里；缺失时静默跳过（不阻塞发布）。
+    if [[ -x /opt/puer-hub/scripts/prune-docker-images.sh ]]; then
+      bash /opt/puer-hub/scripts/prune-docker-images.sh --keep 2 || printf 'prune skipped (non-fatal)\n'
+    fi
     printf 'activated=%s\nprevious_image=%s\n' "$new_image" "$old_image"
     exit 0
   fi
