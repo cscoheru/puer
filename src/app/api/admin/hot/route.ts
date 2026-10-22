@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { scoreThread } from "@/lib/hot-rank";
+import { loadRealReaders } from "@/lib/real-content";
 import { requireAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -68,22 +70,31 @@ export async function GET(req: NextRequest) {
   const articles = [...recent, ...overrides.filter((a) => !seenIds.has(a.id))];
 
   const now = Date.now();
-  const scored = articles.map((a) => {
-    const net = Math.max(0, a.upvotes - a.downvotes);
-    const score = Math.log1p(net) * 6 + Math.log1p(a.replyCount) * 4 + Math.log1p(Math.min(a.viewCount, 1000)) * 0.2;
-    const coverImage = a.content.match(/<img[^>]+src="/)?.[0] ? 1 : 0;
-    const boost = (a.videoUrl || coverImage) ? 1.3 : 1;
-    const ref = a.lastRepliedAt || a.createdAt;
-    const age = Math.min((now - ref.getTime()) / 3600000, 720);
-    const timeBonus = 1 + 0.3 / (1 + age / 48);
-    return {
-      id: a.id, title: a.title, upvotes: a.upvotes, downvotes: a.downvotes,
-      replyCount: a.replyCount, viewCount: a.viewCount, createdAt: a.createdAt.toISOString(),
-      hotScore: Math.round(score * boost * timeBonus * 100) / 100,
-      hotOverride: a.hotOverride, hotSortOrder: a.hotSortOrder,
-      author: a.author, board: a.board,
-    };
-  });
+  // 公式收拢到 @/lib/hot-rank（这里以前复制了一份，两处必然漂移）。
+  // 阅读项用去重真实读者数，不用含爬虫的 viewCount。
+  const readerMap = await loadRealReaders(articles.map((a) => a.id));
+  const scored = articles.map((a) => ({
+    id: a.id, title: a.title, upvotes: a.upvotes, downvotes: a.downvotes,
+    replyCount: a.replyCount, viewCount: a.viewCount, createdAt: a.createdAt.toISOString(),
+    hotScore:
+      Math.round(
+        scoreThread(
+          {
+            id: a.id,
+            upvotes: a.upvotes,
+            downvotes: a.downvotes,
+            replyCount: a.replyCount,
+            realReaders: readerMap.get(a.id) ?? 0,
+            hasMedia: !!(a.videoUrl || /<img[^>]+src="/.test(a.content)),
+            createdAt: a.createdAt,
+            lastRepliedAt: a.lastRepliedAt,
+          },
+          now,
+        ) * 100,
+      ) / 100,
+    hotOverride: a.hotOverride, hotSortOrder: a.hotSortOrder,
+    author: a.author, board: a.board,
+  }));
 
   const pinned = scored.filter((a) => a.hotOverride === "pinned").sort((a, b) => (b.hotSortOrder || 0) - (a.hotSortOrder || 0));
   const auto = scored.filter((a) => !a.hotOverride).sort((a, b) => b.hotScore - a.hotScore);

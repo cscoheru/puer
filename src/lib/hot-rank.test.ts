@@ -33,7 +33,8 @@ function thread(over: Partial<HotRankInputs>): HotRankInputs {
     upvotes: 10,
     downvotes: 0,
     replyCount: 3,
-    viewCount: 100,
+    // 阅读项用去重真实读者数（PRD v0.3 §12 决策 4）。viewCount 不再参与排序。
+    realReaders: 100,
     hasMedia: false,
     createdAt: new Date(NOW - 24 * HOUR),
     lastRepliedAt: null,
@@ -49,7 +50,7 @@ test("scoreThread: golden value pins the formula constants", () => {
   // still satisfies every media/age/vote assertion below; this is the only
   // assertion that notices. The literal is hand-computed from the fixture in
   // `thread()`:
-  //   ln(11)*6 + ln(4)*4 + ln(101)*0.2 = 20.855573184638040
+  //   ln(11)*6 + ln(4)*4 + ln(101)*0.2 = 20.855573184638040   (realReaders=100)
   //   × 1 (no media) × (1 + 0.3/(1 + 24/48)) = × 1.2
   //   = 25.026687821565648
   // Tune the formula deliberately and you update this one literal — the diff
@@ -291,4 +292,26 @@ test("applyHotRank: a single thread keeps its score; jitter runs at full tier st
   assert.ok(Math.abs(only._finalScore - expected) < 1e-12, `${only._finalScore} != ${expected}`);
   // Top tier with a 0..0.40 jitter ⇒ the final score is never below the base.
   assert.ok(only._finalScore >= only._hotScore);
+});
+
+
+test("scoreThread: viewCount 不再参与排序（爬虫计数不得影响热度）", () => {
+  // PRD v0.3 §12 决策 4：viewCount 是 SSR 每次渲染 +1 的计数器，含爬虫。
+  // 它变化必须不影响分数。
+  const base = scoreThread(thread({}), NOW);
+  const withHugeViewCount = scoreThread(thread({ viewCount: 999999 }), NOW);
+  const withZeroViewCount = scoreThread(thread({ viewCount: 0 }), NOW);
+  assert.equal(withHugeViewCount, base);
+  assert.equal(withZeroViewCount, base);
+});
+
+test("scoreThread: 真实读者越多分越高（但有封顶）", () => {
+  const none = scoreThread(thread({ realReaders: 0 }), NOW);
+  const some = scoreThread(thread({ realReaders: 100 }), NOW);
+  const many = scoreThread(thread({ realReaders: 1000 }), NOW);
+  const absurd = scoreThread(thread({ realReaders: 1_000_000 }), NOW);
+  assert.ok(some > none);
+  assert.ok(many > some);
+  // 封顶 1000：再多的读者也不再加分
+  assert.equal(absurd, many);
 });

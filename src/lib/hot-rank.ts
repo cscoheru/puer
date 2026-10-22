@@ -34,7 +34,21 @@ export interface HotRankInputs {
   upvotes: number;
   downvotes: number;
   replyCount: number;
-  viewCount: number;
+  /**
+   * @deprecated 不参与排序。`viewCount` 是 SSR 每渲染一次 +1 的计数器，
+   * 爬虫的每次渲染都计入（PRD v0.3 §12 决策 4）。保留字段只为兼容既有
+   * 构造点，排序请用 `realReaders`。
+   */
+  viewCount?: number;
+  /**
+   * 去重真实读者数（`article_views` 的 distinct visitorKey）。
+   * 2026-10-22 起替代 viewCount 进入排序公式 —— 爬虫不执行客户端 beacon，
+   * 所以这个数天然不含爬虫。
+   *
+   * 缺省 0：article_views 是 2026-10-22 才建好的表，存量帖子还没有数据，
+   * 此时阅读项归零 —— 排序退化为「只看真人互动」，这正是想要的口径。
+   */
+  realReaders?: number;
   hasMedia: boolean;
   createdAt: Date;
   lastRepliedAt: Date | null;
@@ -45,13 +59,16 @@ export interface HotRankInputs {
  * surface derives from. Tuning the weights here moves the board page and the
  * home feed together, which is the reason it is shared rather than copied.
  *
- *   contentQuality = log1p(netVotes)×6 + log1p(replies)×4 + log1p(min(views,1000))×0.2
+ *   contentQuality = log1p(netVotes)×6 + log1p(replies)×4 + log1p(min(realReaders,1000))×0.2
  *   mediaBonus     = 1.3 when the post has an image or a video, else 1
  *   timeBonus      = 1 + 0.3/(1 + ageHours/48), age capped at 720h
  *
  * Age is measured from `lastRepliedAt ?? createdAt`, so a post that gets a new
  * reply is refreshed. Time only ever *adds*; a stale post is never penalised,
  * which is the v3.0 decision that replaced the older divide-by-age decay.
+ *
+ * 阅读项用的是**去重真实读者数**（article_views），不是 `viewCount` ——
+ * 后者是 SSR 渲染计数，爬虫每次渲染都计入（PRD v0.3 §12 决策 4）。
  *
  * @param now injected epoch ms — the only reason this is deterministic enough
  *            to test. Callers pass `Date.now()` at the edge.
@@ -61,7 +78,7 @@ export function scoreThread(t: HotRankInputs, now: number): number {
   const score =
     Math.log1p(net) * 6 +
     Math.log1p(t.replyCount) * 4 +
-    Math.log1p(Math.min(t.viewCount, 1000)) * 0.2;
+    Math.log1p(Math.min(t.realReaders ?? 0, 1000)) * 0.2;
   const boost = t.hasMedia ? 1.3 : 1;
   const ageMs = now - new Date(t.lastRepliedAt || t.createdAt).getTime();
   const age = Math.min(ageMs / 3600000, 720);

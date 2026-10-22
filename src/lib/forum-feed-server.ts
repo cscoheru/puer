@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { convertText } from "@/lib/s2t";
 import { scoreThread, jitterSeed, jitterAmount, tierFactor } from "@/lib/hot-rank";
+import { loadRealReaders } from "@/lib/real-content";
 
 /**
  * 论坛 feed 共享数据层（P2-R3 移动端懒加载）。
@@ -318,6 +319,7 @@ async function hotRankAndPage(opts: {
 }): Promise<{ rows: ArticleRow[]; hasMore: boolean }> {
   const { filtered, manualPinned, wherePublished, offset, limit, userId } = opts;
   const now = Date.now();
+  const readerMap = await loadRealReaders(filtered.map((a) => a.id));
 
   // The scoring formula lives in `@/lib/hot-rank` so the board page and this
   // feed cannot drift apart when a weight is tuned. What is *not* shared is the
@@ -336,7 +338,8 @@ async function hotRankAndPage(opts: {
           upvotes: a.upvotes || 0,
           downvotes: a.downvotes || 0,
           replyCount: a.replyCount || 0,
-          viewCount: a.viewCount || 0,
+          // 阅读项用去重真实读者数；viewCount（含爬虫）不再参与排序。
+          realReaders: readerMap.get(a.id) ?? 0,
           // Same media question the board page asks, and for the same R26
           // reason: `_coverImage` was resolved by `extractFeedImages` upstream
           // (content ∪ images), never by regex on `content`.

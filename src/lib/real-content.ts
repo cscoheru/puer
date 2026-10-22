@@ -59,3 +59,30 @@ export async function getRealArticleCounts(articleId: string): Promise<RealArtic
   ]);
   return { comments, likes, readers: readerRows.length };
 }
+
+
+/**
+ * 批量取去重真实读者数（PRD v0.3 §12 决策 4）。一次查询覆盖整批 id。
+ *
+ * 热榜排序用它代替 `viewCount` —— 后者是 SSR 渲染计数，爬虫每次渲染都计入。
+ * 表刚上线时存量帖子查不到记录 → 0，排序退化为「只看真人互动」。
+ *
+ * 查询失败时降级为「全部 0」并留日志：统计不可用不该让信息流 500。
+ */
+export async function loadRealReaders(ids: string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map();
+  try {
+    const rows = await prisma.$queryRaw<Array<{ articleId: string; n: bigint }>>`
+      SELECT "articleId", count(DISTINCT "visitorKey")::bigint AS n
+      FROM article_views
+      -- 必须用 ANY($1::text[])：Prisma 的 $queryRaw 会把 JS 数组参数序列化成
+      -- jsonb，写成 IN 加 Prisma.join 的拼接形式会报 operator does not exist: text = jsonb。
+      WHERE "articleId" = ANY(${ids}::text[])
+      GROUP BY "articleId"
+    `;
+    return new Map(rows.map((r) => [r.articleId, Number(r.n)]));
+  } catch (e) {
+    console.error("[real-content] 读取真实读者数失败，按 0 处理", e);
+    return new Map();
+  }
+}

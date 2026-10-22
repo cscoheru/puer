@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/generated/prisma/client";
 import { auth } from "@/lib/auth";
 import { getLevelConfigs, getLevelName } from "@/lib/level-config";
 import Link from "next/link";
@@ -97,7 +96,9 @@ export default async function UserProfilePage({ params, searchParams }: PageProp
       ? prisma.$queryRaw<Array<{ articleId: string; n: bigint }>>`
           SELECT l."articleId", count(*)::bigint AS n
           FROM likes l JOIN users u ON u.id = l."userId"
-          WHERE l."articleId" IN (${Prisma.join(articleIds)})
+          -- ANY($1::text[])：Prisma 把 JS 数组参数序列化成 jsonb，
+          -- 写成 IN (...) 会报 operator does not exist: text = jsonb。
+          WHERE l."articleId" = ANY(${articleIds}::text[])
             AND u."isSynthetic" = false
           GROUP BY l."articleId"`
       : Promise.resolve([]),
@@ -105,7 +106,7 @@ export default async function UserProfilePage({ params, searchParams }: PageProp
       ? prisma.$queryRaw<Array<{ articleId: string; n: bigint }>>`
           SELECT "articleId", count(DISTINCT "visitorKey")::bigint AS n
           FROM article_views
-          WHERE "articleId" IN (${Prisma.join(articleIds)})
+          WHERE "articleId" = ANY(${articleIds}::text[])
           GROUP BY "articleId"`
       : Promise.resolve([]),
   ]);

@@ -7,7 +7,6 @@ import VideoPlayer from "@/components/video-player";
 import AuthorHover from "@/components/author-hover";
 import FollowThreadButton from "@/components/follow-thread-button";
 import { getFlair } from "@/lib/forum-constants";
-import OriginDisclosure from "@/components/article/origin-disclosure";
 import { useLocale } from "@/i18n/context";
 import { t, twHref } from "@/i18n/translations";
 
@@ -469,13 +468,10 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
             {isNew && (
               <span className="text-[0.625rem] px-1.5 py-0.5 bg-green-500 text-white rounded-full font-medium">{_("新")}</span>
             )}
-            {/* F0 来源标注（PRD v0.3 §7 F0）：AI 内容必须可区分 */}
-            <OriginDisclosure
-              origin={article.origin}
-              sourceUrls={article.sourceUrls}
-              translate={_}
-              className="text-[0.625rem] leading-none px-1.5 py-0.5"
-            />
+            {/* F0 来源标注**不在列表显示**（站长 2026-10-22 决定：列表太密，
+                右上角出现「◇ AI 生成」「✎ 站长笔记 · AI 整理」视觉负担大）。
+                标注保留在**帖子详情页** —— 读者点进去就能判断来源，仍满足
+                PRD v0.3 §7 F0 的「前台可区分」。 */}
             {flairDef && (
               <span className={`inline-flex items-center px-1.5 py-0.5 text-[0.625rem] leading-none font-medium rounded-full ${flairDef.color}`}>
                 {_(flairDef.label)}
