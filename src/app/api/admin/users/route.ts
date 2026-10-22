@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
         followerCount: true, onlineStatus: true, banStatus: true,
         muteStatus: true, mutedUntil: true, warningCount: true,
         isSynthetic: true,
+        role: true,
         createdAt: true,
         _count: { select: { articles: true, comments: true } },
       },

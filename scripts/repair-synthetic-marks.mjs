@@ -56,6 +56,28 @@ const APPLY = process.argv.includes("--apply");
 /** 明显是压测/测试用途的账号名特征（仅用于报告，不改变判定）。 */
 const TEST_NAME_RE = /test|测试|sectest|rltest|pentest|noemail/i;
 
+/**
+ * 站长的显式指派（2026-10-22）。这些是人工判断，优先于任何自动判据。
+ *
+ *  - 压测账号：站长指定**统一标注为合成**（它们不是真实读者）。
+ *  - 黑马(1073) / 俗尘满腹(1074)：一开始是批量注册（auto-register 造的），
+ *    后来**送给了真实茶友**，站长指定算真人。它们的密码是个性化设的
+ *    （与固定密码模式不符），也与「批量注册」判据冲突 —— 人工指派优先。
+ */
+const EXPLICIT_SYNTHETIC_UIDS = [
+  // 压测账号（站长 2026-10-22 指定：统一标注为合成）
+  1246, // test
+  1247, // pentest2026
+  1248, // noemail_test
+  1249, // sectest_new
+  1250, // admin1789470049
+  1251, // sectest11789470085
+  1252, // sectest21789470085
+  1253, // rltest1
+  1254, // sectestA_1789481618
+];
+const EXPLICIT_REAL_UIDS = [1073, 1074];
+
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
@@ -80,6 +102,45 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     // 被误标为合成、但符合真人判据的账号 → 改回真人
+    // ── 阶段 0：站长的显式指派，优先于任何自动判据 ──────────────
+    // 压测账号 → 合成；送给真实茶友的机器号 → 真人。
+    // **dry-run 不得写库** —— 显式指派也受 APPLY 保护。
+    if (EXPLICIT_SYNTHETIC_UIDS.length) {
+      if (APPLY) {
+        const n = await prisma.user.updateMany({
+          where: { uid: { in: EXPLICIT_SYNTHETIC_UIDS } },
+          data: { isSynthetic: true },
+        });
+        log(`显式指派为合成：${n.count} 个压测账号（uid ${EXPLICIT_SYNTHETIC_UIDS.join(", ")}）`);
+      } else {
+        log(
+          `[dry-run] 会把 ${EXPLICIT_SYNTHETIC_UIDS.length} 个压测账号标为合成` +
+            `（uid ${EXPLICIT_SYNTHETIC_UIDS.join(", ")}）`,
+        );
+      }
+    }
+    if (EXPLICIT_REAL_UIDS.length) {
+      if (APPLY) {
+        const n = await prisma.user.updateMany({
+          where: { uid: { in: EXPLICIT_REAL_UIDS } },
+          data: { isSynthetic: false },
+        });
+        log(`显式指派为真人：${n.count} 个（uid ${EXPLICIT_REAL_UIDS.join(", ")}）`);
+      } else {
+        log(
+          `[dry-run] 会把 ${EXPLICIT_REAL_UIDS.length} 个账号标为真人` +
+            `（uid ${EXPLICIT_REAL_UIDS.join(", ")}）`,
+        );
+      }
+    }
+
+    // 显式指派优先于自动判据：这些 uid 无论其它信号如何都按站长的判断走。
+    const excludedUids = EXPLICIT_SYNTHETIC_UIDS.concat(EXPLICIT_REAL_UIDS).join(",");
+    // 注意：Postgres 的数组字面量要写 ARRAY[...]，直接写 (1,2) 是语法错误。
+    const uidClause = excludedUids
+      ? `AND u.uid <> ALL (ARRAY[${excludedUids}])`
+      : "";
+
     const mislabeled = await prisma.$queryRawUnsafe(`
       SELECT u.id, u.uid, u.username, u.email, u.nickname, u."registrationIp",
              u."createdAt",
@@ -89,6 +150,7 @@ async function main() {
       WHERE u."isSynthetic" = true
         AND u.email <> 'puer-news@puer.local'
         AND u.role <> 'admin'
+        ${uidClause}
         AND (${REAL_PREDICATE})
       ORDER BY u.uid
     `);
@@ -100,6 +162,7 @@ async function main() {
       WHERE u."isSynthetic" = false
         AND u.email <> 'puer-news@puer.local'
         AND u.role <> 'admin'
+        ${uidClause}
         AND NOT (${REAL_PREDICATE})
       ORDER BY u.uid
     `);

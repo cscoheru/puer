@@ -20,6 +20,7 @@ interface User {
   mutedUntil: string | null;
   warningCount: number;
   isSynthetic: boolean;
+  role: string;
   createdAt: string;
   _count: { articles: number; comments: number };
 }
@@ -307,6 +308,7 @@ export default function AdminUsersPage() {
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">帖子</th>
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">评论</th>
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">状态</th>
+                    <th className="text-center px-4 py-3 text-stone-500 font-medium">角色</th>
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">标记</th>
                     <th className="text-center px-4 py-3 text-stone-500 font-medium">操作</th>
                   </tr>
@@ -362,6 +364,18 @@ export default function AdminUsersPage() {
                             正常
                           </span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span
+                          className={
+                            "inline-block px-2 py-0.5 rounded-full text-xs font-medium " +
+                            (u.role === "admin"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-stone-100 text-stone-600")
+                          }
+                        >
+                          {u.role === "admin" ? "管理员" : "普通用户"}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-center">
                         {u.isSynthetic ? (
