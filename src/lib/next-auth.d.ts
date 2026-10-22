@@ -8,6 +8,8 @@ declare module "next-auth" {
       level: number;
       role: string;
       nickname?: string | null;
+      /** 系统控制的账号（自动发布号等）。权限层用它挡住后台权限。 */
+      isSynthetic?: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -19,5 +21,7 @@ declare module "next-auth/jwt" {
     level: number;
     role: string;
     nickname?: string | null;
+    /** 系统控制的账号（自动发布号等）。权限层用它挡住后台权限。 */
+    isSynthetic?: boolean;
   }
 }

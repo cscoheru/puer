@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
+import { can } from "@/lib/permissions";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_LIST_READ } from "@/lib/rate-limit";
 
 const teaSchema = z.object({
@@ -34,7 +35,9 @@ export async function GET(req: NextRequest) {
   // （与 /tea/[id] 的「非经典详情需登录」闸门一致，避免匿名枚举在建档）。
   // 带关键词的搜索（发帖/发品鉴时选茶）本来就要登录才能用，不受影响。
   const session = await auth();
-  const isAdmin = session?.user?.role === "admin";
+  // 「管理员」在列表接口里的特殊待遇（限速豁免、翻页不设上限）走权限层，
+  // 而不是直接比对角色字符串 —— 将来加 editor/moderator 时改矩阵即可。
+  const isAdmin = can(session?.user, "admin:access");
 
   // F0 反滥用：账号级限速（IP 级在 proxy 层，见 src/proxy.ts）。管理员不受限。
   if (!isAdmin && session?.user?.id) {

@@ -7,6 +7,7 @@ import { pingSearchEngines } from "@/lib/sitemap-ping";
 import { z } from "zod";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_POST, LIMIT_LIST_READ } from "@/lib/rate-limit";
 import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
+import { can } from "@/lib/permissions";
 import { screenContent } from "@/lib/moderation";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { syncTastingNoteForArticle } from "@/lib/tasting-note-sync";
@@ -31,7 +32,8 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get("type");
 
   const session = await auth();
-  const isAdmin = session?.user?.role === "admin";
+  // 限速豁免与翻页不设上限都看这个（见 src/lib/permissions.ts）。
+  const isAdmin = can(session?.user, "admin:access");
 
   // F0 反滥用：账号级限速（IP 级在 proxy 层，见 src/proxy.ts）。
   // 管理员不受限 —— 后台要一次拉全量。

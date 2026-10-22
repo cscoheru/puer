@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
   // 会话在这里就要加载一次：既用于 showHidden 的归属判定，也用于判断
   // 管理员（管理员不受翻页上限约束）。
   const session = await auth();
-  const isAdmin = session?.user?.role === "admin";
+  const isAdmin = can(session?.user, "admin:access");
   // F0 反滥用：单页条数与翻页深度封顶，管理员不受限。
   const limit = clampListLimit(rawLimit, { isAdmin });
   const page = clampListPage(requestedPage, { isAdmin });

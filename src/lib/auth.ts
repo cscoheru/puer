@@ -15,6 +15,8 @@ interface AuthCacheData {
   banStatus: string;
   uid: number | null;
   nickname: string | null;
+  /** 系统控制的账号（自动发布号等）。权限层用它挡住后台权限。 */
+  isSynthetic: boolean;
 }
 
 function getCachedUser(id: string): AuthCacheData | null {
@@ -104,10 +106,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.picture = cached.avatar;
           token.uid = cached.uid;
           token.nickname = cached.nickname;
+          token.isSynthetic = cached.isSynthetic;
         } else {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { level: true, role: true, avatar: true, banStatus: true, uid: true, nickname: true },
+            select: { level: true, role: true, avatar: true, banStatus: true, uid: true, nickname: true, isSynthetic: true },
           });
           if (dbUser) {
             if (dbUser.banStatus === "banned") return null;
@@ -116,6 +119,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             token.picture = dbUser.avatar;
             token.uid = dbUser.uid;
             token.nickname = dbUser.nickname;
+            token.isSynthetic = dbUser.isSynthetic;
             setCachedUser(token.id as string, {
               level: dbUser.level,
               role: dbUser.role,
@@ -123,6 +127,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               banStatus: dbUser.banStatus,
               uid: dbUser.uid,
               nickname: dbUser.nickname,
+              isSynthetic: dbUser.isSynthetic,
             });
           }
         }
@@ -137,6 +142,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.role = token.role as string;
         session.user.image = token.picture as string | null;
         session.user.nickname = token.nickname as string | null;
+        session.user.isSynthetic = (token.isSynthetic as boolean | undefined) ?? false;
       }
       return session;
     },

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { can } from "@/lib/permissions";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { screenContent } from "@/lib/moderation";
@@ -53,7 +54,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "帖子不存在" }, { status: 404 });
   }
 
-  if (article.authorId !== session.user.id && session.user.role !== "admin") {
+  // 权限走统一层（PRD v0.3 §13）：本人用 own 动作，管理员用 any 动作。
+  if (
+    !can(session.user, "post:edit:own", { ownUserId: article.authorId }) &&
+    !can(session.user, "post:edit:any", { ownUserId: article.authorId })
+  ) {
     return NextResponse.json({ error: "无权编辑此帖子" }, { status: 403 });
   }
 
@@ -66,7 +71,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (visibility === "public" || visibility === "private") data.visibility = visibility;
 
   // 编辑后重新过审(管理员编辑免审):防"先发干净帖,再编辑成违规"
-  if ((data.title || data.content) && session.user.role !== "admin") {
+  // 有 any 编辑权的人（管理员）改内容免重审 —— 否则批量修错别字会全进待审。
+  if ((data.title || data.content) && !can(session.user, "post:edit:any")) {
     const mod = await screenContent(`${data.title ?? article.title} ${data.content ?? article.content}`);
     if (mod.decision === "reject") {
       return NextResponse.json({ error: "内容含违规信息,无法保存" }, { status: 400 });
@@ -105,7 +111,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "帖子不存在" }, { status: 404 });
   }
 
-  if (article.authorId !== session.user.id && session.user.role !== "admin") {
+  if (
+    !can(session.user, "post:delete:own", { ownUserId: article.authorId }) &&
+    !can(session.user, "post:delete:any", { ownUserId: article.authorId })
+  ) {
     return NextResponse.json({ error: "无权删除此帖子" }, { status: 403 });
   }
 

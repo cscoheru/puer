@@ -322,7 +322,7 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | Phase 0 | `/admin/users` 列表加 role 列，让管理员身份在界面上可见 | ✅ 本轮已完成 |
-| Phase 1 | 扩展 role 枚举 + 抽出统一权限层（`src/lib/permissions.ts` 的 `can(session, action)`），把散落的 `role === "admin"` 收拢 | ⬜ 待做 |
+| Phase 1 | 扩展 role 枚举 + 抽出统一权限层（`src/lib/permissions.ts` 的 `can(actor, action, ctx)`），把散落的 `role === "admin"` 收拢 | 🟡 部分完成：权限层已建（5 角色 × 30 动作矩阵 + 13 条单测）；`requireAdmin` 总门已改走 `can()`（覆盖 20+ 后台路由）；文章编辑/删除、茶品列表/删除、评论可见性、分页豁免等关键点已收拢（70 → 64 处）。剩余多为已被总门门住的冗余判定，可逐步替换 |
 | Phase 2 | 版主权限落地（按 `board_moderators` 表授权） | ⬜ 待做 |
 
 ### 13.5 待确认

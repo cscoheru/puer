@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { REAL_AUTHOR } from "@/lib/real-content";
 import { prisma } from "@/lib/prisma";
 import { checkUserCanPost } from "@/lib/check-mute";
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
   // 待审评论仅管理员和评论作者本人可见;普通用户只见 published
   const baseWhere = articleId ? { articleId } : { tastingNoteId };
   const where =
-    session?.user?.role === "admin"
+    can(session?.user, "comment:moderate")
       ? baseWhere
       : session?.user?.id
         ? { ...baseWhere, OR: [{ status: "published" }, { status: "pending_review", authorId: session.user.id }] }
