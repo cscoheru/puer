@@ -12,6 +12,7 @@ import {
   groundGrams,
   groundVessel,
   groundDescriptors,
+  groundDelta,
 } from "./vocab.ts";
 
 test("词表：阶段与比较结果的中文标签齐全", () => {
@@ -78,4 +79,20 @@ test("groundDescriptors：原文没写的词一律丢弃", () => {
 test("groundDescriptors：不让 HTML 片段进数据层", () => {
   const text = "汤色<b>橙黄</b>，蜜韵";
   assert.deepEqual(groundDescriptors(["<b>", "橙黄", "蜜韵"], text), ["橙黄", "蜜韵"]);
+});
+
+test("groundDelta：比较句式决定方向，不看形容词", () => {
+  assert.equal(groundDelta("比上次更顺口").delta, "better");
+  assert.equal(groundDelta("比上次涩").delta, "worse", "否定词优先");
+  assert.equal(groundDelta("不如上次").delta, "worse");
+  assert.equal(groundDelta("没有上次那么好喝了").delta, "worse");
+  assert.equal(groundDelta("和上次差不多").delta, "same");
+  assert.equal(groundDelta("比上次的香气浓").delta, "better");
+  assert.equal(groundDelta("这茶本身不错").delta, null, "没有比较就没有 delta");
+});
+
+test("groundDelta：命中的原文片段可追溯", () => {
+  const g = groundDelta("今天开汤，比上次更顺口，回甘也快");
+  assert.equal(g.delta, "better");
+  assert.match(g.evidence ?? "", /比上次/);
 });

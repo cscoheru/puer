@@ -43,21 +43,38 @@ const STAGE_SYNONYMS: Record<string, Stage> = {
   上升期: "ascending",
   上升: "ascending",
   转化期: "ascending",
+  转化中: "ascending",
   继续转化: "ascending",
   还在转化: "ascending",
+  成长期: "ascending",
+  生长期: "ascending",
+  初期: "ascending",
+  早期: "ascending",
   巅峰期: "peak",
   巅峰: "peak",
+  巅峰状态: "peak",
   最佳: "peak",
+  最佳状态: "peak",
   顶峰: "peak",
   适饮期: "drinking",
   适饮: "drinking",
   稳定期: "drinking",
   稳定: "drinking",
+  成熟期: "drinking",
+  平台期: "drinking",
+  平稳期: "drinking",
+  中期: "drinking",
   走下坡: "declining",
   下坡: "declining",
   衰退: "declining",
+  衰退期: "declining",
   开始衰退: "declining",
   走下坡路: "declining",
+  下降期: "declining",
+  下滑期: "declining",
+  回落期: "declining",
+  后期: "declining",
+  末期: "declining",
 };
 
 // ─── Delta vs previous tasting ────────────────────────────────────────────
@@ -140,7 +157,9 @@ export function normalizeStage(raw: unknown): Stage | null {
   return STAGE_SYNONYMS[v] ?? null;
 }
 
-/** 把模型给的 delta 规整成已知取值；无法识别返回 null。 */
+/**
+ * 把模型给的 delta 规整成已知取值；无法识别返回 null。
+ */
 export function normalizeDelta(raw: unknown): Delta | null {
   if (typeof raw !== "string") return null;
   const v = raw.trim();
@@ -149,6 +168,54 @@ export function normalizeDelta(raw: unknown): Delta | null {
   const lower = v.toLowerCase();
   if ((DELTAS as readonly string[]).includes(lower)) return lower as Delta;
   return DELTA_SYNONYMS[v] ?? null;
+}
+
+// ─── delta 的词面接地 ──────────────────────────────────────────────────────
+
+/**
+ * 「比上次」这类比较句式。顺序很重要：worse 先判，否则「比上次差」会先被
+ * better 的模式吃掉（它同样以「比…上次」开头）。
+ */
+const DELTA_RULES: { delta: Delta; re: RegExp }[] = [
+  {
+    delta: "worse",
+    re: /(不如|比不上|没有比)[^。！？!?]{0,12}?(上次|上回|之前|以前|以往)?|没有[^。！？!?]{0,4}?(上次|上回|之前|以前|以往)[^。！？!?]{0,8}|比[^。！？!?]{0,12}?(上次|上回|之前|以前|以往)[^。！？!?]{0,6}?(差|涩|苦|淡|薄|退|掉)/,
+  },
+  {
+    delta: "same",
+    re: /(和|跟|与)[^。！？!?]{0,8}?(上次|上回|之前|以前|以往)[^。！？!?]{0,6}?(一样|差不多|相同|没差别)|(差不多|一样|没差别)[^。！？!?]{0,6}?(和|跟|与)?[^。！？!?]{0,4}?(上次|之前|以前|以往)/,
+  },
+  {
+    delta: "better",
+    re: /比[^。！？!?]{0,12}?(上次|上回|上一次|之前|以前|以往|上一回|前几次)[^。！？!?]{0,10}/,
+  },
+];
+
+/** 比较句里出现这些词，说明方向是反的。 */
+const NEGATIVE_WORDS = /(差|涩|苦|退|淡|薄|掉|不如|差劲|难喝|弱)/;
+
+/**
+ * 从原文里找「与上次相比」的结论。
+ *
+ * 为什么不用模型自报的置信度：2026-10-22 首轮回填里模型在 884 条笔记上提了
+ * delta，但自报把握只有 76 条过了 0.75 的闸 —— 置信度是软信号，词面接地
+ * 才是硬证据。原文有「比上次涩」就一定是 worse，跟模型觉得自己多确定无关。
+ *
+ * @returns delta 与命中的原文片段；没有比较句式时返回 null。
+ */
+export function groundDelta(
+  text: string,
+): { delta: Delta | null; evidence: string | null } {
+  const hay = normalizeForMatch(text);
+  for (const rule of DELTA_RULES) {
+    const m = hay.match(rule.re);
+    if (!m) continue;
+    const span = m[0];
+    // better 的模式也会吃到「比上次差」，靠否定词把它排除。
+    if (rule.delta === "better" && NEGATIVE_WORDS.test(span)) continue;
+    return { delta: rule.delta, evidence: span };
+  }
+  return { delta: null, evidence: null };
 }
 
 // ─── 接地校验（核心防幻觉闸）──────────────────────────────────────────────

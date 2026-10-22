@@ -65,7 +65,8 @@ for (const row of rows) {
   );
   console.log(`→ descriptors=${f.descriptors.join("/") || "-"}`);
   if (r.meta?.dropped && Object.keys(r.meta.dropped).length) {
-    console.log(`→ 复核：${r.meta.reviewReason}`);
+    const why = Object.entries(r.meta.dropped).map(([k, v]) => `${k}(${v})`).join("；");
+    console.log(`→ 丢弃：${why}${r.meta.needsReview ? "  ← 需人看一眼" : ""}`);
   }
   if (r.meta?.corrected && Object.keys(r.meta.corrected).length) {
     console.log(`→ 纠正：${Object.values(r.meta.corrected).join("；")}`);

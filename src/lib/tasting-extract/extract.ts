@@ -13,8 +13,8 @@
 import {
   DEFAULT_GRAMS,
   DEFAULT_VESSEL,
-  FIELD_CONFIDENCE_THRESHOLD,
   findGramValue,
+  groundDelta,
   groundDescriptors,
   groundGrams,
   groundVessel,
@@ -95,6 +95,8 @@ export interface ExtractionMeta {
   dropped: Record<string, string>;
   /** 被接地校验纠正的字段（模型值 → 原文值），审计用。 */
   corrected: Record<string, string>;
+  /** 模型原话（规整前）。词表不认的阶段词会出现在这里，用来补词表。 */
+  raw: { stage: string | null; deltaVsPrev: string | null };
   /** 每个字段的出处：原文直述 / 推断 / 缺省值。 */
   basis: {
     stage: FieldBasis | null;
@@ -124,6 +126,8 @@ export interface ExtractArgs {
   title?: string | null;
   content: string;
   previousStage?: string | null;
+  /** 只用这几家供应商（顺序即优先级）。用于「整批必须同一家模型」的场景。 */
+  providers?: string[];
   /** 冒烟测试用：注入调用器，避免单测真的打网络。 */
   callLLM?: (prompt: string) => Promise<LLMReply>;
 }
@@ -165,7 +169,7 @@ export async function extractTastingFields(
   try {
     reply = args.callLLM
       ? await args.callLLM(prompt)
-      : await callWithFallback(prompt);
+      : await callWithFallback(prompt, args.providers);
   } catch (e) {
     return {
       ok: false,
@@ -208,6 +212,22 @@ export function validateReply(
   }
   // delta 不做推断：没有「上次」作参照，推出来的方向没有依据。
   let deltaBasis: FieldBasis | null = delta ? "stated" : null;
+
+  // ── delta 以原文比较句为准（词面接地），不信模型自报的置信度 ──
+  const grounded = groundDelta(originalText);
+  if (grounded.delta) {
+    if (delta && delta !== grounded.delta) {
+      corrected.deltaVsPrev = `${delta} → ${grounded.delta}（原文「${grounded.evidence}」）`;
+    }
+    delta = grounded.delta;
+    deltaBasis = "stated";
+    delete dropped.deltaVsPrev;
+  } else if (delta) {
+    // 模型说有比较，原文里却找不到比较句式 —— 不认这个结论。
+    dropped.deltaVsPrev = "原文没有与上次比较的表述";
+    delta = null;
+    deltaBasis = null;
+  }
 
   const confidence = {
     stage: clamp01(conf.stage),
@@ -280,15 +300,10 @@ export function validateReply(
     vessel: groundVessel(rawVessel, originalText),
   };
 
-  // ── 置信度闸：只对「有参照物的事实判断」设闸 ───────────────────
+  // ── 置信度闸已退役 ────────────────────────────────────────────
   // stage 是推断，低置信也保留（basis=inferred 已说明性质）；
-  // grams / vessel / descriptors 已接地，无需置信度再拦一道；
-  // 只有 delta 说「比上次好/差」，模型没把握时宁可不写。
-  if (delta && confidence.deltaVsPrev < FIELD_CONFIDENCE_THRESHOLD) {
-    dropped.deltaVsPrev = `置信度 ${confidence.deltaVsPrev.toFixed(2)} 低于阈值`;
-    delta = null;
-    deltaBasis = null;
-  }
+  // grams / vessel / descriptors 已接地；
+  // delta 改由词面接地判定，不再看模型自报的把握。
 
   const basis = {
     stage: stageBasis,
@@ -298,9 +313,9 @@ export function validateReply(
     descriptors: descriptors.length ? ("stated" as FieldBasis) : null,
   };
 
-  // 默认值与纠正不算「需要人看」——站长明确说了不想逐条过。
-  // 只有模型与原文冲突（dropped）时才进复核。
-  const needsReview = Object.keys(dropped).length > 0;
+  // 复核只留给真正的分歧：模型说的阶段词我们词表不认（说明词表该补），
+  // 或模型断言了原文里根本没有的比较。描述词少一两个、默认值、纠正都不算。
+  const needsReview = Boolean(dropped.stage || dropped.deltaVsPrev);
 
   const meta: ExtractionMeta = {
     model: reply.model,
@@ -309,6 +324,10 @@ export function validateReply(
     extractedAt: new Date().toISOString(),
     confidence,
     basis,
+    raw: {
+      stage: typeof raw.stage === "string" ? raw.stage : null,
+      deltaVsPrev: typeof raw.deltaVsPrev === "string" ? raw.deltaVsPrev : null,
+    },
     dropped,
     corrected,
     needsReview,
@@ -325,10 +344,16 @@ export function validateReply(
 
 // ─── LLM 调用（与 moderation.ts 同构）──────────────────────────────────────
 
-async function callWithFallback(prompt: string): Promise<LLMReply> {
+async function callWithFallback(
+  prompt: string,
+  only?: string[],
+): Promise<LLMReply> {
   const failures: string[] = [];
+  const chain = only?.length
+    ? PROVIDERS.filter((p) => only.includes(p.id))
+    : PROVIDERS;
 
-  for (const p of PROVIDERS) {
+  for (const p of chain) {
     const apiKey = process.env[p.env];
     if (!apiKey) {
       failures.push(`${p.id}:未配置 ${p.env}`);

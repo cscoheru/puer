@@ -66,7 +66,7 @@ test("validateReply：模型给错数字/器具时以原文为准并记 correcte
   assert.equal(r.meta?.dropped.vessel, undefined, "纠正不算丢弃");
   assert.match(r.meta?.corrected.vessel ?? "", /紫砂壶 → 盖碗/);
   assert.ok(r.meta?.dropped.descriptors);
-  assert.equal(r.meta?.needsReview, true, "描述词接地失败必须进复核");
+  assert.equal(r.meta?.needsReview, false, "描述词少一两个不算分歧，不用人看");
 });
 
 test("validateReply：原文没写投茶量与器具 → 补默认值并如实标注 basis", () => {
@@ -109,34 +109,48 @@ test("validateReply：模型说没有投茶量时，不把「茶样总量」正�
   assert.equal(r.meta?.basis.grams, "default");
 });
 
-test("validateReply：低置信的 delta 不落库，stage 仍保留并标 inferred", () => {
+test("validateReply：delta 以原文比较句为准，不看模型自报的把握", () => {
   const r = validateReply(
     reply({
-      stage: "peak",
+      stage: "drinking",
       deltaVsPrev: "better",
       grams: 8,
       confidence: { stage: 0.4, deltaVsPrev: 0.3, grams: 0.9, vessel: 0.9, descriptors: 0.9 },
     }),
-    NOTE,
+    NOTE, // 原文有「比上次更顺口」
   );
-  assert.equal(r.fields.stage, "peak");
+  assert.equal(r.fields.deltaVsPrev, "better", "原文写了比较句就认");
+  assert.equal(r.meta?.basis.deltaVsPrev, "stated");
+  assert.equal(r.meta?.dropped.deltaVsPrev, undefined);
+  assert.equal(r.fields.stage, "drinking");
   assert.equal(r.meta?.basis.stage, "inferred", "模型没声明 stated 时按推断算");
-  assert.equal(r.fields.grams, 8, "已接地的投茶量不再被置信度拦掉");
-  assert.equal(r.fields.deltaVsPrev, null, "没把握的比较不写");
-  assert.ok(r.meta?.dropped.deltaVsPrev);
-  assert.equal(r.meta?.needsReview, true);
-  assert.equal(r.meta?.suggested?.deltaVsPrev, "better");
 });
 
-test("validateReply：模型输出无法映射 → 字段为 null 且有原因", () => {
+test("validateReply：模型断言了原文没有的比较 → 不认并进复核", () => {
+  const plain = "今天喝了这饼茶，汤色橙黄，蜜韵明显，回甘不错。";
+  const r = validateReply(
+    reply({
+      deltaVsPrev: "better",
+      grams: null,
+      confidence: { stage: 0.8, deltaVsPrev: 0.9, grams: 0, vessel: 0, descriptors: 0.9 },
+    }),
+    plain,
+  );
+  assert.equal(r.fields.deltaVsPrev, null, "原文没有比较句式，结论不成立");
+  assert.ok(r.meta?.dropped.deltaVsPrev);
+  assert.equal(r.meta?.needsReview, true);
+});
+
+test("validateReply：模型输出无法映射 → 阶段为空且有原因，delta 交给原文", () => {
   const r = validateReply(
     reply({ stage: "有点陈了", deltaVsPrev: "说不好", confidence: {} }),
     NOTE,
   );
   assert.equal(r.fields.stage, null);
-  assert.equal(r.fields.deltaVsPrev, null);
   assert.ok(r.meta?.dropped.stage);
-  assert.ok(r.meta?.dropped.deltaVsPrev);
+  // 原文写了「比上次更顺口」→ delta 由原文决定，不看模型给的「说不好」
+  assert.equal(r.fields.deltaVsPrev, "better");
+  assert.equal(r.meta?.basis.deltaVsPrev, "stated");
 });
 
 test("extractTastingFields：调用失败不抛异常，返回 ok=false", async () => {

@@ -56,6 +56,11 @@ const MIN_CONTENT = Number(arg("min-content", "80"));
 const GATE_REPORT = resolve(arg("gate-report", "docs/f1/eval-report.json"));
 const RUN_DIR = resolve(arg("run-dir", "docs/f1/runs"));
 const ROLLBACK_FILE = arg("rollback", "");
+/** 只用指定供应商（逗号分隔）。整批重跑时固定一家，避免数据集混模型。 */
+const PROVIDER_ONLY = (arg("provider-only", "") || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -179,6 +184,7 @@ async function main() {
     log(`待处理：${total} 条（已有抽取结果的会被跳过${FORCE ? "，但 --force 已开" : ""}）`);
 
     if (APPLY) checkGate();
+    if (PROVIDER_ONLY.length) log(`限定供应商：${PROVIDER_ONLY.join(", ")}`);
 
     const usable = notes.filter((n) => (n.content || "").trim().length >= MIN_CONTENT);
     log(`本次取 ${notes.length} 条，其中正文 ≥${MIN_CONTENT} 字：${usable.length} 条`);
@@ -187,7 +193,11 @@ async function main() {
     const stats = { ok: 0, failed: 0, review: 0, empty: 0, defaulted: 0 };
 
     for (const note of usable) {
-      const r = await extractTastingFields({ title: note.title, content: note.content });
+      const r = await extractTastingFields({
+        title: note.title,
+        content: note.content,
+        providers: PROVIDER_ONLY.length ? PROVIDER_ONLY : undefined,
+      });
       if (!r.ok) {
         stats.failed++;
         log(`失败 ${note.id}：${r.reason}`);
