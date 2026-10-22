@@ -203,6 +203,16 @@ model TastingNote {
   sourceId  String? // Evernote GUID
   sourceUrl String? // 原文链接
 
+  // ─── F1 结构化抽取（PRD v0.3 §5 Phase 1）────────────────────────────
+  // 只抽原文确实提到的定性信息；未提及保持 NULL（禁止推测补全）。
+  // 四维分值（香气/滋味/水路/体感）不从旧笔记推测，因此这里没有对应字段。
+  stage          String? @db.VarChar(20) // 上升期 | 巅峰期 | 适饮期 | 走下坡
+  deltaVsPrev    String? @db.VarChar(10) // 更好 | 差不多 | 更差
+  descriptors    Json? // 描述词数组，每个词必须在原文中出现过
+  grams          Float? // 投茶量（克）
+  vessel         String? @db.VarChar(40) // 器具（盖碗/紫砂壶/…）
+  extractionMeta Json? // 抽取元信息：模型、置信度、接地结果、复核标记
+
   teaId String
   tea   Tea    @relation(fields: [teaId], references: [id], onDelete: Cascade)
 

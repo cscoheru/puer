@@ -165,6 +165,16 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 - 先由站长手工标注 50–100 条作为评测集，抽取一致率达到站长设定的阈值（建议 stage、delta 不低于 85%）后才允许批量写入。
 - 有成本上限与重试，可 dry-run，可按批次回滚。
 
+> **落地状态（2026-10-22）**：
+> - 库表：`tasting_notes` 增 `stage` / `deltaVsPrev` / `descriptors` / `grams` / `vessel` / `extractionMeta`
+>   （迁移 `20261022_tasting_extraction`，只加列不动原文）。
+> - 抽取：`src/lib/tasting-extract/`（词表 + 接地校验 + prompt + 执行器），27 条单测。
+> - 工具：`scripts/f1-make-eval-set.mjs`（分层抽样出标注底稿）、`scripts/f1-eval.mjs`
+>   （一致率闸门，stage/delta 均 ≥85% 才放行）、`scripts/f1-extract.mjs`
+>   （默认 dry-run，`--apply` 前强制读评测报告，写 `docs/f1/runs/*-rollback.json`）。
+> - **待站长执行**：标注 `docs/f1/eval-set.tsv` 的 50–100 条 → 跑评测 → 达标后回填。
+> - 前置已验证：品鉴笔记 `createdAt` 就是品鉴时间（审计 §18），无需补 `tasted_at`。
+
 **F2 我的茶仓（Phase 2）**
 
 - 添加茶：搜索茶品库（经典优先）；找不到可自建，进入待审核队列，由站长并入茶品库。
