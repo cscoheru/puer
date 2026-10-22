@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { REAL_AUTHOR } from "@/lib/real-content";
 import { prisma } from "@/lib/prisma";
 import { checkUserCanPost } from "@/lib/check-mute";
 import { publishCommentEffects } from "@/lib/comment-effects";
@@ -92,8 +93,13 @@ export async function GET(req: NextRequest) {
         ? { ...baseWhere, OR: [{ status: "published" }, { status: "pending_review", authorId: session.user.id }] }
         : { ...baseWhere, status: "published" };
 
+  // F0 决策 4：剔除展示计数的同时，明细里的机器人评论也要藏起来。
+  // 只过滤**展示**（列表不返回），不删数据 —— PRD 说历史自动化记录保留用于审计。
   const comments = await prisma.comment.findMany({
-    where,
+    where: {
+      ...where,
+      author: REAL_AUTHOR,
+    },
     select: {
       id: true,
       content: true,

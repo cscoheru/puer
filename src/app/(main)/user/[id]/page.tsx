@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { auth } from "@/lib/auth";
 import { getLevelConfigs, getLevelName } from "@/lib/level-config";
 import Link from "next/link";
@@ -87,8 +88,31 @@ export default async function UserProfilePage({ params, searchParams }: PageProp
   const userLevelName = await getLevelName(user.level);
   const nextLevelName = await getLevelName(user.level + 1);
 
-  const totalLikes = user.articles.reduce((sum, a) => sum + a._count.likes, 0);
-  const totalViews = user.articles.reduce((sum, a) => sum + a.viewCount, 0);
+  // F0 决策 4：展示计数只计真人。
+  // 获赞：likes 表联结 users 过滤 isSynthetic（一次分组查询，不做 N+1）。
+  // 阅读：article_views 的去重真实读者数（同文章同访客只算一次）。
+  const articleIds = user.articles.map((a) => a.id);
+  const [realLikeRows, realReaderRows] = await Promise.all([
+    articleIds.length
+      ? prisma.$queryRaw<Array<{ articleId: string; n: bigint }>>`
+          SELECT l."articleId", count(*)::bigint AS n
+          FROM likes l JOIN users u ON u.id = l."userId"
+          WHERE l."articleId" IN (${Prisma.join(articleIds)})
+            AND u."isSynthetic" = false
+          GROUP BY l."articleId"`
+      : Promise.resolve([]),
+    articleIds.length
+      ? prisma.$queryRaw<Array<{ articleId: string; n: bigint }>>`
+          SELECT "articleId", count(DISTINCT "visitorKey")::bigint AS n
+          FROM article_views
+          WHERE "articleId" IN (${Prisma.join(articleIds)})
+          GROUP BY "articleId"`
+      : Promise.resolve([]),
+  ]);
+  const likeByArticle = new Map(realLikeRows.map((r) => [r.articleId, Number(r.n)]));
+  const readerByArticle = new Map(realReaderRows.map((r) => [r.articleId, Number(r.n)]));
+  const totalLikes = realLikeRows.reduce((sum, r) => sum + Number(r.n), 0);
+  const totalViews = realReaderRows.reduce((sum, r) => sum + Number(r.n), 0);
 
   const followedPostCount = await prisma.article.count({
     where: { authorId: user.id, followedBy: { some: {} } },

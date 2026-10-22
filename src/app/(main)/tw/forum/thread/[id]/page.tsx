@@ -9,6 +9,7 @@
  * canonical, not on language alternates).
  */
 import { prisma } from "@/lib/prisma";
+import { getRealArticleCounts } from "@/lib/real-content";
 import { auth } from "@/lib/auth";
 import { canViewArticleDetail } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
@@ -157,6 +158,13 @@ export default async function TwThreadPage({ params }: PageProps) {
 
   await prisma.article.update({ where: { id }, data: { viewCount: { increment: 1 } } });
 
+  // F0 决策 4：展示计数只计真人（与简体页同口径，见 src/lib/real-content.ts）。
+  const realCounts = await getRealArticleCounts(id).catch(() => ({
+    comments: article._count.comments,
+    likes: article._count.likes,
+    readers: article.viewCount,
+  }));
+
   const canModerate = !!(session?.user?.role === "admin" || (session?.user && article.board?.id && (
     await prisma.boardModerator.findUnique({
       where: { boardId_userId: { boardId: article.board.id, userId: session.user.id } },
@@ -285,7 +293,12 @@ export default async function TwThreadPage({ params }: PageProps) {
             </div>
 
             <div className="flex items-center gap-3 text-xs text-stone-400">
-              <span>{article.viewCount} {convertText("次查看")} · {article._count.comments} {convertText("條回覆")}</span>
+              <span>
+                {realCounts.readers > 0
+                  ? `${realCounts.readers} ${convertText("人讀過")}`
+                  : convertText("暫無讀者記錄")}{" "}
+                · {realCounts.comments} {convertText("條回覆")}
+              </span>
               <span className="flex-1" />
               <ReportButton targetType="article" targetId={id} />
               {session?.user && (session.user.id === article.author.id || session.user.role === "admin") && (

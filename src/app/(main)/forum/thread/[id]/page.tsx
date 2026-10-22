@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { canViewArticleDetail } from "@/lib/article-visibility";
+import { getRealArticleCounts } from "@/lib/real-content";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import { absImageUrl, firstImageFromHtml } from "@/lib/seo-image";
 import Link from "next/link";
@@ -145,6 +146,16 @@ export default async function ThreadPage({ params }: PageProps) {
   // Increment view count
   await prisma.article.update({ where: { id }, data: { viewCount: { increment: 1 } } });
 
+  // F0 决策 4：展示计数只计真人（PRD v0.3 §12）。
+  // - 回复/点赞：实时关系计数，查询时按作者过滤
+  // - 阅读：article_views 的去重真实读者数。viewCount 是 SSR 渲染计数，
+  //   爬虫每次渲染都计入，没有作者维度，定位是热度不是读者数。
+  const realCounts = await getRealArticleCounts(id).catch(() => ({
+    comments: article._count.comments,
+    likes: article._count.likes,
+    readers: article.viewCount,
+  }));
+
   const canModerate = !!(session?.user?.role === "admin" || (session?.user && article.board?.id && (
     await prisma.boardModerator.findUnique({
       where: { boardId_userId: { boardId: article.board.id, userId: session.user.id } },
@@ -178,25 +189,25 @@ export default async function ThreadPage({ params }: PageProps) {
             ...(threadCoverImg ? { image: [threadCoverImg] } : {}),
             // P1-4：互动量进结构化数据——Google 用 commentCount/interactionStatistic
             // 判断讨论页活跃度（DiscussionForum 类富摘要的输入之一）
-            commentCount: article._count.comments,
+            commentCount: realCounts.comments,
             ...(article.viewCount > 0
               ? { interactionStatistic: [
                   {
                     "@type": "InteractionCounter",
                     interactionType: { "@type": "CommentAction" },
-                    userInteractionCount: article._count.comments,
+                    userInteractionCount: realCounts.comments,
                   },
                   {
                     "@type": "InteractionCounter",
                     interactionType: { "@type": "LikeAction" },
                     // 用 _count.likes（点赞）而非 upvotes：upvotes 是与 downvotes
                     // 配对的论坛投票分，语义上不对应 schema.org 的 LikeAction。
-                    userInteractionCount: article._count.likes,
+                    userInteractionCount: realCounts.likes,
                   },
                   {
                     "@type": "InteractionCounter",
                     interactionType: { "@type": "ReadAction" },
-                    userInteractionCount: article.viewCount,
+                    userInteractionCount: realCounts.readers,
                   },
                 ] }
               : {}),
@@ -333,7 +344,12 @@ export default async function ThreadPage({ params }: PageProps) {
 
             {/* Row 2: Stats + edit/delete */}
             <div className="flex items-center gap-3 text-xs text-stone-400">
-              <span>{article.viewCount} 次查看 · {article._count.comments} 条回复</span>
+              <span>
+                {realCounts.readers > 0
+                  ? `${realCounts.readers} 人读过`
+                  : "暂无读者记录"}{" "}
+                · {realCounts.comments} 条回复
+              </span>
               <span className="flex-1" />
               {session?.user && (session.user.id === article.author.id || session.user.role === "admin") && (
                 <>
