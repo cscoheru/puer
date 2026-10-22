@@ -226,7 +226,24 @@ async function main() {
     });
     log("");
     log("【展示计数（重算前）】");
-    log(`  articles.upvotes 合计 ${upAgg._sum.upvotes}  →  真人投票 ${realUp}`);
+    // 真人投票要拆开：votes 表没有 type 列，投给文章的与投给评论的混在一起。
+    const [realArticleVotes, realCommentVotes] = await Promise.all([
+      prisma.vote.count({
+        where: {
+          value: 1,
+          userId: { in: [...realIds] },
+          refId: { in: (await prisma.article.findMany({ select: { id: true } })).map((a) => a.id) },
+        },
+      }),
+      prisma.vote.count({
+        where: {
+          value: 1,
+          userId: { in: [...realIds] },
+          refId: { in: (await prisma.comment.findMany({ select: { id: true } })).map((c) => c.id) },
+        },
+      }),
+    ]);
+    log(`  articles.upvotes 合计 ${upAgg._sum.upvotes}  →  真人投给文章的赞 ${realArticleVotes}（另有真人投给评论的赞 ${realCommentVotes}）`);
     log(`  articles.replyCount 合计 ${replyAgg._sum.replyCount}  →  真人评论 ${realReply}`);
     log(`  articles.viewCount 合计 ${viewAgg._sum.viewCount}  →  无作者维度，无法拆分（定位是热度）`);
 

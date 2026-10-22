@@ -3,12 +3,8 @@
 /**
  * mark-synthetic-users.mjs — 把合成账号标记为 isSynthetic=true（一次性）。
  *
- * 圈定依据（2026-10-21 审计，按 email 域名）：
- *   uidN@puer.local  189 个 — auto-register 每天 3–5 个注册
- *   @puer.tea         51 个 — 2026-05 一次性种子
- *   @mock.local       18 个 — 同期 mock 种子
- *   puer-news@puer.local  1 — 全自动资讯署名账号
- * 其余（gmail/example/3strategy 等真人邮箱）不动，未来注册默认 false。
+ * 圈定依据：**系统造号的痕迹**，不是邮箱域名。详见下方 SYNTHETIC_PREDICATE
+ * 的注释（2026-10-22 修正：按域名圈定曾误标 70 个真人注册账号）。
  *
  * 幂等：重复跑只 UPDATE 已匹配行；--dry-run（默认）只打印统计不写库。
  *
@@ -36,25 +32,24 @@ async function main() {
   }
   const prisma = new PrismaClient({ datasources: { db: { url } } });
   try {
-    const n = await prisma.user.count({
-      where: syntheticWhere(false),
-    });
-    const already = await prisma.user.count({
-      where: syntheticWhere(true),
-    });
-    const range = await prisma.user.aggregate({
-      where: syntheticWhere(),
-      _min: { createdAt: true },
-      _max: { createdAt: true },
-    });
-    log(`待标记 ${n} 个（已标记 ${already} 个），注册时间跨度 ${range._min.createdAt?.toISOString().slice(0, 10)} ~ ${range._max.createdAt?.toISOString().slice(0, 10)}`);
-    if (n > 0) {
-      const sample = await prisma.user.findMany({
-        where: syntheticWhere(false),
-        select: { uid: true, username: true, email: true },
-        orderBy: { createdAt: "asc" },
-        take: 5,
-      });
+    const n = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM users u WHERE (${SYNTHETIC_PREDICATE}) AND u."isSynthetic" = false`,
+    );
+    const already = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM users u WHERE (${SYNTHETIC_PREDICATE}) AND u."isSynthetic" = true`,
+    );
+    const range = await prisma.$queryRawUnsafe(
+      `SELECT min(u."createdAt")::date AS lo, max(u."createdAt")::date AS hi FROM users u WHERE (${SYNTHETIC_PREDICATE})`,
+    );
+    const nCount = n[0].n;
+    log(
+      `待标记 ${nCount} 个（已标记 ${already[0].n} 个），` +
+        `注册时间跨度 ${range[0].lo} ~ ${range[0].hi}`,
+    );
+    if (nCount > 0) {
+      const sample = await prisma.$queryRawUnsafe(
+        `SELECT u.uid, u.username, u.email FROM users u WHERE (${SYNTHETIC_PREDICATE}) AND u."isSynthetic" = false ORDER BY u."createdAt" ASC LIMIT 5`,
+      );
       for (const r of sample) log(`  样例 uid=${r.uid} ${r.username} ${r.email}`);
     }
 
@@ -63,25 +58,26 @@ async function main() {
       return;
     }
 
-    const r = await prisma.user.updateMany({
-      where: syntheticWhere(false),
-      data: { isSynthetic: true },
-    });
-    log(`已标记 ${r.count} 个账号 isSynthetic=true`);
+    const r = await prisma.$executeRawUnsafe(
+      `UPDATE users u SET "isSynthetic" = true, "updatedAt" = NOW()
+       WHERE (${SYNTHETIC_PREDICATE}) AND u."isSynthetic" = false`,
+    );
+    log(`已标记 ${r} 个账号 isSynthetic=true`);
 
     // 安全网：域名清单可能漏圈。剩下未标记且不属于已知真人域的账号列出来人工看。
-    const missed = await prisma.user.findMany({
-      where: {
-        isSynthetic: false,
-        AND: [
-          { email: { not: { endsWith: "@gmail.com" } } },
-          { email: { not: { endsWith: "@example.com" } } },
-          { email: { not: { endsWith: "@3strategy.cc" } } },
-        ],
-      },
-      select: { uid: true, username: true, email: true },
-      take: 20,
-    });
+    // 安全网：所有**符合真人判据**却还标着合成的账号，都该被人看一眼。
+    const missed = await prisma.$queryRawUnsafe(
+      `SELECT u.uid, u.username, u.email FROM users u
+       WHERE u."isSynthetic" = true
+         AND u.email <> 'puer-news@puer.local'
+         AND u.role <> 'admin'
+         AND (
+              (u."registrationIp" IS NOT NULL AND u."registrationIp" <> '')
+           OR (u.nickname IS NOT NULL AND u.nickname <> u.username)
+           OR (u.email NOT LIKE '%@puer.local' AND u.email NOT LIKE '%@puer.tea' AND u.email NOT LIKE '%@mock.local')
+         )
+       ORDER BY u.uid LIMIT 20`,
+    );
     if (missed.length > 0) {
       log(`WARN: 还有 ${missed.length} 个未匹配已知真人域的账号，请人工确认：`);
       for (const r2 of missed) log(`  uid=${r2.uid} ${r2.username} ${r2.email}`);
@@ -92,36 +88,56 @@ async function main() {
 }
 
 /**
- * 圈定规则的 email 条件（与审计 §5 同源维护；改这里必须同步审计文档）。
- * 全部以 OR 组合；role 排除由调用方放在 AND 层（放这里会退化成 OR 分支，
- * 使全库非 admin 用户都被命中——2026-10-21 曾因此误标，已回滚）。
+ * 合成账号的判定：**不是**按邮箱域名，而是按「系统造号的痕迹」。
+ *
+ * ## 为什么不能按邮箱域名
+ *
+ * 注册接口（src/app/api/auth/register/route.ts）**自动生成邮箱**：
+ * `email: uid${nextUid}@puer.local`。真人和 auto-register 造出来的机器号
+ * 用的是同一个域名格式 —— 2026-10-21 按域名圈定，把 70 个真人注册账号
+ * 误标成合成账号（显晟茶居、温广源、半盏浓……），并因此把他们的赞与
+ * 评论从展示计数里剔掉了。**域名不是判据。**
+ *
+ * ## 正确判据（三条并用）
+ *
+ *  1. 有 registrationIp —— 真人注册接口会写，auto-register 不写
+ *  2. nickname ≠ username —— 注册接口会写 nickname（自填昵称才有差异），
+ *     auto-register 根本不写该字段
+ *  3. 邮箱在种子域里 —— @puer.local / @puer.tea / @mock.local
+ *
+ * 三条**都不满足**的才是合成账号。admin 与 puer-news 显式排除。
+ *
+ * ## 为什么这个脚本还存在
+ *
+ * 它是**一次性**标记工具（首次给存量账号打标）。判据修好后仍需保留：
+ * 新装的库里如果预置了账号，它负责把机器号挑出来。
+ * 日常的账号增删不需要跑它 —— 新注册用户默认 isSynthetic=false，
+ * 而 auto-register 建号时直接写 true（见该脚本的 INSERT）。
+ *
+ * 改这里必须同步审计文档。
  */
-function syntheticEmailWhere() {
-  return [
-    // auto-register 批量号：uidN@puer.local（N 为数字；startsWith+endsWith 组合
-    // 等价于 ^uid.*@puer.local$——puer.local 域下只有这批号与 puer-news）
-    { AND: [{ email: { startsWith: "uid" } }, { email: { endsWith: "@puer.local" } }] },
-    { email: { endsWith: "@puer.tea" } }, // 一次性种子（admin 两个号由此被排除）
-    { email: { endsWith: "@mock.local" } }, // mock 种子
-    { email: { equals: "puer-news@puer.local" } }, // 全自动资讯署名
-  ];
-}
+const SEED_DOMAINS = ["@puer.local", "@puer.tea", "@mock.local"];
+
+/** 合成账号判定（SQL 表达式）。nickname ≠ username 是列与列比较，Prisma 的 where 做不了，必须在 SQL 层判。 */
+const SYNTHETIC_PREDICATE = `
+  u.email <> 'puer-news@puer.local'
+  AND u.role <> 'admin'
+  AND NOT (
+       (u."registrationIp" IS NOT NULL AND u."registrationIp" <> '')
+    OR (u.nickname IS NOT NULL AND u.nickname <> u.username)
+  )
+  AND (
+       u.email LIKE '%@puer.local'
+    OR u.email LIKE '%@puer.tea'
+    OR u.email LIKE '%@mock.local'
+  )
+`;
 
 /**
- * 完整圈定（与审计 §5 同源维护；改这里必须同步审计文档）：
- * email 命中 + 非 admin（uid 1002/1003 是站长/管理号，站长线数据源）。
- * role 排除必须在 AND 层——放进 OR 数组会退化成独立分支，使全库非 admin
- * 用户都被命中（2026-10-21 曾因此误标站长，已回滚）。
- *
- * @param {boolean} [marked] 传 true/false 时叠加 isSynthetic 过滤（已标记/待标记）。
+ * 判据的 SQL 片段在文件上方（SYNTHETIC_PREDICATE）。
+ * 这里不用 Prisma 的 where：nickname ≠ username 是列与列比较，
+ * Prisma 表达不了，只能走 $queryRaw。
  */
-function syntheticWhere(marked) {
-  const cond = {
-    AND: [{ OR: syntheticEmailWhere() }, { role: { not: "admin" } }],
-  };
-  if (marked === undefined) return cond;
-  return { AND: [cond, { isSynthetic: marked }] };
-}
 
 main().catch((e) => {
   log(`FATAL: ${e?.stack || e}`);

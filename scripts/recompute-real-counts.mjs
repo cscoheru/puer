@@ -60,10 +60,14 @@ async function main() {
       SELECT a.id,
              (SELECT count(*) FROM votes v
                WHERE v."refId" = a.id AND v.value = 1
-                 AND v."userId" IN (SELECT id FROM users WHERE "isSynthetic" = false))::int AS up,
+                 AND v."userId" IN (SELECT id FROM users WHERE "isSynthetic" = false)
+                 -- votes 表没有 type 列（article / comment 靠 refId 指向哪张表隐式
+                 -- 区分），这里显式排除「投给评论的票」，避免 cuid 跨表碰撞。
+                 AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.id = v."refId"))::int AS up,
              (SELECT count(*) FROM votes v
                WHERE v."refId" = a.id AND v.value = -1
-                 AND v."userId" IN (SELECT id FROM users WHERE "isSynthetic" = false))::int AS down,
+                 AND v."userId" IN (SELECT id FROM users WHERE "isSynthetic" = false)
+                 AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.id = v."refId"))::int AS down,
              (SELECT count(*) FROM comments c
                WHERE c."articleId" = a.id
                  AND c."authorId" IN (SELECT id FROM users WHERE "isSynthetic" = false))::int AS replies
