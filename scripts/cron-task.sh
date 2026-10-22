@@ -10,7 +10,7 @@
 # resolve dynamically here — replacing the fragile hardcoded 172.18.0.2 in
 # auto-post-cron.sh.
 #
-# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post>
+# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post|baseline-report>
 # On failure an [ALERT] line is appended to backups/health-alerts.log
 # (same file the site-down check writes to).
 
@@ -71,6 +71,24 @@ case "$TASK" in
         # 宿主机直跑(仅 DB+AI 调用,无 /app 文件路径依赖;pg 模块在宿主机 node_modules)
         # rag-post 额外读宿主机 rag-data 语料(茶问 /ask 同一份知识库)
         run node "scripts/${TASK}.mjs"
+        ;;
+      baseline-report)
+        # 每日真实读者/指标基线（PRD v0.3 §12 第 2/4 步）。两个报表都是只读的
+        # 统计脚本，输出落到按日期命名的文件里，便于看趋势。
+        # 保留最近 90 天的报表（够覆盖 PRD 的 90 天窗口）。
+        OUT_DIR="/opt/puer-hub/backups/baselines"
+        mkdir -p "$OUT_DIR"
+        STAMP=$(date -u +%Y%m%d)
+        {
+          echo "===== 真实读者基线 ====="
+          node --import tsx scripts/reader-baseline.mjs 2>&1
+          echo
+          echo "===== 真实用户指标基线 ====="
+          node --import tsx scripts/real-metrics-baseline.mjs 2>&1
+        } > "$OUT_DIR/$STAMP.txt" 2>&1 || log_alert "baseline-report failed"
+        find "$OUT_DIR" -name "*.txt" -mtime +90 -delete 2>/dev/null || true
+        log_msg="baseline report written: $OUT_DIR/$STAMP.txt"
+        echo "$log_msg"
         ;;
       ai-news-draft)
         # R29:PentAGI 每周检索成果 → AI 忠实改写 → 草稿箱(不直接发布)。
