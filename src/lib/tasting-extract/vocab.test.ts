@@ -62,6 +62,7 @@ test("groundVessel：取最长匹配，且只认原文出现的器具", () => {
   // 模型说错时以原文为准：原文确实用了盖碗，这个事实是可信的
   assert.equal(groundVessel("瓷壶", "用盖碗泡"), "盖碗");
   assert.equal(groundVessel(null, "用盖碗泡"), "盖碗", "模型没给也能从原文取");
+  assert.equal(groundVessel(null, "6.7克130cc壶"), "壶", "认不出材质也要记下原文写明的器具");
   assert.equal(groundVessel("瓷壶", "随便泡的"), null, "原文没有任何器具 → null");
 });
 

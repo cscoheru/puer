@@ -42,8 +42,17 @@ function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
+/** Evernote 导入的正文几乎都是富文本；标注者要看的是文字，不是标签。 */
+function stripToText(s) {
+  return String(s ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function oneLine(s, max) {
-  const t = String(s ?? "").replace(/\s+/g, " ").trim();
+  const t = stripToText(s);
   return t.length > max ? `${t.slice(0, max)}…` : t;
 }
 
@@ -135,7 +144,9 @@ async function main() {
     });
     log(`候选笔记：${rows.length} 条（source≠article）`);
 
-    const usable = rows.filter((r) => (r.content || "").trim().length >= MIN_CONTENT);
+    // 按「去掉标签后的文字」算长度：否则一张图配几个空 <div> 也算够长，
+    // 标注者打开却无内容可标。
+    const usable = rows.filter((r) => stripToText(r.content).length >= MIN_CONTENT);
     log(`正文 ≥${MIN_CONTENT} 字：${usable.length} 条`);
 
     if (usable.length < 10) {
@@ -179,9 +190,9 @@ async function main() {
       [
         r.id,
         new Date(r.createdAt).toISOString().slice(0, 10),
-        oneLine(`${r.tea?.name ?? ""} ${r.createdAt ? "" : ""}`, 24),
+        oneLine(r.tea?.name ?? "", 24),
         oneLine(r.title, 40),
-        oneLine(r.content, 180),
+        oneLine(r.content, 300),
         "", // stage   上升期|巅峰期|适饮期|走下坡|-（未提及）
         "", // delta   更好|差不多|更差|-（未提及/首次品鉴）
         "", // grams   数字（克）|-

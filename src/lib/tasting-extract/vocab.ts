@@ -106,6 +106,9 @@ export const VESSELS = [
   "煮茶壶",
   "盖杯",
   "马克杯",
+  // 兜底：原文只写「130cc壶」这种，认不出材质也要记下来，
+  // 不能因为词表里没有就把原文写明的器具当成没写。放最后，靠长度排序让它优先度最低。
+  "壶",
 ] as const;
 export type Vessel = (typeof VESSELS)[number];
 
@@ -223,8 +226,44 @@ export function groundDescriptors(raw: unknown, text: string): string[] {
   return out;
 }
 
-// ─── 置信度阈值 ────────────────────────────────────────────────────────────
+// ─── 出处标记与缺省值 ──────────────────────────────────────────────────────
 
+/**
+ * 字段值的来源。
+ *
+ *   stated   原文明确写了
+ *   inferred 原文没直说，从用词倾向推断（目前只用于 stage）
+ *   default  原文没提，补的缺省值（grams / vessel）
+ *   manual   人工修正过（由修正导入脚本写入）
+ *
+ * 存这个字段不是为了好看 —— 「这饼茶投茶 7.5 克」和「原文没写，我按 7.5 补的」
+ * 在分析里完全不是一回事。有了 basis，图表可以只取 stated，也可以把
+ * inferred 单独标色。
+ */
+export type FieldBasis = "stated" | "inferred" | "default" | "manual";
+
+/** 原文没写投茶量时补的值。取 7.5 而不是 7 或 8，避免假装精确到整克。 */
+export const DEFAULT_GRAMS = 7.5;
+
+/** 原文没写器具时的缺省值。 */
+export const DEFAULT_VESSEL = "盖碗";
+
+/** 原文里是否存在「数字 + 克/g」这种投茶量写法（与 groundGrams 同一套规则）。 */
+export function hasGramToken(text: string): boolean {
+  return findGramValue(text) !== null;
+}
+
+/** 从原文里取第一个「数字 + 克/g」的数值；没有返回 null。 */
+export function findGramValue(text: string): number | null {
+  const hay = normalizeForMatch(text);
+  const re = /(\d+(?:\.\d+)?)\s*(?:克|g(?![a-z])|grams?(?![a-z]))/gi;
+  const m = re.exec(hay);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
+}
+
+// ─── 置信度阈值 ────────────────────────────────────────────────────────────
 /** 单字段低于这个置信度 → 该字段不写库，进入复核队列。 */
 export const FIELD_CONFIDENCE_THRESHOLD = 0.75;
 

@@ -97,3 +97,10 @@ __pycache__/
 /puer-ai/data-engine/dataset_v*/
 /puer-ai/data-engine/img-cache/
 /puer-ai/data-engine/*.tar.gz
+
+# F1 生成的标注/修正/回滚产物（含笔记正文，不入库）
+docs/f1/eval-set.jsonl
+docs/f1/eval-set.tsv
+docs/f1/corrections.tsv
+docs/f1/eval-report.json
+docs/f1/runs/

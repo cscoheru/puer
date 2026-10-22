@@ -165,14 +165,18 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 - 先由站长手工标注 50–100 条作为评测集，抽取一致率达到站长设定的阈值（建议 stage、delta 不低于 85%）后才允许批量写入。
 - 有成本上限与重试，可 dry-run，可按批次回滚。
 
-> **落地状态（2026-10-22）**：
+> **落地状态（2026-10-22，已按站长决定调整）**：
 > - 库表：`tasting_notes` 增 `stage` / `deltaVsPrev` / `descriptors` / `grams` / `vessel` / `extractionMeta`
->   （迁移 `20261022_tasting_extraction`，只加列不动原文）。
-> - 抽取：`src/lib/tasting-extract/`（词表 + 接地校验 + prompt + 执行器），27 条单测。
-> - 工具：`scripts/f1-make-eval-set.mjs`（分层抽样出标注底稿）、`scripts/f1-eval.mjs`
->   （一致率闸门，stage/delta 均 ≥85% 才放行）、`scripts/f1-extract.mjs`
->   （默认 dry-run，`--apply` 前强制读评测报告，写 `docs/f1/runs/*-rollback.json`）。
-> - **待站长执行**：标注 `docs/f1/eval-set.tsv` 的 50–100 条 → 跑评测 → 达标后回填。
+>   （迁移 `20261022_tasting_extraction`，只加列不动原文，**已在生产执行**）。
+> - 抽取：`src/lib/tasting-extract/`（词表 + 接地校验 + prompt + 多供应商执行器），20+ 条单测。
+> - **不再要求逐条人工标注**（站长 2026-10-22 决定：先回填、后修正）。改为每个字段带
+>   `basis`：`stated` 原文写了 / `inferred` 语气推断 / `default` 缺省补值 / `manual` 人工改过。
+>   分析可只取 `stated`，默认值可单独标色。
+> - 工具：`scripts/f1-extract.mjs`（回填，默认 dry-run）、`scripts/f1-corrections.mjs`
+>   （导出/回写修正表，默认 dry-run）、`scripts/f1-probe.mjs`（只读抽样预览）。
+>   回填与修正走参数化 SQL，不依赖镜像内 Prisma Client 版本，无需重新构建镜像。
+> - 评测闸保留为可选（`--require-gate`），默认关闭。
+> - 供应商链 MiniMax → DeepSeek → GLM；2026-10-22 MiniMax 配额耗尽，实际走 DeepSeek。
 > - 前置已验证：品鉴笔记 `createdAt` 就是品鉴时间（审计 §18），无需补 `tasted_at`。
 
 **F2 我的茶仓（Phase 2）**

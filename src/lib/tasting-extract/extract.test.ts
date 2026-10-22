@@ -45,7 +45,7 @@ test("validateReply：正常输出 → 字段齐全且接地通过", () => {
   assert.equal(r.meta?.needsReview, false);
 });
 
-test("validateReply：幻觉数字与幻觉器具被丢弃并记入 dropped", () => {
+test("validateReply：模型给错数字/器具时以原文为准并记 corrected", () => {
   const r = validateReply(
     reply({
       stage: null,
@@ -57,32 +57,75 @@ test("validateReply：幻觉数字与幻觉器具被丢弃并记入 dropped", ()
     }),
     NOTE,
   );
-  assert.equal(r.fields.grams, null);
+  assert.equal(r.fields.grams, 8, "模型给错时从原文找回正确投茶量");
+  assert.equal(r.meta?.basis.grams, "stated");
   assert.equal(r.fields.vessel, "盖碗", "模型错时报原文里真实出现的器具");
   assert.deepEqual(r.fields.descriptors, []);
-  assert.ok(r.meta?.dropped.grams);
+  assert.equal(r.meta?.dropped.grams, undefined, "能从原文找回就是纠正，不是丢弃");
+  assert.match(r.meta?.corrected.grams ?? "", /补自原文 → 8/);
   assert.equal(r.meta?.dropped.vessel, undefined, "纠正不算丢弃");
   assert.match(r.meta?.corrected.vessel ?? "", /紫砂壶 → 盖碗/);
   assert.ok(r.meta?.dropped.descriptors);
-  assert.equal(r.meta?.needsReview, true, "有丢弃/纠正就必须进复核");
+  assert.equal(r.meta?.needsReview, true, "描述词接地失败必须进复核");
 });
 
-test("validateReply：低置信度字段不落库", () => {
+test("validateReply：原文没写投茶量与器具 → 补默认值并如实标注 basis", () => {
+  const plain = "今天喝了这饼茶，汤色橙黄，蜜韵明显，回甘不错。";
+  const r = validateReply(
+    reply({
+      stage: "drinking",
+      stageBasis: "inferred",
+      grams: null,
+      vessel: null,
+      descriptors: ["橙黄", "蜜韵"],
+      confidence: { stage: 0.8, deltaVsPrev: 0, grams: 0, vessel: 0, descriptors: 0.9 },
+    }),
+    plain,
+  );
+  assert.equal(r.fields.grams, 7.5);
+  assert.equal(r.meta?.basis.grams, "default");
+  assert.equal(r.fields.vessel, "盖碗");
+  assert.equal(r.meta?.basis.vessel, "default");
+  assert.equal(r.meta?.basis.stage, "inferred");
+  assert.equal(r.meta?.needsReview, false, "默认值不该让站长逐条复核");
+});
+
+test("validateReply：模型编了投茶量、原文也没写 → 补默认值且不进复核", () => {
+  const plain = "今天喝了这饼茶，汤色橙黄，蜜韵明显。";
+  const r = validateReply(
+    reply({ grams: 8, vessel: null, confidence: { grams: 0.9 } }),
+    plain,
+  );
+  assert.equal(r.fields.grams, 7.5);
+  assert.equal(r.meta?.basis.grams, "default");
+  assert.equal(r.meta?.dropped.grams, undefined, "默认值不是冲突");
+  assert.equal(r.meta?.needsReview, false);
+});
+
+test("validateReply：模型说没有投茶量时，不把「茶样总量」正则抓成投茶量", () => {
+  const text = "今天收到一个茶样，一共有 23克，够喝一阵子了。";
+  const r = validateReply(reply({ grams: null, confidence: { grams: 0 } }), text);
+  assert.equal(r.fields.grams, 7.5, "总量不是投茶量");
+  assert.equal(r.meta?.basis.grams, "default");
+});
+
+test("validateReply：低置信的 delta 不落库，stage 仍保留并标 inferred", () => {
   const r = validateReply(
     reply({
       stage: "peak",
+      deltaVsPrev: "better",
       grams: 8,
-      confidence: { stage: 0.4, deltaVsPrev: 0, grams: 0.3, vessel: 0, descriptors: 0 },
+      confidence: { stage: 0.4, deltaVsPrev: 0.3, grams: 0.9, vessel: 0.9, descriptors: 0.9 },
     }),
     NOTE,
   );
-  assert.equal(r.fields.stage, "peak", "stage 保留给复核队列参考");
-  assert.equal(r.fields.grams, null, "低置信数字不得写库");
-  assert.ok(r.meta?.dropped.stage);
-  assert.ok(r.meta?.dropped.grams);
+  assert.equal(r.fields.stage, "peak");
+  assert.equal(r.meta?.basis.stage, "inferred", "模型没声明 stated 时按推断算");
+  assert.equal(r.fields.grams, 8, "已接地的投茶量不再被置信度拦掉");
+  assert.equal(r.fields.deltaVsPrev, null, "没把握的比较不写");
+  assert.ok(r.meta?.dropped.deltaVsPrev);
   assert.equal(r.meta?.needsReview, true);
-  assert.equal(r.meta?.suggested?.grams, 8, "复核队列要能看到模型原本想写的值");
-  assert.equal(r.meta?.suggested?.stage, "peak");
+  assert.equal(r.meta?.suggested?.deltaVsPrev, "better");
 });
 
 test("validateReply：模型输出无法映射 → 字段为 null 且有原因", () => {
