@@ -92,22 +92,62 @@ async function exportSheet(prisma, outPath) {
   });
   if (!author) throw new Error(`uid=${AUTHOR_UID} 不存在`);
 
+  // 只有站长的笔记被抽取过，所以不再按作者过滤 —— 直接取所有已抽取的。
   const notes = await prisma.$queryRawUnsafe(
     `SELECT n.id, n.title, n.content, n."createdAt",
             n.stage, n."deltaVsPrev", n.grams, n.vessel, n.descriptors, n."extractionMeta",
             t.name AS "teaName"
      FROM tasting_notes n
      LEFT JOIN teas t ON t.id = n."teaId"
-     WHERE n."authorId" = $1
-       AND n.source <> 'article'
+     WHERE n.source <> 'article'
        AND n."extractionMeta" IS NOT NULL
      ORDER BY n."createdAt" ASC
-     ${LIMIT > 0 ? "LIMIT $2" : ""}`,
-    ...(LIMIT > 0 ? [author.id, LIMIT] : [author.id]),
+     ${LIMIT > 0 ? "LIMIT $1" : ""}`,
+    ...(LIMIT > 0 ? [LIMIT] : []),
   );
 
-  const header = ["id", "日期", "茶品", "标题", "正文摘要", "stage", "delta", "grams", "vessel", "descriptors", "当前来源"];
-  const lines = notes.map((n) =>
+  // 「太长了没法过」→ 只导最值得人看的那些行。
+  // 风险判定：阶段不是「适饮」（适饮是默认判断，错得起）、有与上次的比较、
+  // 模型说过与原文冲突、以及投茶量补了默认值但原文其实写了数字。
+  const RISKY = new Set();
+  const reasons = new Map();
+  const addRisk = (id, why) => {
+    RISKY.add(id);
+    if (!reasons.has(id)) reasons.set(id, []);
+    reasons.get(id).push(why);
+  };
+  for (const n of notes) {
+    if (n.stage && n.stage !== "drinking") {
+      addRisk(n.id, n.stage === "declining" ? "判了走下坡" : n.stage === "peak" ? "判了巅峰期" : "判了上升期");
+    }
+    if (n.deltaVsPrev) {
+      addRisk(n.id, n.deltaVsPrev === "worse" ? "比上次差" : n.deltaVsPrev === "better" ? "比上次好" : "与上次持平");
+    }
+    if (n.extractionMeta?.needsReview) addRisk(n.id, "模型与原文有出入");
+    const basis = n.extractionMeta?.basis ?? {};
+    if (basis.grams === "default" && /[0-9]+\s*(克|g)/i.test(stripToText(n.content))) {
+      addRisk(n.id, "投茶量补了默认但原文有数字");
+    }
+  }
+
+  const onlyRisky = (arg("filter", "") || "").toLowerCase() === "risky";
+  const rowsOut = onlyRisky ? notes.filter((n) => RISKY.has(n.id)) : notes;
+  // 风险高的排前面：先看结论性强的（走下坡/巅峰/比上次差），最后才是投茶量这类细节
+  const severity = (n) => {
+    const r = reasons.get(n.id) ?? [];
+    let s = 0;
+    if (r.some((x) => x.includes("走下坡") || x.includes("巅峰"))) s += 8;
+    if (r.some((x) => x.includes("比上次差"))) s += 6;
+    if (r.some((x) => x.includes("有出入"))) s += 5;
+    if (r.some((x) => x.includes("上升期"))) s += 4;
+    if (r.some((x) => x.includes("比上次好") || x.includes("持平"))) s += 3;
+    if (r.some((x) => x.includes("投茶量"))) s += 1;
+    return s;
+  };
+  rowsOut.sort((a, b) => severity(b) - severity(a) || String(a.createdAt).localeCompare(String(b.createdAt)));
+
+  const header = ["id", "日期", "茶品", "标题", "正文摘要", "stage", "delta", "grams", "vessel", "descriptors", "当前来源", "风险点"];
+  const lines = rowsOut.map((n) =>
     [
       n.id,
       new Date(n.createdAt).toISOString().slice(0, 10),
@@ -120,6 +160,7 @@ async function exportSheet(prisma, outPath) {
       n.vessel ?? "",
       Array.isArray(n.descriptors) ? n.descriptors.join(",") : "",
       basisSummary(n.extractionMeta),
+      (reasons.get(n.id) ?? []).join("、"),
     ]
       .map(tsvCell)
       .join("\t"),
@@ -127,7 +168,11 @@ async function exportSheet(prisma, outPath) {
 
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, `${header.join("\t")}\n${lines.join("\n")}\n`, "utf8");
-  log(`已导出 ${notes.length} 条 → ${outPath}`);
+  log(`已导出 ${rowsOut.length} 条 → ${outPath}`);
+  if (onlyRisky) {
+    log(`只含高风险行（${notes.length} 条里挑出 ${rowsOut.length} 条），按严重度排序`);
+    log("「风险点」列说明了每条为什么值得你看一眼。");
+  }
   log("只改最后五列中被模型写错的地方；留空=不改，填 - = 清空。");
 }
 
@@ -209,16 +254,34 @@ async function applySheet(prisma, inPath) {
     }
 
     if (row.descriptors !== undefined && row.descriptors !== "") {
-      const current = Array.isArray(next.descriptors) ? next.descriptors.join(",") : "";
+      const currentArr = Array.isArray(next.descriptors) ? next.descriptors : [];
+      const current = currentArr.join(",");
       if (row.descriptors === "-") {
         if (current) { next.descriptors = null; mark("descriptors"); }
       } else {
-        const list = row.descriptors.split(/[,，、;；\s]+/).map((s) => s.trim()).filter(Boolean);
+        // 顿号可能就在描述词内部（模型写的「甜、柔且均衡」是一个词）。
+        // 所以只按逗号分段；每一段若在库里原样存在就整段保留，
+        // 只有当它能被拆成库里已有的词时，才按顿号拆开。
+        const whole = row.descriptors.trim();
+        const list = [];
+        for (const piece of whole.split(/[,，]/).map((s) => s.trim()).filter(Boolean)) {
+          if (currentArr.includes(piece)) {
+            list.push(piece);
+            continue;
+          }
+          const sub = piece.split(/[、;；\s]+/).map((s) => s.trim()).filter(Boolean);
+          if (sub.length > 1 && sub.some((x) => currentArr.includes(x))) list.push(...sub);
+          else list.push(piece);
+        }
         if (list.join(",") !== current) { next.descriptors = list; mark("descriptors"); }
       }
     }
 
     if (!touched) continue;
+    const diffs = Object.keys(next)
+      .filter((k) => JSON.stringify(next[k]) !== JSON.stringify(before[k]))
+      .map((k) => `${k}: ${JSON.stringify(before[k])} → ${JSON.stringify(next[k])}`);
+    log(`  改 ${note.id.slice(0, 8)} ${diffs.join("; ")}`);
     changed.push({ id: note.id, before, next, meta: { ...meta, basis } });
   }
 
