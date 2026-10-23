@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import CellarDataControls from "@/components/cellar/cellar-data-controls";
 
 interface UserProfile {
   id: string;
@@ -217,6 +218,10 @@ export default function SettingsPage() {
       <hr className="my-8 border-stone-200" />
       <h2 className="text-lg font-bold text-stone-800 mb-4">修改密码</h2>
       <ChangePasswordForm />
+
+      {/* 我的数据：导出 / 删除（PRD §4「可随时撤回、导出、删除」） */}
+      <hr className="my-8 border-stone-200" />
+      <CellarDataControls />
     </div>
   );
 }

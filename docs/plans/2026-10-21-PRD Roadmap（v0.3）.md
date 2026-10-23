@@ -196,6 +196,44 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 - 默认私有；可导出 JSON / CSV；可一键删除全部数据。
 - 条目页展示站长线对照（该茶有站长线时）。这是用户不依赖任何社区数据就能得到的第一份价值。
 
+> **落地状态（2026-10-23）**：
+> - 库表：新增 `cellar_items` / `storage_epochs` / `cellar_tastings` / `tea_requests` /
+>   `descriptor_vocab`，`users` 增 `share_aggregate` / `share_consented_at`
+>   （迁移 `20261023_cellar`，**已在生产执行**，幂等，只增不删）。
+> - 口径钉在两层：DB 的 CHECK 约束（储仓 45–60、四维 1–10、阶段/对照枚举）
+>   + 应用层的 zod 校验。两层都挡住才算数 —— 应用层会漂移，约束不会。
+> - 接口：`/api/cellar`（列表/添加）、`/api/cellar/[id]`（详情/改/删）、
+>   `/api/cellar/[id]/tastings`（快速品鉴）、`/api/cellar/[id]/storage`（换仓）、
+>   `/api/cellar/export`、`/api/cellar/purge`、`/api/cellar/tea-requests`、
+>   `/api/cellar/vocab`、`/api/admin/cellar/requests`（审核/代录）。
+> - 前台：`/tea-cellar`（列表 + 添加）与 `/tea-cellar/[id]`（我的线 + 站长线对照）。
+>   后台：`/admin/cellar-requests`（自建茶品审核 + 代录茶仓）。
+> - **站内第一个用户自助导出/删除入口**（`/settings` 的「我的数据」），
+>   隐私政策 §6 已同步改写。删除要打字确认，不可撤销。
+> - 走 feature flag `FEATURE_CELLAR`（默认关），关着时前台 404、接口 404、
+>   导航不出现。后台审核队列**不受 flag 门禁** —— 前台关了但队列里还有
+>   待办时，站长仍然要能处理。
+> - 描述词库：`scripts/seed-descriptor-vocab.mjs` 从站长笔记的高频词播种，
+>   生熟与年份段从笔记所属的茶直接读出（确定事实），只有四维归属交给模型，
+>   默认 dry-run、报告给站长核对后才写库。
+> - 退出标准的观测：`scripts/cellar-usage-report.mjs`（快速品鉴中位耗时、
+>   参与人数、回访率；中位数不用平均数，合成账号记录剔除）。
+> - **⚠️ 待站长确认**：储仓评分 45/50/55/60 的**锚点描述文案**与四维各档的
+>   描述文案，目前是占位文案（见 `src/lib/cellar.ts` 的 `STORAGE_ANCHORS`）。
+>
+> **⚠️ 与 §6 概念模型的偏离（已确认执行）**：§6 的概念模型把用户的记录
+> 也放进 `Tasting`（加 `cellar_item_id` / `visibility`）。本实现**另立一表**
+> `CellarTasting`，理由三条：
+> 1. `TastingNote.teaId` 是非空外键，装不下「自建茶品（还没并入茶品库）」的记录；
+> 2. `TastingNote` 会被渲染成**公开**的「转化档案」时间线，用户记录混进去就要在
+>    8 个公开读取点逐个加过滤 —— 漏一个就是隐私泄漏，物理隔离让风险归零；
+> 3. 用户记录是四维 1–10 + `elapsed_seconds`，与站长笔记的五维 1–5 不是同一形状。
+>
+> §6 的概念字段（`cellar_item_id` / `visibility` / `tasted_at` / `dims` /
+> `descriptors` / `grams` / `vessel`）在新表上一一对应 —— **概念模型守住了**，
+> 只是物理上分成两张表。`stage` 沿用 F1 已落库的 `ascending|peak|drinking|declining`
+> （不另起 `young|transforming|peak|declining`，词表只有一份，站长已按现行词表复核过）。
+
 **F3 双线评分与曲线（Phase 3，对标烂番茄）**
 
 - 茶品页头部并列三块：站长 / 社区 / 我的（未登录不显示“我的”）。
@@ -349,6 +387,17 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 | Phase 2 | 版主权限落地（按 `board_moderators` 表授权） | ⬜ 待做 |
 
 ### 13.5 待确认（2026-10-23：角色已可在界面直接改，只剩这三问）
+
+> **已决（2026-10-23，站长）**：
+> 1. **uid 1001（渔夫）= `editor`** —— 站长线按作者白名单取数（不依赖 role），
+>    editor 只给他正式的作者身份，不给后台入口。
+> 2. **uid 1002 / 1003 保持 `admin`** —— 后台只有这两个入口，降级任何一个
+>    都会让某个终端进不去。
+> 3. **暂不设 `system` 角色** —— 权限层已经让合成账号（`isSynthetic`）拿不到
+>    任何后台能力，行为上与 system 等价；等真有「程序账号要发帖但不被当成人」
+>    的需求再开这个值。
+>
+> 下面是当时的原始提问与建议，保留作决策依据。
 
 角色变更已做成后台操作（`/admin/users` 的角色下拉），下列三项可以直接在界面上执行，
 不需要改库。
