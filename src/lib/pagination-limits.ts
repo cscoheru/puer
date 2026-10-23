@@ -80,6 +80,26 @@ export function paginationCapped(
 }
 
 /**
+ * 解析用户请求的页码。
+ *
+ * 四个列表路由各抄一份 `parseInt(searchParams.get("page") || "1", 10)` ——
+ * 而 348b6f6 就是在这种抄写里把声明删了却留着用法，整个列表接口 500。
+ * 收成一处，顺带把非法输入归一到 1：**永不吐 NaN** ——
+ * `paginationCapped(NaN, page)` 恒为 false，语义含混。
+ */
+export function parseRequestedPage(raw: string | null | undefined): number {
+  const n = parseInt(String(raw ?? "1"), 10);
+  return Number.isSafeInteger(n) && n >= 1 ? n : 1;
+}
+
+/** 总页数 —— 服务端的响应与客户端的视图用同一个公式，别各写一份。 */
+export function listTotalPages(total: number, limit: number): number {
+  const t = Number.isFinite(total) ? Math.max(0, total) : 0;
+  const l = Number.isFinite(limit) ? Math.max(1, limit) : 1;
+  return Math.max(1, Math.ceil(t / l));
+}
+
+/**
  * 列表页的分页视图 —— 客户端按这个渲染，不自己算。
  *
  * 两个口径在这里合流：
@@ -104,14 +124,12 @@ export function listPaginationView(
   input: { total: number; limit: number; effectivePage: number },
   opts: { isAdmin: boolean },
 ): { page: number; pages: number; truncated: boolean } {
-  const total = Number.isFinite(input.total) ? Math.max(0, input.total) : 0;
-  const limit = Number.isFinite(input.limit) ? Math.max(1, input.limit) : 1;
-  const effectivePage = Number.isFinite(input.effectivePage)
-    ? Math.max(1, input.effectivePage)
-    : 1;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const totalPages = listTotalPages(input.total, input.limit);
   const pages = opts.isAdmin
     ? totalPages
     : Math.min(totalPages, MAX_PUBLIC_PAGE);
+  const effectivePage = Number.isFinite(input.effectivePage)
+    ? Math.max(1, input.effectivePage)
+    : 1;
   return { page: effectivePage, pages, truncated: totalPages > pages };
 }

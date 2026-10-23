@@ -6,7 +6,7 @@ import { grantExp } from "@/lib/exp";
 import { pingSearchEngines } from "@/lib/sitemap-ping";
 import { z } from "zod";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_POST, LIMIT_LIST_READ } from "@/lib/rate-limit";
-import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
+import { clampListLimit, clampListPage, paginationCapped, parseRequestedPage } from "@/lib/pagination-limits";
 import { can } from "@/lib/permissions";
 import { screenContent } from "@/lib/moderation";
 import { visibleArticleWhere } from "@/lib/article-visibility";
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
 
   // F0 反滥用：翻页深度与单页条数封顶（管理员不受限 —— 后台要一次拉全量）。
   // 越界是「收敛」不是报错：公开 URL 应当降级而不是失败。
-  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
+  const requestedPage = parseRequestedPage(searchParams.get("page"));
   const page = clampListPage(requestedPage, { isAdmin });
   const limit = clampListLimit(searchParams.get("limit"), { isAdmin });
 

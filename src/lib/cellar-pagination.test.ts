@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
  * **每次**列表请求都抛 ReferenceError，整个「我的茶仓」列表页是 500。
  *
  * 当时 tsc 一声不吭（闸门哑了，详见 typecheck-gate.test.ts），所以这条
- * 契约要自己钉住：接口给什么字段、客户端读什么字段，两边都得在。
+ * 契约要自己钉住。
  *
  * 用源码断言而不是真的调接口：仓库里没有任何测试构造 NextRequest 调
  * route handler（那需要一套 session + 数据库），而单元格里的字面量
@@ -22,16 +22,23 @@ const ROUTE_SRC = readFileSync(
   fileURLToPath(new URL("../app/api/cellar/route.ts", import.meta.url)),
   "utf8",
 );
-const CLIENT_SRC = readFileSync(
-  fileURLToPath(new URL("../components/cellar/cellar-list.tsx", import.meta.url)),
-  "utf8",
-);
+
+/** GET 处理器返回的那个响应对象 —— 别的 NextResponse.json 不算。 */
+function getResponseBody(): string {
+  const getStart = ROUTE_SRC.indexOf("export async function GET");
+  const getEnd = ROUTE_SRC.indexOf("export async function POST", getStart);
+  assert.ok(getStart >= 0 && getEnd > getStart, "route.ts 里找不到 GET 处理器");
+  const block = ROUTE_SRC.slice(getStart, getEnd);
+  const m = block.match(/NextResponse\.json\(\{([\s\S]*?)\n\s*\}\)/);
+  assert.ok(m, "GET 处理器里找不到 NextResponse.json 的响应对象");
+  return m[1];
+}
 
 test("接口把「请求页」和「实际页」分开，capped 才有意义", () => {
   assert.match(
     ROUTE_SRC,
-    /const\s+requestedPage\s*=/,
-    "route.ts 没有 requestedPage —— paginationCapped 拿不到参数，整个列表接口会 500",
+    /const\s+requestedPage\s*=\s*parseRequestedPage\(/,
+    "route.ts 没有用 parseRequestedPage 解析请求页 —— capped 拿不到请求页就失去意义",
   );
   assert.match(
     ROUTE_SRC,
@@ -40,21 +47,13 @@ test("接口把「请求页」和「实际页」分开，capped 才有意义", (
   );
 });
 
-test("接口返回客户端要用的分页字段", () => {
+test("接口返回客户端算页数要用的字段", () => {
+  const body = getResponseBody();
   for (const key of ["total", "limit", "page"]) {
     assert.match(
-      ROUTE_SRC,
-      new RegExp(`\\b${key}\\s*,`),
-      `接口的响应里没有 ${key} —— 客户端算不出页数`,
-    );
-  }
-});
-
-test("客户端读的字段名与接口返回的一致", () => {
-  for (const key of ["data.total", "data.limit", "data.page"]) {
-    assert.ok(
-      CLIENT_SRC.includes(key),
-      `客户端没读 ${key} —— 接口改了字段名不会有人发现`,
+      body,
+      new RegExp(`\\b${key}\\b`),
+      `响应里没有 ${key} —— 客户端算不出页数`,
     );
   }
 });

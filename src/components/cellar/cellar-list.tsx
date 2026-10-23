@@ -41,12 +41,14 @@ const DELTA_TEXT: Record<string, string> = {
   worse: "比上次差",
 };
 
+/** 每页条数：UI 里没有选择器，服务端的 fallback 也是 20 —— 两边一致。 */
+const PAGE_SIZE = 20;
+
 export default function CellarList() {
   const { data: session, status } = useSession();
   const [items, setItems] = useState<ItemRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   // 服务端返回的页数是按 total 算的，**不**受翻页深度上限约束。
   // 不夹到 MAX_PUBLIC_PAGE 的话，用户在第 50 页点「下一页」会原地打转 ——
   // 服务端把 51 收敛回 50，还是给第 50 页的数据。夹取收在
@@ -63,7 +65,7 @@ export default function CellarList() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/cellar?page=${page}&limit=${pageSize}`);
+      const res = await fetch(`/api/cellar?page=${page}&limit=${PAGE_SIZE}`);
       const data = await res.json();
       if (!res.ok) {
         // 401/403/404 各有各的语义，不能一律当成「茶仓是空的」——
@@ -80,7 +82,7 @@ export default function CellarList() {
       const view = listPaginationView(
         {
           total: typeof data.total === "number" ? data.total : 0,
-          limit: typeof data.limit === "number" ? data.limit : pageSize,
+          limit: typeof data.limit === "number" ? data.limit : PAGE_SIZE,
           effectivePage: typeof data.page === "number" ? data.page : page,
         },
         { isAdmin: false },
@@ -94,7 +96,7 @@ export default function CellarList() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize]);
+  }, [page]);
 
   useEffect(() => {
     if (status !== "authenticated") return;

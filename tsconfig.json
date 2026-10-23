@@ -27,6 +27,9 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    // 下面两条 .next/types 是 next 自己维护的（dev/build 来回切换时它会重写
+    // include）—— 别删。但它们是**生成文件**：被写坏时（dev server 写一半
+    // 被杀）语法错会让 tsc 整程放弃语义检查且退出码仍是 0。
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
@@ -37,6 +40,12 @@
     "scripts",
     "backups",
     "releases",
+    // exclude 覆盖 include 的同名项 —— 上面 include 里的 .next/dev/types
+    // 因此实际被排除（构建期的保护）。
+    // 但**被 import 拉进来的文件不受 exclude 影响**：next-env.d.ts import 的
+    // .next/dev/types/routes.d.ts 仍会进 program。
+    // 真正兜底的是类型检查用的干净配置 tsconfig.typecheck.json ——
+    // 它的 program 里一个生成文件都没有。
     ".next/dev/types/**/*.ts"
   ]
 }

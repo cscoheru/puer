@@ -5,7 +5,9 @@ import {
   clampListPage,
   clampOffset,
   listPaginationView,
+  listTotalPages,
   paginationCapped,
+  parseRequestedPage,
   MAX_PUBLIC_LIMIT,
   MAX_PUBLIC_PAGE,
   MAX_PUBLIC_OFFSET,
@@ -77,6 +79,26 @@ test("越界标记：请求页大于实际页时为真", () => {
   assert.equal(paginationCapped(99999, MAX_PUBLIC_PAGE), true);
   assert.equal(paginationCapped(2, 2), false);
   assert.equal(paginationCapped(1, 2), false);
+});
+
+test("请求页：非法输入归一到 1，永不吐 NaN", () => {
+  assert.equal(parseRequestedPage("5"), 5);
+  assert.equal(parseRequestedPage(null), 1);
+  assert.equal(parseRequestedPage(undefined), 1);
+  assert.equal(parseRequestedPage("abc"), 1);
+  assert.equal(parseRequestedPage("0"), 1);
+  assert.equal(parseRequestedPage("-3"), 1);
+  // 沿用既有约定：parseInt 在首个非数字处截断
+  assert.equal(parseRequestedPage("12abc"), 12);
+  // NaN 会让 paginationCapped(NaN, page) 恒为 false —— 语义含混
+  assert.ok(Number.isFinite(parseRequestedPage("abc")));
+});
+
+test("总页数：空列表也有 1 页", () => {
+  assert.equal(listTotalPages(0, 20), 1);
+  assert.equal(listTotalPages(60, 20), 3);
+  assert.equal(listTotalPages(61, 20), 4);
+  assert.equal(listTotalPages(NaN, 20), 1);
 });
 
 test("分页视图：页数夹到真能翻到的深度", () => {

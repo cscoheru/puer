@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
+import { clampListLimit, clampListPage, paginationCapped, parseRequestedPage } from "@/lib/pagination-limits";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const storage = searchParams.get("storage");
   const spec = searchParams.get("spec");
   const sort = searchParams.get("sort") || "newest";
-  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
+  const requestedPage = parseRequestedPage(searchParams.get("page"));
   const rawLimit = parseInt(searchParams.get("limit") || "20", 10);
 
   // 会话在这里就要加载一次：既用于 showHidden 的归属判定，也用于判断

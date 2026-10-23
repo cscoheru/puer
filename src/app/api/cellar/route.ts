@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
+import { clampListLimit, clampListPage, listTotalPages, paginationCapped, parseRequestedPage } from "@/lib/pagination-limits";
 import { cellarRateLimit, logCellarProxy, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
 import { createCellarItemSchema, zodMessage } from "@/lib/cellar-schemas";
 import { createCellarItem, createTeaRequest, listCellarItems } from "@/lib/cellar-data";
@@ -24,14 +24,10 @@ export async function GET(req: NextRequest) {
 
   // 代录视角（管理员看别人的）不受翻页上限约束；普通用户按站内约定收敛。
   const isAdmin = actor!.isProxy;
-  // 默认页大小只保留在 pagination-limits.ts 一处 —— 这里再写一遍 "20"，
-  // 将来改默认时这个路由会静默不跟着变。
-  //
-  // requestedPage 是**用户请求的原始页码**，page 是夹取后的实际页码；
-  // 两者分开才知道有没有被收敛（capped）。它们必须都存在 ——
-  // 少了 requestedPage，paginationCapped 拿不到参数，
-  // 这个路由会在**每次**列表请求时抛 ReferenceError（整个 500）。
-  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
+  // requestedPage（请求页）与 page（夹取后的实际页）必须成对存在 ——
+  // capped 靠它们的差值算。348b6f6 删掉过 requestedPage 的声明却留着用法，
+  // 这个路由从此**每次**列表请求都 500。
+  const requestedPage = parseRequestedPage(searchParams.get("page"));
   const limit = clampListLimit(searchParams.get("limit"), { isAdmin });
   const page = clampListPage(requestedPage, { isAdmin });
 
@@ -49,7 +45,7 @@ export async function GET(req: NextRequest) {
     total,
     page,
     limit,
-    pages: Math.max(1, Math.ceil(total / limit)),
+    pages: listTotalPages(total, limit),
     capped: paginationCapped(requestedPage, page),
   });
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
+import { clampListLimit, clampListPage, paginationCapped, parseRequestedPage } from "@/lib/pagination-limits";
 import { can } from "@/lib/permissions";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_LIST_READ } from "@/lib/rate-limit";
 
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   const year = searchParams.get("year");
   const type = searchParams.get("type");
   const search = searchParams.get("q");
-  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
+  const requestedPage = parseRequestedPage(searchParams.get("page"));
   const limit = parseInt(searchParams.get("limit") || "20", 10);
 
   // 茶品库 = 全集：列表对登录用户返回全部茶品；**未登录者只返回经典子集**
