@@ -10,6 +10,7 @@ import UserMenu from "@/components/user-menu";
 import { useLocale } from "@/i18n/context";
 import { twHref, localeSwitch } from "@/i18n/translations";
 import { can } from "@/lib/permissions";
+import { useFeatureFlag } from "@/components/layout/feature-context";
 
 export default function Header() {
   const { data: session } = useSession();
@@ -47,6 +48,8 @@ export default function Header() {
   // 茶记入口仅管理员可见(原 level>=2 与 /tasting 页面 role 判定不一致,统一为 admin)
   const showLevelLinks = can(session?.user, "admin:access");
   const showUserLinks = !!session?.user;
+  // 我的茶仓：登录用户可见，且要 feature flag 开着（未上线的功能不出现在导航里）。
+  const cellarOn = useFeatureFlag("cellar") && showUserLinks;
 
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-amber-100">
@@ -80,6 +83,11 @@ export default function Header() {
           {showLevelLinks && (
             <Link href="/tasting" className="px-3 py-1.5 text-sm text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition">
               {_("茶记")}
+            </Link>
+          )}
+          {cellarOn && (
+            <Link href="/tea-cellar" className="px-3 py-1.5 text-sm text-stone-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition">
+              {_("我的茶仓")}
             </Link>
           )}
         </nav>
@@ -191,6 +199,11 @@ export default function Header() {
               <Link href="/favorites" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-600 hover:bg-amber-50 transition min-h-[44px] flex items-center">
                 ⭐ {_("收藏")}
               </Link>
+              {cellarOn && (
+                <Link href="/tea-cellar" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-600 hover:bg-amber-50 transition min-h-[44px] flex items-center">
+                  🫙 {_("我的茶仓")}
+                </Link>
+              )}
               <Link href="/settings" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-600 hover:bg-amber-50 transition min-h-[44px] flex items-center">
                 ⚙️ {_("设置")}
               </Link>

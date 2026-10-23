@@ -2,6 +2,7 @@ import Providers from "@/components/layout/providers";
 import Header from "@/components/layout/header";
 import { cookies, headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { featureFlagSnapshot } from "@/lib/feature-flags";
 import { pickLocale } from "@/i18n/translations";
 import "../globals.css";
 
@@ -30,7 +31,11 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   const session = await auth();
 
   return (
-    <Providers initialLocale={initialLocale} session={session}>
+    <Providers
+      initialLocale={initialLocale}
+      session={session}
+      features={featureFlagSnapshot()}
+    >
       <Header />
       <main className="flex-1">{children}</main>
     </Providers>

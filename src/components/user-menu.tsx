@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useLocale } from "@/i18n/context";
+import { useFeatureFlag } from "@/components/layout/feature-context";
 
 interface Notification {
   id: string;
@@ -19,6 +20,8 @@ export default function UserMenu() {
   // Hook before the logged-out early return below — the menu renders on both
   // /forum and /tw/forum, so its chrome has to follow the reader's language.
   const { _ } = useLocale();
+  // 我的茶仓：登录用户可见，且要 feature flag 开着。
+  const cellarOn = useFeatureFlag("cellar") && !!session?.user;
   const [notifOpen, setNotifOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -157,6 +160,15 @@ export default function UserMenu() {
               >
                 {_("收藏")}
               </Link>
+              {cellarOn && (
+                <Link
+                  href="/tea-cellar"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition"
+                >
+                  {_("我的茶仓")}
+                </Link>
+              )}
               <Link
                 href="/settings"
                 onClick={() => setMenuOpen(false)}

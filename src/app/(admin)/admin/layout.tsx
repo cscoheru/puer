@@ -7,6 +7,7 @@ import { cookies } from "next/headers";
 import type { Locale } from "@/i18n/translations";
 import "../../globals.css";
 import { can } from "@/lib/permissions";
+import { featureFlagSnapshot } from "@/lib/feature-flags";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -18,7 +19,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const localeCookie = cookieStore.get("puer-locale")?.value as Locale | undefined;
 
   return (
-    <Providers initialLocale={localeCookie}>
+    <Providers initialLocale={localeCookie} features={featureFlagSnapshot()}>
       <Header />
       <div className="flex min-h-[calc(100vh-64px)]">
         <AdminSidebar />
