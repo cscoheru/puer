@@ -21,6 +21,8 @@ export const FEATURE_FLAGS = {
   antiAbusePaginationCap: true,
   /** 反滥用：nginx 防盗链（由部署配置控制，此 flag 仅作记录与开关位） */
   antiAbuseHotlinkGuard: true,
+  /** F2 我的茶仓（PRD v0.3 §5 Phase 2）。新功能默认关，由环境变量开启。 */
+  cellar: false,
 } as const;
 
 export type FeatureFlagName = keyof typeof FEATURE_FLAGS;
@@ -30,6 +32,7 @@ const ENV_KEYS: Record<FeatureFlagName, string> = {
   antiAbuseRateLimit: "FEATURE_ANTI_ABUSE_RATE_LIMIT",
   antiAbusePaginationCap: "FEATURE_ANTI_ABUSE_PAGINATION_CAP",
   antiAbuseHotlinkGuard: "FEATURE_ANTI_ABUSE_HOTLINK_GUARD",
+  cellar: "FEATURE_CELLAR",
 };
 
 function parseBool(raw: string | undefined): boolean | null {

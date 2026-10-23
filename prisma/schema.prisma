@@ -52,6 +52,11 @@ model User {
   // 留存、社区带与任何前台展示计数。真实用户与未来注册默认 false。
   isSynthetic Boolean @default(false)
 
+  // Phase 3 社区带：参与匿名汇总需**明确同意**（PRD §4「用户数据默认私有」）。
+  // 默认 false；撤回 = 改回 false，聚合时按当下值取数，不做历史快照。
+  shareAggregate   Boolean   @default(false)
+  shareConsentedAt DateTime?
+
   // 关联
   accounts              Account[]
   sessions              Session[]
@@ -84,6 +89,9 @@ model User {
   receivedTradeRequests TradeRequest[]       @relation("TradeResponder")
   sentMessages          UserMessage[]        @relation("SentMessages")
   receivedMessages      UserMessage[]        @relation("ReceivedMessages")
+  cellarItems           CellarItem[]
+  cellarTastings        CellarTasting[]
+  teaRequests           TeaRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -167,6 +175,8 @@ model Tea {
   articles     Article[]
   teaSessions  TeaSession[]
   tastingNotes TastingNote[]
+  cellarItems  CellarItem[]
+  mergedFromRequests TeaRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -989,4 +999,156 @@ model ArticleView {
   @@index([day])
   @@index([refererHost, day])
   @@map("article_views")
+}
+
+// ─── F2 我的茶仓（PRD v0.3 §5 Phase 2）────────────────────────────────
+//
+// 三条设计约束：
+//
+// 1. **用户的品鉴记录不与站长笔记同表**。TastingNote 会被渲染成公开的
+//    「转化档案」时间线，用户记录混进去就要在 8 个公开读取点逐个加过滤 ——
+//    漏一个就是隐私泄漏。物理隔离让这个风险归零。
+// 2. **只增不删、字段可空**。迁移必须能在旧镜像还在跑的时候先执行。
+// 3. **口径写在库里，不靠约定**。仓储评分范围、四维分值范围用 CHECK 约束
+//    钉死（Prisma schema 表达不了 CHECK，写在迁移 SQL 里）。
+
+/// 茶仓条目：用户「我有一饼/一沱某某茶」。
+model CellarItem {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 挂已入库茶品；若茶品库里还没有，走自建申请（teaRequestId），
+  // 审核通过后由站长并入茶品库并回填 teaId。
+  teaId        String?
+  tea          Tea?         @relation(fields: [teaId], references: [id], onDelete: SetNull)
+  teaRequestId String?
+  teaRequest   TeaRequest?  @relation(fields: [teaRequestId], references: [id], onDelete: SetNull)
+  /// 自建茶品名（茶品库里还没有时用；审核通过后仍保留，便于回看）
+  name         String?      @db.VarChar(200)
+
+  acquiredAt DateTime? // 入仓时间
+  qtyNote    String?   @db.VarChar(100) // 「还剩半饼」这类自由备注
+  remindEveryMonths Int @default(6) // 复饮提醒间隔，Phase 4 用
+  nextRemindAt     DateTime?
+
+  storageEpochs StorageEpoch[]
+  tastings      CellarTasting[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([teaId])
+  @@map("cellar_items")
+}
+
+/// 一段仓储期。换仓 = 新增一条，旧的一条保留（历史要能还原）。
+model StorageEpoch {
+  id           String    @id @default(cuid())
+  cellarItemId String
+  cellarItem   CellarItem @relation(fields: [cellarItemId], references: [id], onDelete: Cascade)
+
+  startsAt DateTime @default(now())
+  /// 仓储评分 45–60：45 标准偏干 · 50 标准仓 · 55 标准偏湿 · 60 湿仓。
+  /// 锚点文案由站长提供，当前是占位文案（见 docs/plans 风险表）。
+  storageScore Int?
+  /// 自评 = 用户自己打的分；站长评 = 站长代打。四维评分标注同理。
+  assessedBy   String  @default("self") @db.VarChar(10)
+  city         String? @db.VarChar(50)
+  container    String? @db.VarChar(50) // 容器（紫砂罐 / 纸箱 / …）
+  /// 互换大厅的旧分类（干仓高香等）。PRD §6：仅作展示标签，不自动换算。
+  legacyStorageLabel String? @db.VarChar(50)
+
+  createdAt DateTime @default(now())
+
+  @@index([cellarItemId, startsAt])
+  @@map("storage_epochs")
+}
+
+/// 用户自己的品鉴记录。与 TastingNote 分开存（见上方说明）。
+model CellarTasting {
+  id           String    @id @default(cuid())
+  cellarItemId String
+  cellarItem   CellarItem @relation(fields: [cellarItemId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tastedAt   DateTime @default(now())
+  /// 阶段：ascending | peak | drinking | declining（与 F1 词表同一份）
+  stage      String?  @db.VarChar(20)
+  /// 与上次相比：better | same | worse
+  deltaVsPrev String? @db.VarChar(10)
+  /// 四维：{aroma, flavor, waterPath, bodyFeel}，每维 1–10 整数
+  dims       Json?
+  descriptors Json? // 描述词数组
+  grams      Float?  // 投茶量（克）
+  vessel     String? @db.VarChar(40)
+  note       String? @db.Text
+  images     Json? // 图片 URL 数组
+  /// 默认私有。Phase 3 的社区带只取 shareAggregate=true 的用户，
+  /// 且不聚合未标 shared 的单条记录。
+  visibility String  @default("private") @db.VarChar(20)
+  /// 快速品鉴耗时（秒）。退出标准：中位 < 30 秒。
+  elapsedSeconds Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cellarItemId, tastedAt])
+  @@index([userId, tastedAt])
+  @@map("cellar_tastings")
+}
+
+/// 自建茶品申请：茶品库里找不到的，用户提交，站长并入茶品库。
+model TeaRequest {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name       String  @db.VarChar(200)
+  brand      String? @db.VarChar(100)
+  year       Int?
+  type       String  @default("raw") @db.VarChar(10) // raw | ripe
+  weightSpec String? @db.VarChar(50)
+  note       String? @db.Text
+
+  status       String    @default("pending") @db.VarChar(20) // pending | approved | rejected
+  mergedTeaId  String?
+  mergedTea    Tea?      @relation(fields: [mergedTeaId], references: [id], onDelete: SetNull)
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  rejectReason String?   @db.VarChar(200)
+
+  cellarItems CellarItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@map("tea_requests")
+}
+
+/// 描述词库：生熟 × 年份段 × 四维，给「点选描述词」用。
+/// 初值从站长 1672 条笔记的高频词播种，按四维的分类由模型粗分类后
+/// 交站长核对（见 scripts/seed-descriptor-vocab.mjs）。
+model DescriptorVocab {
+  id  String @id @default(cuid())
+  tag String @db.VarChar(40)
+  /// raw | ripe | any
+  category   String  @db.VarChar(10)
+  /// 年份段：young | mid | aged | any
+  ageBracket String? @db.VarChar(20)
+  /// 四维之一：aroma | flavor | waterPath | bodyFeel | any
+  dim        String? @db.VarChar(20)
+  /// 来源：seed（从站长笔记统计）| llm（模型分类）| editor（站长手改）
+  source     String  @default("seed") @db.VarChar(20)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tag, category])
+  @@index([category, dim])
+  @@map("descriptor_vocab")
 }
