@@ -162,8 +162,8 @@
 滑,raw,aged,waterPath,4
 滑,ripe,any,waterPath,6
 回甘好,raw,aged,waterPath,10
-勐海味,raw,aged,aroma,9
-勐海味,ripe,aged,aroma,1
+勐海味,raw,aged,any,9
+勐海味,ripe,aged,any,1
 蜜甜,raw,aged,flavor,10
 气感,raw,aged,bodyFeel,9
 气感,ripe,aged,bodyFeel,1
@@ -178,7 +178,7 @@
 粘稠,ripe,any,waterPath,4
 陈韵,raw,aged,aroma,9
 回甘不错,raw,aged,waterPath,9
-回味,raw,aged,any,9
+回味,raw,aged,waterPath,9
 力度,raw,any,bodyFeel,7
 力度,ripe,any,bodyFeel,2
 轻烟香,raw,aged,aroma,9
