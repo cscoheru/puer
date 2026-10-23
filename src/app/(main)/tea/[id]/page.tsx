@@ -16,6 +16,7 @@ import { parseMarket } from "@/lib/market-info";
 import { isMirrorNoteLive } from "@/lib/tasting-note-plan";
 import { getEditorLine } from "@/lib/editor-line-data";
 import EditorLineView from "@/components/tea/editor-line";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
   const { id } = await params;
   const session = await auth();
   const canEdit = session?.user && session.user.level >= 2;
-  const isAdmin = session?.user?.role === "admin";
+  const isAdmin = can(session?.user, "admin:access");
 
   const tea = await prisma.tea.findFirst({
     where: { id, deletedAt: null },

@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requirePermission } from "@/lib/admin-auth";
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await auth();
-  if (session?.user?.role !== "admin") {
-    return NextResponse.json({ error: "无权限" }, { status: 403 });
-  }
+  const { session, error } = await requirePermission("admin:users");
+  if (error) return error;
 
   const body = await req.json();
   const { action, role } = body; // action: "approve" | "reject" | "set_role"
@@ -47,10 +45,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await auth();
-  if (session?.user?.role !== "admin") {
-    return NextResponse.json({ error: "无权限" }, { status: 403 });
-  }
+  const { session, error } = await requirePermission("admin:users");
+  if (error) return error;
 
   await prisma.boardModerator.delete({ where: { id } });
   return NextResponse.json({ success: true });

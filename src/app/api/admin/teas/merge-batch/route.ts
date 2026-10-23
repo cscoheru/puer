@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { recomputeTeaStats } from "@/lib/tea-stats";
+import { can } from "@/lib/permissions";
 
 /** P2-R15 批量合并：多个茶品（removeIds[]）合并到保留主体（keepId）。
  *  事务：笔记/帖子全部转移到主体 → 主体 aliases 记录被合并名 → 重算主体统计 → 删除被合并茶品。 */
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   const moderator = await prisma.boardModerator.findUnique({
     where: { boardId_userId: { boardId: board.id, userId: session.user.id } },
   });
-  const isAdmin = session.user.role === "admin";
+  const isAdmin = can(session.user, "admin:access");
 
   if (!isAdmin && (!moderator || moderator.status !== "approved")) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });

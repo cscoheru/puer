@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseEnex } from "@/lib/enex-parser";
+import { can } from "@/lib/permissions";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || (session.user as any).role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可导入" }, { status: 403 });
   }
 

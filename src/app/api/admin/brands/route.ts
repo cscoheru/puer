@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 
 /** P2-R14 品牌主数据 CRUD。
  *  品牌是实体：先有品牌，茶品通过 teas.brand 字符串唯一隶属一个品牌。
@@ -10,7 +11,7 @@ import { prisma } from "@/lib/prisma";
  *  - DELETE 删除品牌（仅允许无茶品的品牌；同时从品牌吧中移除该品牌名） */
 export async function GET() {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可访问" }, { status: 403 });
   }
   const [brands, counts] = await Promise.all([
@@ -25,7 +26,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
   const { name, description, icon } = await req.json();
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
   const { id, name, description, icon } = await req.json();
@@ -89,7 +90,7 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
   const { id } = await req.json();

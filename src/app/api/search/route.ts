@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { visibleArticleWhere } from "@/lib/article-visibility";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
   })();
 
   // Tasting notes are admin-only; only return in "all" mode for admins
-  const isAdmin = session?.user?.role === "admin";
+  const isAdmin = can(session?.user, "admin:access");
   const tastingNotes = type === "all" && isAdmin ? await (async () => {
     try {
       return await prisma.$queryRaw<Array<{

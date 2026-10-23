@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 
 export async function GET() {
   const session = await auth();
-  if (session?.user?.role !== "admin") {
+  if (!can(session?.user, "admin:users")) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
 

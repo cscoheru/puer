@@ -32,7 +32,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         visibility: article.visibility,
         authorId: article.authorId,
       },
-      { userId: session?.user?.id, isAdmin: session?.user?.role === "admin" },
+      { userId: session?.user?.id, isAdmin: can(session?.user, "admin:access") },
     );
   if (!article || !viewable) {
     return NextResponse.json({ error: "帖子不存在" }, { status: 404 });

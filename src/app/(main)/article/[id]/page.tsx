@@ -10,6 +10,7 @@ import FavoriteButton from "@/components/favorite-button";
 import CommentSection from "@/components/comment-section";
 import ForumContent from "@/components/forum-content";
 import OriginDisclosure from "@/components/article/origin-disclosure";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export default async function ArticleDetailPage({ params }: PageProps) {
     !article ||
     !canViewArticleDetail(
       { status: article.status, visibility: article.visibility, authorId: article.authorId },
-      { userId: session?.user?.id, isAdmin: session?.user?.role === "admin" },
+      { userId: session?.user?.id, isAdmin: can(session?.user, "admin:access") },
     )
   ) {
     notFound();

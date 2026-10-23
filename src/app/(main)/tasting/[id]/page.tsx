@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import TastingNoteComments from "@/components/tasting-note-comments";
 import TastingNoteEditor from "@/components/tasting/tasting-note-editor";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function TastingNotePage({ params }: PageProps) {
   const session = await auth();
 
   // Admin only — non-admins see 404
-  if (session?.user?.role !== "admin") notFound();
+  if (!can(session?.user, "admin:access")) notFound();
 
   const note = await prisma.tastingNote.findUnique({
     where: { id },

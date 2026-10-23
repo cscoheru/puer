@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { can } from "@/lib/permissions";
 
 export default function ImportPage() {
   const { data: session } = useSession();
@@ -13,7 +14,7 @@ export default function ImportPage() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
 
-  if (session && (session.user as any).role !== "admin") {
+  if (session && !can(session.user, "admin:content")) {
     return (
       <div className="text-center py-20 text-stone-400">仅管理员可访问此页面</div>
     );

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 
 interface RouteProps {
   params: Promise<{ id: string }>;
@@ -17,7 +18,7 @@ export async function PUT(req: NextRequest, { params }: RouteProps) {
   if (!existing || existing.status === "deleted") {
     return NextResponse.json({ error: "未找到" }, { status: 404 });
   }
-  if (existing.userId !== session.user.id && session.user.role !== "admin") {
+  if (existing.userId !== session.user.id && !can(session.user, "admin:access")) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
 
@@ -59,7 +60,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteProps) {
   if (!existing) {
     return NextResponse.json({ error: "未找到" }, { status: 404 });
   }
-  if (existing.userId !== session.user.id && session.user.role !== "admin") {
+  if (existing.userId !== session.user.id && !can(session.user, "admin:access")) {
     return NextResponse.json({ error: "无权限" }, { status: 403 });
   }
 

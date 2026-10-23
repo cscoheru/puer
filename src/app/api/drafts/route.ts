@@ -16,6 +16,7 @@ import {
   parseFeedbackCategory,
   type FeedbackCategory,
 } from "@/lib/news-draft/feedback-policy";
+import { can } from "@/lib/permissions";
 
 /**
  * 允许**直接**写入的状态（不经过专门 action）。
@@ -267,7 +268,7 @@ async function rejectDraft(
 
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || (session.user as any).role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员" }, { status: 403 });
   }
 
@@ -360,7 +361,7 @@ export async function GET(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || (session.user as any).role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员" }, { status: 403 });
   }
 
@@ -452,7 +453,7 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || (session.user as any).role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员" }, { status: 403 });
   }
 

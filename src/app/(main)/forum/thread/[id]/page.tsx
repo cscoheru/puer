@@ -24,6 +24,7 @@ import FollowThreadButton from "@/components/follow-thread-button";
 import ReportButton from "@/components/report-button";
 import MessageButton from "@/components/message-button";
 import { getFlair } from "@/lib/forum-constants";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     !!article &&
     canViewArticleDetail(
       { status: article.status, visibility: article.visibility, authorId: article.authorId },
-      { userId: session?.user?.id, isAdmin: session?.user?.role === "admin" },
+      { userId: session?.user?.id, isAdmin: can(session?.user, "admin:access") },
     );
   // Hidden (missing, draft, pending, private, archived, or unknown status):
   // emit no real title/description/OG and tell crawlers not to index. The page
@@ -111,7 +112,7 @@ export default async function ThreadPage({ params }: PageProps) {
     !!article &&
     canViewArticleDetail(
       { status: article.status, visibility: article.visibility, authorId: article.authorId },
-      { userId: session?.user?.id, isAdmin: session?.user?.role === "admin" },
+      { userId: session?.user?.id, isAdmin: can(session?.user, "admin:access") },
     );
   if (!article || !viewable) {
     notFound();
@@ -156,7 +157,7 @@ export default async function ThreadPage({ params }: PageProps) {
     readers: article.viewCount,
   }));
 
-  const canModerate = !!(session?.user?.role === "admin" || (session?.user && article.board?.id && (
+  const canModerate = !!(can(session?.user, "admin:access") || (session?.user && article.board?.id && (
     await prisma.boardModerator.findUnique({
       where: { boardId_userId: { boardId: article.board.id, userId: session.user.id } },
     }).catch(() => null)
@@ -351,7 +352,7 @@ export default async function ThreadPage({ params }: PageProps) {
                 · {realCounts.comments} 条回复
               </span>
               <span className="flex-1" />
-              {session?.user && (session.user.id === article.author.id || session.user.role === "admin") && (
+              {session?.user && (session.user.id === article.author.id || can(session.user, "admin:access")) && (
                 <>
                   <Link
                     href={`/forum/thread/${article.id}/edit`}
@@ -366,7 +367,7 @@ export default async function ThreadPage({ params }: PageProps) {
               )}
               {/* P2-R5：经典普洱跟进帖「升级到首页」——升级后进入主 feed（作者/管理员/Lv.3+ 可见可操作，API 同校验） */}
               {article.board?.slug === "classics" && article.teaId && session?.user &&
-                (session.user.id === article.author.id || session.user.role === "admin" || session.user.level >= 3) && (
+                (session.user.id === article.author.id || can(session.user, "admin:access") || session.user.level >= 3) && (
                 <PromoteHomeButton
                   boardSlug={article.board.slug}
                   articleId={article.id}

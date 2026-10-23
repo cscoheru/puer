@@ -4,6 +4,8 @@ import {
   can,
   normalizeRole,
   actionsForRole,
+  checkRoleChange,
+  isKnownRole,
   ROLE_LABELS,
   ROLES,
   type Actor,
@@ -93,4 +95,42 @@ test("角色标签齐全", () => {
   for (const role of ROLES) {
     assert.ok(ROLE_LABELS[role], `${role} 缺标签`);
   }
+});
+
+
+test("isKnownRole：写入路径必须严格，未知值一律非法", () => {
+  assert.equal(isKnownRole("admin"), true);
+  assert.equal(isKnownRole("editor"), true);
+  assert.equal(isKnownRole("moderator"), true);
+  assert.equal(isKnownRole("system"), true);
+  assert.equal(isKnownRole("adminn"), false, "手滑的值不能被悄悄当成 user");
+  assert.equal(isKnownRole(""), false);
+  assert.equal(isKnownRole(null), false);
+  assert.equal(isKnownRole(123), false);
+});
+
+test("checkRoleChange：不能降低自己的管理员权限", () => {
+  const r = checkRoleChange("a1", { id: "a1", role: "admin" }, "user", 2);
+  assert.equal(r.ok, false);
+  assert.match(r.ok === false ? r.error : "", /自己/);
+});
+
+test("checkRoleChange：不能降掉最后一个管理员", () => {
+  const r = checkRoleChange("a1", { id: "a2", role: "admin" }, "user", 1);
+  assert.equal(r.ok, false);
+  assert.match(r.ok === false ? r.error : "", /至少/);
+});
+
+test("checkRoleChange：正常情况放行", () => {
+  assert.equal(checkRoleChange("a1", { id: "a2", role: "admin" }, "user", 3).ok, true);
+  assert.equal(checkRoleChange("a1", { id: "u1", role: "user" }, "editor", 3).ok, true);
+  assert.equal(checkRoleChange("a1", { id: "u1", role: "user" }, "admin", 3).ok, true);
+  assert.equal(checkRoleChange("a1", { id: "a2", role: "admin" }, "admin", 1).ok, true);
+  assert.equal(checkRoleChange("a1", { id: "u1", role: "user" }, "user", 3).ok, true, "改成同值不算变更");
+});
+
+test("checkRoleChange：非法角色名直接拒绝", () => {
+  const r = checkRoleChange("a1", { id: "u1", role: "user" }, "superuser", 3);
+  assert.equal(r.ok, false);
+  assert.match(r.ok === false ? r.error : "", /角色无效/);
 });

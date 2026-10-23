@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 
 /** P2-R15 品牌的茶品归属管理：
  *  - POST {brandId, addTeaIds[]}          批量划入该品牌（一茶一品牌，原归属被替换）
@@ -9,7 +10,7 @@ import { prisma } from "@/lib/prisma";
  *  - POST {brandId, deleteTeaIds[]}       P2-R21 批量软删除（移入删除箱，可还原/彻底删除） */
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
 

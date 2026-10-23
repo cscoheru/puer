@@ -6,10 +6,11 @@ import AdminSidebar from "@/components/admin/admin-sidebar";
 import { cookies } from "next/headers";
 import type { Locale } from "@/i18n/translations";
 import "../../globals.css";
+import { can } from "@/lib/permissions";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:access")) {
     redirect("/login");
   }
 

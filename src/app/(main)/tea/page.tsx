@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { TeaGrid } from "@/components/tea/tea-list";
 import { LANDING_MIN_TEAS, PREFERRED_BRANDS, normalizeTeaType, teaListSelect } from "@/lib/tea-query";
 import { pageWindow } from "@/lib/pagination";
+import { can } from "@/lib/permissions";
 
 export const metadata: Metadata = {
   title: "普洱茶库 - 普洱茶品大全（大益/下关/福今）",
@@ -28,7 +29,7 @@ export default async function TeaListPage({ searchParams }: PageProps) {
   // 非经典的**详情页**要求登录（见 /tea/[id]），但列表本身公开 —— 列表只
   // 暴露名称/厂牌/年份等索引信息，正文与行情仍在详情页闸门之后。
   const session = await auth();
-  const isAdmin = session?.user?.role === "admin";
+  const isAdmin = can(session?.user, "admin:access");
   const params = await searchParams;
   const brand = params.brand || "";
   const year = params.year || "";

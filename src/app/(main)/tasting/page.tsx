@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ interface PageProps {
 export default async function TastingListPage({ searchParams }: PageProps) {
   const user = await auth();
 
-  if (user?.user?.role !== "admin") notFound();
+  if (!can(user?.user, "admin:access")) notFound();
 
   const params = await searchParams;
   const q = params.q || "";

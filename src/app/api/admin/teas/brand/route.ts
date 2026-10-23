@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 
 /** P2-R13 品牌修正：批量修改茶品品牌（单个=长度1数组）。
  *  用于清理归档产生的脏品牌（如"大印藏"是茶名被误当品牌、
  *  "班章"是山头非品牌）。修正后自动归入正确的品牌吧。 */
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
 

@@ -11,6 +11,7 @@ import { isTastingDraftId } from "@/lib/tea-drafts/id";
 import { styleByKey } from "@/lib/tea-drafts/styles";
 import { FEEDBACK_CATEGORY_LABELS, type FeedbackCategory } from "@/lib/news-draft/feedback-policy";
 import RejectDraftDialog from "./reject-dialog";
+import { can } from "@/lib/permissions";
 
 /**
  * What a list row must carry to show its markers. Structural subset of the
@@ -193,7 +194,7 @@ export default function DraftsPage() {
     }
   };
 
-  if (session && (session.user as any).role !== "admin") {
+  if (session && !can(session.user, "admin:content")) {
     return <div className="text-center py-20 text-stone-400">仅管理员可访问</div>;
   }
 

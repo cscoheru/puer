@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 
 /**
  * P2-R5 经典普洱跟进帖「升级为正式帖」：
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
 
   const isAuthor = session.user.id === article.authorId;
   const canPromote =
-    session.user.role === "admin" || session.user.level >= 3 || isAuthor;
+    can(session.user, "admin:access") || session.user.level >= 3 || isAuthor;
   if (!canPromote) {
     return NextResponse.json({ error: "仅作者、管理员或 Lv.3 以上可升级" }, { status: 403 });
   }

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getClientIP } from "@/lib/rate-limit";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -52,10 +53,9 @@ export async function POST(req: NextRequest) {
 
     const session = await auth();
     const userId = session?.user?.id;
-    const role = session?.user?.role;
 
     // Exclude the site owner/admin from real-visitor stats.
-    if (role === "admin") return NextResponse.json({ ok: true, admin: true });
+    if (can(session?.user, "admin:access")) return NextResponse.json({ ok: true, admin: true });
 
     // Resolve the article to check authorship (also confirms it exists).
     const article = await prisma.article.findUnique({

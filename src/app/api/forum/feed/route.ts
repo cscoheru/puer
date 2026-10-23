@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { fetchForumFeed, toTraditionalFeed } from "@/lib/forum-feed-server";
 import { clampOffset, paginationCapped } from "@/lib/pagination-limits";
+import { can } from "@/lib/permissions";
 
 /**
  * 移动端推荐流懒加载（P2-R3）。
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   const locale = searchParams.get("locale");
 
   const session = await auth();
-  const isAdmin = session?.user?.role === "admin";
+  const isAdmin = can(session?.user, "admin:access");
   // F0 反滥用：信息流滚到底有上限（管理员不受限）。offset 是服务端游标，
   // 越界时收敛到上限并告知客户端「已到底」，避免客户端无限下滑。
   const offset = clampOffset(requestedOffset, { isAdmin });

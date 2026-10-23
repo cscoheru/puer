@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 
 /** P2-R21 品牌管理删除箱（茶品软删除回收站）：
  *  - GET                          列出删除箱中的茶品（含关联计数，供彻底删除前判断）
@@ -9,7 +10,7 @@ import { prisma } from "@/lib/prisma";
  *    的茶品拒绝删除并返回明细——先在经典审核/合并工具处理内容） */
 export async function GET() {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可访问" }, { status: 403 });
   }
   const teas = await prisma.tea.findMany({
@@ -31,7 +32,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
 

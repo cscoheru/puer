@@ -110,6 +110,17 @@ const ROLE_MATRIX: Record<Role, readonly Action[]> = {
   system: SYSTEM_ACTIONS,
 };
 
+/**
+ * 严格校验：**设置**角色时只能用这个。
+ *
+ * `normalizeRole` 是「读取」用的 —— 未知值按 user 处理（最小权限，安全兜底）。
+ * 但「写入」时若也用它，一个手滑的 `adminn` 会被悄悄写成 user，把人降权。
+ * 所以写入路径必须用这个：不在白名单里就是非法值，直接拒绝。
+ */
+export function isKnownRole(raw: unknown): raw is Role {
+  return typeof raw === "string" && (ROLES as readonly string[]).includes(raw);
+}
+
 /** 把库里存的 role 字符串规整成已知角色。未知值按 user 处理（最小权限）。 */
 export function normalizeRole(raw: string | null | undefined): Role {
   if (raw && (ROLES as readonly string[]).includes(raw)) return raw as Role;
@@ -179,6 +190,34 @@ export function can(
   if (actor.isSynthetic && role !== "system") return false;
 
   return ROLE_MATRIX[role].includes(action);
+}
+
+/**
+ * 能不能把某个用户的角色改成 nextRole（PRD §13.4）。
+ *
+ * 两条硬规则，都是「把自己关在门外」的场景：
+ *  1. 不能降低**自己**的管理员权限 —— 提交那一刻就会失去后台入口；
+ *  2. 不能降掉**最后一个**管理员 —— 降完之后没人能进后台，只能改库。
+ *
+ * 纯函数：路由负责查 adminCount，判定本身不碰数据库，可单测。
+ */
+export function checkRoleChange(
+  actorId: string,
+  target: { id: string; role: string | null },
+  nextRole: unknown,
+  adminCount: number,
+): { ok: true } | { ok: false; error: string } {
+  if (!isKnownRole(nextRole)) return { ok: false, error: "角色无效" };
+  if (target.role === nextRole) return { ok: true };
+  if (nextRole !== "admin" && target.role === "admin") {
+    if (target.id === actorId) {
+      return { ok: false, error: "不能降低自己的管理员权限" };
+    }
+    if (adminCount <= 1) {
+      return { ok: false, error: "至少要保留一名管理员" };
+    }
+  }
+  return { ok: true };
 }
 
 /** 某角色拥有的动作列表（后台展示用）。 */

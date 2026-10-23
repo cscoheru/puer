@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdmin, requirePermission } from "@/lib/admin-auth";
+import { checkRoleChange } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,12 +28,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { error } = await requireAdmin();
+  const { session, error } = await requirePermission("admin:users");
   if (error) return error;
   const { id } = await params;
 
   const body = await req.json();
   const data: Record<string, unknown> = {};
+
+  // 角色变更（PRD §13.4）：权限在界面上可改，不必手写 SQL。
+  if (typeof body.role === "string") {
+    const target = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, role: true },
+    });
+    if (!target) return Response.json({ error: "用户不存在" }, { status: 404 });
+
+    const admins = await prisma.user.count({ where: { role: "admin" } });
+    const verdict = checkRoleChange(session.user.id, target, body.role, admins);
+    if (!verdict.ok) {
+      return Response.json({ error: verdict.error }, { status: 400 });
+    }
+    data.role = body.role;
+  }
 
   if (typeof body.level === "number") data.level = body.level;
   if (typeof body.karma === "number") data.karma = body.karma;

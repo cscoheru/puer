@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { ROLES, ROLE_LABELS, isKnownRole } from "@/lib/permissions";
 
 interface User {
   id: string;
@@ -138,6 +139,29 @@ export default function AdminUsersPage() {
       }
     } catch {
       setMessage("操作失败");
+    }
+  };
+
+  // 角色变更（PRD §13.4）：权限在界面上可改。
+  // 授予管理员是给一个人开后门，所以要确认；降级同理（不可撤销）。
+  const handleRoleChange = async (id: string, role: string) => {
+    const label = ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role;
+    if (!confirm(`确认把该用户的角色改为「${label}」？\n角色决定他能在后台做什么。`)) return;
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setMessage(`已改为「${label}」`);
+        fetchUsers();
+      } else {
+        setMessage(data.error || "改角色失败");
+      }
+    } catch {
+      setMessage("改角色失败");
     }
   };
 
@@ -366,16 +390,23 @@ export default function AdminUsersPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span
+                        <select
+                          value={isKnownRole(u.role) ? u.role : "user"}
+                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
                           className={
-                            "inline-block px-2 py-0.5 rounded-full text-xs font-medium " +
+                            "text-xs px-1.5 py-1 rounded border focus:outline-none focus:border-amber-500 " +
                             (u.role === "admin"
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-stone-100 text-stone-600")
+                              ? "bg-amber-50 text-amber-800 border-amber-200"
+                              : "bg-white text-stone-600 border-stone-200")
                           }
+                          title="角色决定该用户能在后台做什么"
                         >
-                          {u.role === "admin" ? "管理员" : "普通用户"}
-                        </span>
+                          {ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {ROLE_LABELS[r]}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-3 text-center">
                         {u.isSynthetic ? (

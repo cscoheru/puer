@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import RichEditor from "@/components/rich-editor";
 import { uploadWithRetry } from "@/lib/upload-client";
+import { can } from "@/lib/permissions";
 
 interface MediaItem {
   id: string;
@@ -197,7 +198,7 @@ export default function EditThreadPage({ params }: { params: Promise<{ id: strin
     );
   }
 
-  if (session?.user?.id !== authorId && session?.user?.role !== "admin") {
+  if (session?.user?.id !== authorId && !can(session?.user, "admin:access")) {
     return (
       <div className="max-w-lg mx-auto px-4 py-12 text-center">
         <p className="text-stone-500">你没有权限编辑此帖子</p>
