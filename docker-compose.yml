@@ -41,8 +41,12 @@ services:
       retries: 5
 
   # One-shot bucket setup
+  #
+  # 镜像用 minio/minio 而不是 minio/mc：Docker Hub 已拉不到 minio/mc
+  # （2026-10-23 实测 "pull access denied ... repository does not exist"），
+  # 而 minio/minio 镜像里自带 /usr/bin/mc，功能等价且能正常拉到。
   minio-setup:
-    image: minio/mc:latest
+    image: minio/minio:latest
     container_name: puer-hub-minio-setup
     restart: "no"
     entrypoint: >
