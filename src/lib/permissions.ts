@@ -53,6 +53,10 @@ export const ACTIONS = [
   "tea:merge",
   "tea:promote",
   "tea:review",
+  // 茶仓（F2）
+  // 代录：帮别的用户写茶仓条目。评分的来源标记为「站长评」而非「自评」，
+  // 所以这个权限只给管理员 —— 代录写的是**别人的私有数据**。
+  "cellar:manage",
   // 版块
   "board:moderate",
   "board:create",

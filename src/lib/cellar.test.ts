@@ -14,6 +14,7 @@ import {
   suggestRemindMonths,
   cellarExportCsv,
   cellarExportJson,
+  cellarExportRows,
   type ExportItem,
 } from "./cellar.ts";
 
@@ -226,6 +227,25 @@ test("导出 CSV 的表头与行数", () => {
   const lines = csv.replace(/^﻿/, "").trim().split("\n");
   assert.equal(lines[0], CELLAR_EXPORT_CSV_HEADER.join(","));
   assert.equal(lines.length, 3, "表头 + 2 行（一条品鉴 + 一个无品鉴的条目）");
+});
+
+test("导出表头不能重名（重名会让同名列互相覆盖，凭空少一列）", () => {
+  const seen = new Set<string>();
+  for (const h of CELLAR_EXPORT_CSV_HEADER) {
+    assert.equal(seen.has(h), false, `表头重名：${h}`);
+    seen.add(h);
+  }
+});
+
+test("每一行的列数与表头一致（否则数据会错位）", () => {
+  const rows = cellarExportRows(sampleItems);
+  for (const r of rows) {
+    assert.equal(
+      r.length,
+      CELLAR_EXPORT_CSV_HEADER.length,
+      "行宽与表头不一致",
+    );
+  }
 });
 
 test("没有品鉴记录的条目也会出现在导出里（不能丢条目）", () => {

@@ -331,13 +331,16 @@ export interface ExportItem {
  * 一行 = 一条品鉴记录，条目信息冗余在前面（没有品鉴的条目也出一行，
  * 否则导出就会丢条目）。**描述词用逗号分隔** —— 与 F1 的修正表同一套
  * CSV 约定，Excel 里直接能改。
+ *
+ * ⚠️ 表头**不能重名**：CSV 解析成对象时同名的列后者覆盖前者，
+ * 一份数据就凭空少一列。所以条目备注与品鉴备注必须分开命名。
  */
 export const CELLAR_EXPORT_CSV_HEADER = [
   "条目ID",
   "茶品",
   "自建名",
   "入仓时间",
-  "备注",
+  "条目备注",
   "提醒间隔(月)",
   "仓储评分",
   "仓储档",
@@ -357,7 +360,7 @@ export const CELLAR_EXPORT_CSV_HEADER = [
   "描述词",
   "投茶量",
   "器具",
-  "备注",
+  "品鉴备注",
   "图片",
   "可见性",
   "耗时秒",
@@ -368,6 +371,11 @@ export function cellarExportRows(
   items: ExportItem[],
 ): (string | number | null | undefined)[][] {
   const rows: (string | number | null | undefined)[][] = [];
+  // 条目信息占前 12 列，品鉴信息占后 16 列。
+  // 空行的列数**按表头算**，不写死数字 —— 写死的话，改了表头就会错位。
+  const baseWidth = 12;
+  const tastingWidth = CELLAR_EXPORT_CSV_HEADER.length - baseWidth;
+
   for (const item of items) {
     const st = item.currentStorage;
     const base: (string | number | null | undefined)[] = [
@@ -385,7 +393,7 @@ export function cellarExportRows(
       st?.startsAt ?? "",
     ];
     if (item.tastings.length === 0) {
-      rows.push([...base, "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+      rows.push([...base, ...new Array(tastingWidth).fill("")]);
       continue;
     }
     for (const t of item.tastings) {
