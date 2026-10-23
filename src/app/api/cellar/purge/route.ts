@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的
   // 「请确认删除」—— 那等于告诉他「这个接口存在、而且是个删数据的口子」。
-  const { actor, error } = await resolveCellarActor(req);
+  const { actor, error } = await resolveCellarActor();
   if (error) return error;
 
   const { body, error: bodyError } = await readJsonBody(req);
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const limited = cellarRateLimit(req, actor!.ownerId, "write", actor!.isProxy);
+  const limited = cellarRateLimit(req, actor!.ownerId, "write");
   if (limited) return limited;
 
   const result = await purgeCellarData(actor!.ownerId);

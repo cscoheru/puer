@@ -71,7 +71,10 @@ export const teaRequestInputSchema = z.strictObject({
  * 新建茶仓条目。
  *
  * 二选一：`teaId`（茶品库里已有）或 `teaRequest`（自建申请）。
- * `targetUserId` 只有管理员能传 —— 代录用。
+ *
+ * 没有 `targetUserId`（2026-10-23 站长拍板：取消代录）—— 归属只有录入者
+ * 自己，这个接口没有「写进别人名下」的口子。schema 是 strictObject，
+ * 传了它直接 400。
  */
 export const createCellarItemSchema = z
   .strictObject({
@@ -82,7 +85,6 @@ export const createCellarItemSchema = z
     qtyNote: z.string().max(100).nullable().optional(),
     remindEveryMonths: z.number().int().min(1).max(60).optional(),
     storage: storageSchema.optional(),
-    targetUserId: z.string().min(1).optional(),
   })
   .refine((d) => Boolean(d.teaId || d.teaRequest), {
     message: "要么指定茶品，要么提交一个自建茶品申请",

@@ -1059,7 +1059,8 @@ model StorageEpoch {
   /// 仓储评分 45–60：45 标准偏干 · 50 标准仓 · 55 标准偏湿 · 60 湿仓。
   /// 锚点文案由站长提供，当前是占位文案（见 docs/plans 风险表）。
   storageScore Int?
-  /// 自评 = 用户自己打的分；站长评 = 站长代打。四维评分标注同理。
+  /// 自评 = 用户自己打的分；站长评 = 更早的存量值（代录已于 2026-10-23 取消，
+  /// 新写入恒为「自评」）。取值受 CHECK 约束限制为 'self' | 'editor'。
   assessedBy   String  @default("self") @db.VarChar(10)
   city         String? @db.VarChar(50)
   container    String? @db.VarChar(50) // 容器（紫砂罐 / 纸箱 / …）

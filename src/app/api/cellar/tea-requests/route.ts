@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的参数
   // 校验错误 —— 那等于告诉他「这个接口存在、还要这些字段」。
-  const { actor, error } = await resolveCellarActor(req);
+  const { actor, error } = await resolveCellarActor();
   if (error) return error;
 
   const { body, error: bodyError } = await readJsonBody(req);
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: zodMessage(parsed.error) }, { status: 400 });
   }
 
-  const limited = cellarRateLimit(req, actor!.ownerId, "write", false);
+  const limited = cellarRateLimit(req, actor!.ownerId, "write");
   if (limited) return limited;
 
   const id = await createTeaRequest(actor!.ownerId, {

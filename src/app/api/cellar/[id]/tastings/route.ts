@@ -23,7 +23,7 @@ export async function POST(
 
   // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的参数
   // 校验错误 —— 那等于告诉他「这个接口存在、还要这些字段」。
-  const { actor, error } = await resolveCellarActor(req);
+  const { actor, error } = await resolveCellarActor();
   if (error) return error;
 
   const { body, error: bodyError } = await readJsonBody(req);
@@ -35,7 +35,7 @@ export async function POST(
   }
   const d = parsed.data;
 
-  const limited = cellarRateLimit(req, actor!.ownerId, "write", actor!.isProxy);
+  const limited = cellarRateLimit(req, actor!.ownerId, "write");
   if (limited) return limited;
 
   const tastingId = await addTasting(actor!.ownerId, id, {
@@ -68,10 +68,10 @@ export async function GET(
 ) {
 
   const { id } = await params;
-  const { actor, error } = await resolveCellarActor(req);
+  const { actor, error } = await resolveCellarActor();
   if (error) return error;
 
-  const limited = cellarRateLimit(req, actor!.ownerId, "read", actor!.isProxy);
+  const limited = cellarRateLimit(req, actor!.ownerId, "read");
   if (limited) return limited;
 
   // 只查品鉴这一张表 —— 取整个条目详情要 4 条 SQL，其中 3 条的结果会被丢掉。

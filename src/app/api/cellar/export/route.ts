@@ -15,10 +15,10 @@ export const dynamic = "force-dynamic";
  * 只导自己的：数据层按 session 里的 userId 过滤，不收任何 userId 参数。
  */
 export async function GET(req: NextRequest) {
-  const { actor, error } = await resolveCellarActor(req);
+  const { actor, error } = await resolveCellarActor();
   if (error) return error;
 
-  const limited = cellarRateLimit(req, actor!.ownerId, "read", false);
+  const limited = cellarRateLimit(req, actor!.ownerId, "read");
   if (limited) return limited;
 
   const format = req.nextUrl.searchParams.get("format") || "json";

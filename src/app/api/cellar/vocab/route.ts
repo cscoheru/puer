@@ -21,10 +21,10 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
 
-  const { actor, error } = await resolveCellarActor(req);
+  const { actor, error } = await resolveCellarActor();
   if (error) return error;
 
-  const limited = cellarRateLimit(req, actor!.ownerId, "read", false);
+  const limited = cellarRateLimit(req, actor!.ownerId, "read");
   if (limited) return limited;
 
   const { searchParams } = new URL(req.url);

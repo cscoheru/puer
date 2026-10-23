@@ -57,9 +57,12 @@ test("新建条目：teaId 与自建申请二选一", () => {
   assert.equal(createCellarItemSchema.safeParse({ name: "只有名字" }).success, false);
 });
 
-test("新建条目：代录的 targetUserId 只能由管理员传（权限在路由层判）", () => {
+test("新建条目：targetUserId 被拒（代录已取消，没有「写进别人名下」的口子）", () => {
+  // 2026-10-23 站长拍板取消代录。schema 是 strictObject，所以这个字段
+  // 直接被判为未知字段 —— 老的调用方传了它会拿到 400，而不是静默写进
+  // 调用者自己的茶仓（那会造成「以为记在别人名下、其实记在自己名下」）。
   const r = createCellarItemSchema.safeParse({ teaId: "t1", targetUserId: "u2" });
-  assert.equal(r.success, true, "schema 不拦，路由层按权限拦");
+  assert.equal(r.success, false, "targetUserId 必须被拒");
 });
 
 test("新建条目：拒绝未知字段", () => {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clampListLimit, clampListPage, listTotalPages, paginationCapped, parseRequestedPage } from "@/lib/pagination-limits";
-import { cellarRateLimit, logCellarProxy, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
+import { cellarRateLimit, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
 import { createCellarItemSchema, zodMessage } from "@/lib/cellar-schemas";
 import { createCellarItem, createTeaRequest, listCellarItems } from "@/lib/cellar-data";
 
@@ -10,34 +10,29 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/cellar —— 我的茶仓条目列表。
  *
- * 读接口**只认 session 里的操作者**。管理员可以传 `?targetUserId=`
- * 看别人的（代录时要用），但那需要 `cellar:manage` 权限 ——
- * 站内 `api/favorites` 的 GET 收 `?userId=` 就能读别人收藏，那是反面教材。
+ * 只认 session 里的操作者 —— **没有代录**（2026-10-23 站长拍板），
+ * 条目只有一种归属：录入者自己。站内 `api/favorites` 的 GET 收 `?userId=`
+ * 就能读别人收藏，那是反面教材。
  */
 export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
-  const targetUserId = searchParams.get("targetUserId");
 
-  const { actor, error } = await resolveCellarActor(req, targetUserId);
+  const { actor, error } = await resolveCellarActor();
   if (error) return error;
 
-  // 代录视角（管理员看别人的）不受翻页上限约束；普通用户按站内约定收敛。
-  const isAdmin = actor!.isProxy;
   // requestedPage（请求页）与 page（夹取后的实际页）必须成对存在 ——
   // capped 靠它们的差值算。348b6f6 删掉过 requestedPage 的声明却留着用法，
   // 这个路由从此**每次**列表请求都 500。
+  //
+  // isAdmin 恒为 false：管理员在自己的茶仓上没有特权位了 —— 原来那个
+  // 「后台一次拉全量别人茶仓」的视图就是代录，代录取消后没有了。
   const requestedPage = parseRequestedPage(searchParams.get("page"));
-  const limit = clampListLimit(searchParams.get("limit"), { isAdmin });
-  const page = clampListPage(requestedPage, { isAdmin });
+  const limit = clampListLimit(searchParams.get("limit"), { isAdmin: false });
+  const page = clampListPage(requestedPage, { isAdmin: false });
 
-  const limited = cellarRateLimit(req, actor!.ownerId, "read", isAdmin);
+  const limited = cellarRateLimit(req, actor!.ownerId, "read");
   if (limited) return limited;
-
-  // 代录读别人私有数据 —— 留痕。
-  if (actor!.isProxy) {
-    logCellarProxy("read", actor!.actorId, actor!.ownerId, "list");
-  }
 
   const { items, total } = await listCellarItems(actor!.ownerId, { page, limit });
   return NextResponse.json({
@@ -58,21 +53,14 @@ export async function GET(req: NextRequest) {
  *  - `teaRequest`：自建茶品申请（同时进茶仓）。审核通过后由站长并入
  *    茶品库，条目会自动挂上那款茶。
  *
- * 管理员可传 `targetUserId` 代录 —— 仓储评分的来源会标成「站长评」。
- *
- * 代录有两个前提：`cellar:manage` 权限，**以及操作者自己看得见茶仓**
- * （FEATURE_CELLAR=1，或 uid ∈ EDITOR_AUTHOR_UIDS ∪ CELLAR_UIDS）——
- * 可见性门在权限门之前，规则见 src/lib/cellar-guard.ts。白名单外的管理员
- * 拿到的也是 404（而不是 403），跟看不见这个功能的普通用户一样。
+ * 归属只有一种：录入者自己。站长不代录（2026-10-23 站长拍板），
+ * 所以这里没有 `targetUserId`，也没有「管理员写别人的条目」这条路。
  */
 export async function POST(req: NextRequest) {
   // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的参数
   // 校验错误 —— 那等于告诉他「这个接口存在、还要这些字段」。
-  // targetUserId 藏在 body 里，归属判定得等 body 解析完，所以先过一遍
-  // 不带 targetUserId 的守卫（可见性 + 登录态 + 合成账号），
-  // 解析完再为代录路径补一次归属判定。
-  const gate = await resolveCellarActor(req);
-  if (gate.error) return gate.error;
+  const { actor, error } = await resolveCellarActor();
+  if (error) return error;
 
   const { body, error: bodyError } = await readJsonBody(req);
   if (bodyError) return bodyError;
@@ -83,13 +71,7 @@ export async function POST(req: NextRequest) {
   }
   const input = parsed.data;
 
-  // 代录（targetUserId 在 body 里）再过一次归属判定。
-  const { actor, error } = input.targetUserId
-    ? await resolveCellarActor(req, input.targetUserId)
-    : gate;
-  if (error) return error;
-
-  const limited = cellarRateLimit(req, actor!.ownerId, "write", actor!.isProxy);
+  const limited = cellarRateLimit(req, actor!.ownerId, "write");
   if (limited) return limited;
 
   // 茶品必须存在且未进删除箱 —— 否则条目会挂在一款看不到的茶上。
@@ -116,10 +98,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (actor!.isProxy) {
-    logCellarProxy("write", actor!.actorId, actor!.ownerId, "create-item");
-  }
-
   const id = await createCellarItem(actor!.ownerId, {
     teaId: input.teaId ?? null,
     teaRequestId,
@@ -127,11 +105,10 @@ export async function POST(req: NextRequest) {
     acquiredAt: input.acquiredAt ? new Date(input.acquiredAt) : null,
     qtyNote: input.qtyNote ?? null,
     remindEveryMonths: input.remindEveryMonths,
-    // 代录的评分来源是「站长评」，本人录的是「自评」。
+    // 评分来源恒为「自评」：茶仓里的每一条记录都由用户本人录入。
     storage: input.storage
       ? {
           storageScore: input.storage.storageScore ?? null,
-          assessedBy: actor!.isProxy ? "editor" : "self",
           city: input.storage.city ?? null,
           container: input.storage.container ?? null,
         }

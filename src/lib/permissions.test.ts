@@ -137,10 +137,10 @@ test("checkRoleChange：非法角色名直接拒绝", () => {
 
 // ── cellar:manage（PRD v0.3 §5 Phase 2）────────────────────────────────
 //
-// 代录 = 帮别的用户写他**私有的**茶仓条目。这是全站权限最重的一个动作，
-// 所以每个角色的判定都要钉死 —— 将来改矩阵时漏掉一行，就是越权。
+// cellar:manage = 管理茶品库 + 审核自建茶品申请（代录取消后只剩这一条线）。
+// 它仍然只给管理员 —— 改矩阵时漏掉一行，就是越权。
 
-test("cellar:manage 只给管理员（代录写的是别人的私有数据）", () => {
+test("cellar:manage 只给管理员（茶仓后台是站长专属）", () => {
   assert.equal(can({ id: "u1", role: "user" }, "cellar:manage"), false);
   assert.equal(can({ id: "u1", role: "editor" }, "cellar:manage"), false);
   assert.equal(can({ id: "u1", role: "moderator" }, "cellar:manage"), false);

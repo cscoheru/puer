@@ -7,14 +7,19 @@
  * `next/server` 和 `@/lib/auth` —— 裸 `node --test` 解析不了这两个（没有
  * tsx loader，也没有 `imports` 映射），所以**判定逻辑一行都测不了**。
  *
- * 而这个判定守的是全站最硬的一条线：用户的茶仓是私有数据，代录写的是
- * **别人的**私有数据。判定本身必须是可测的纯函数 —— 把 Next.js 的
- * 管道部分（取 session、造响应）留在外面，判定留在这里。
+ * 而这个判定守的是全站最硬的一条线：用户的茶仓是私有数据。
+ * 判定本身必须是可测的纯函数 —— 把 Next.js 的管道部分（取 session、造响应）
+ * 留在外面，判定留在这里。
+ *
+ * **没有代录**（2026-10-23 站长拍板）：茶仓里的每一条记录都由用户本人录入，
+ * 站长只提供茶品库与经典茶品目录。所以判定只有一种归属 —— 登录的人自己。
+ * 之前这里有一条「管理员带着 targetUserId 代录别人的茶仓」的分支，
+ * 连带 `isProxy`（评分来源是「站长评」还是「自评」）一起去掉了。
  *
  * 三种结果，三种语义（不要混）：
  *   - 401：没登录。
- *   - 403：登录了但没这个权限（合成账号、普通人代录别人）。
- *   - 通过：ownerId 是数据归属的人，isProxy 说明这是不是代录。
+ *   - 403：登录了但没这个权限（合成账号）。
+ *   - 通过：ownerId 就是登录的人。
  *
  * ## 可见性判定也在这个文件里
  *
@@ -44,12 +49,8 @@ export interface CellarUserInput {
 }
 
 export interface CellarAccessDecision {
-  /** 条目的所有者 id（代录时是目标用户的 id）。 */
+  /** 条目的所有者 id —— 就是登录的人自己。 */
   ownerId: string;
-  /** 操作者自己的 id。 */
-  actorId: string;
-  /** 是不是管理员代录（决定仓储评分标「站长评」还是「自评」）。 */
-  isProxy: boolean;
 }
 
 export type CellarAccessResult =
@@ -59,14 +60,10 @@ export type CellarAccessResult =
 /**
  * 判定一次茶仓访问。
  *
- * @param sessionUser  登录用户（null = 未登录）
- * @param targetUserId 目标用户 id（只在代录时给；不给 = 操作自己）
- * @param canManage    操作者是否有 `cellar:manage` 权限
+ * @param sessionUser 登录用户（null = 未登录）
  */
 export function decideCellarAccess(
   sessionUser: CellarActorInput | null | undefined,
-  targetUserId: string | null | undefined,
-  canManage: boolean,
 ): CellarAccessResult {
   if (!sessionUser) {
     return { ok: false, status: 401, error: "请先登录" };
@@ -81,21 +78,8 @@ export function decideCellarAccess(
     };
   }
 
-  if (targetUserId && targetUserId !== sessionUser.id) {
-    if (!canManage) {
-      return { ok: false, status: 403, error: "无权访问他人的茶仓" };
-    }
-    return {
-      ok: true,
-      access: { ownerId: targetUserId, actorId: sessionUser.id, isProxy: true },
-    };
-  }
-
-  // 目标是自己（哪怕显式传了自己的 id）—— 不算代录，评分来源是「自评」。
-  return {
-    ok: true,
-    access: { ownerId: sessionUser.id, actorId: sessionUser.id, isProxy: false },
-  };
+  // 茶仓内容只有一种归属：录入者自己。
+  return { ok: true, access: { ownerId: sessionUser.id } };
 }
 
 /**
@@ -129,7 +113,7 @@ export function cellarUidAllowlist(
  * 规则见文件头：全局 flag 开着 → 所有人；否则按 uid 白名单。
  *
  * 「看不见」与「没有权限」是两件事，这里只回答前者（404 的那一层）；
- * 登录态、合成账号、代录权限由 `decideCellarAccess` 回答（401/403）。
+ * 登录态、合成账号由 `decideCellarAccess` 回答（401/403）。
  */
 export function cellarVisibleTo(
   user: CellarUserInput | null | undefined,

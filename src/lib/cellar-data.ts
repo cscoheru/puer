@@ -12,8 +12,6 @@
  * 那是能读别人数据的写法。这里不这么做：路由层从 session 解析出操作者，
  * 再把 userId 传进来；数据层一律 `where: { userId }`。
  * 传错 id 得到的是 `null`（找不到），不是别人的数据。
- *
- * 管理员「代录」也走同一套：传**目标用户**的 userId 进来，不开后门。
  */
 
 import { prisma } from "@/lib/prisma";
@@ -312,7 +310,6 @@ export interface CreateCellarItemInput {
   /** 首次登记的仓储信息（可全跳过）。 */
   storage?: {
     storageScore?: number | null;
-    assessedBy?: "self" | "editor";
     city?: string | null;
     container?: string | null;
     legacyStorageLabel?: string | null;
@@ -322,8 +319,10 @@ export interface CreateCellarItemInput {
 /**
  * 新建一条茶仓条目。
  *
- * `userId` 是**条目所有者**。管理员代录时传目标用户的 id，
- * 额外用 `assessedBy: "editor"` 标注评分来源（PRD §6）。
+ * `userId` 是**条目所有者**，也就是录入者本人 —— 没有代录。
+ * 评分来源恒为「自评」：茶仓里的每一条记录都由用户本人录入
+ * （2026-10-23 站长拍板）。DB 里那个 `assessedBy` 列保留着，
+ * 它记的是**当时**这条评分是谁给的 —— 存量里可能有更早的「站长评」。
  */
 export async function createCellarItem(
   userId: string,
@@ -345,7 +344,7 @@ export async function createCellarItem(
             storageEpochs: {
               create: {
                 storageScore: input.storage.storageScore ?? null,
-                assessedBy: input.storage.assessedBy ?? "self",
+                assessedBy: "self",
                 city: input.storage.city ?? null,
                 container: input.storage.container ?? null,
                 legacyStorageLabel: input.storage.legacyStorageLabel ?? null,
@@ -402,7 +401,6 @@ export async function deleteCellarItem(
 export interface AddStorageEpochInput {
   startsAt?: Date;
   storageScore?: number | null;
-  assessedBy?: "self" | "editor";
   city?: string | null;
   container?: string | null;
   legacyStorageLabel?: string | null;
@@ -412,6 +410,8 @@ export interface AddStorageEpochInput {
  * 换仓 —— 新增一条仓储期，旧的保留（历史要能还原）。
  *
  * **注意**：这里不检查 userId 就直接写会出事，所以先确认条目归属。
+ *
+ * 评分来源恒为「自评」—— 换仓只服务本人，没有代录那条路。
  */
 export async function addStorageEpoch(
   userId: string,
@@ -429,7 +429,7 @@ export async function addStorageEpoch(
       cellarItemId: itemId,
       startsAt: input.startsAt ?? new Date(),
       storageScore: input.storageScore ?? null,
-      assessedBy: input.assessedBy ?? "self",
+      assessedBy: "self",
       city: input.city ?? null,
       container: input.container ?? null,
       legacyStorageLabel: input.legacyStorageLabel ?? null,

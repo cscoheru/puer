@@ -30,7 +30,17 @@ import { toCsv } from "./tasting-corrections.ts";
  * 需要词表的文件直接 import `./tasting-extract/vocab.ts`。
  */
 
-/** 仓储评分的来源：自评（用户自己打的）/ 站长评（管理员代录）。 */
+/**
+ * 仓储评分的来源：自评（用户自己打的）/ 站长评。
+ *
+ * 这个联合类型是 DB 里那条 CHECK 约束的镜像（见
+ * `prisma/migrations/20261023_cellar/migration.sql` 的
+ * `storage_epochs_assessedBy_check`）。
+ *
+ * **代录已取消**（2026-10-23 站长拍板），所以现在新写入的评分恒为「自评」；
+ * 「站长评」只可能来自更早的存量数据。保留这个取值是为了别把那段历史
+ * 改写成假的 —— 它记的是**当时**这条评分是谁给的。
+ */
 export type AssessedBy = "self" | "editor";
 
 // ─── 仓储评分（PRD §6）────────────────────────────────────────────────────
