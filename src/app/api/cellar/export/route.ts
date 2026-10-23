@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { cellarDisabledResponse, cellarEnabled, cellarRateLimit, resolveCellarActor } from "@/lib/cellar-api";
+import { NextRequest } from "next/server";
+import { cellarRateLimit, resolveCellarActor } from "@/lib/cellar-api";
 import { cellarExportCsv, cellarExportJson } from "@/lib/cellar.ts";
 import { exportCellarData } from "@/lib/cellar-data";
 
@@ -15,8 +15,6 @@ export const dynamic = "force-dynamic";
  * 只导自己的：数据层按 session 里的 userId 过滤，不收任何 userId 参数。
  */
 export async function GET(req: NextRequest) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
-
   const { actor, error } = await resolveCellarActor(req);
   if (error) return error;
 

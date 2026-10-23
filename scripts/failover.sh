@@ -54,6 +54,12 @@ services:
       AUTH_URL: https://puer.im
       NEXT_PUBLIC_APP_URL: https://puer.im
       NEXT_PUBLIC_WS_URL: wss://puer.im
+      # 茶仓开关与可见人群白名单（uid，逗号分隔）。
+      # 这份 compose 是本脚本生成的，**必须**与仓库的 docker-compose.yml 同步声明
+      # —— app service 没有 env_file，.env 里的同名变量不会自动进容器，
+      # 漏在这里就等于「站长改了 .env 但开关打不开」。
+      FEATURE_CELLAR: ${FEATURE_CELLAR:-0}
+      CELLAR_UIDS: ${CELLAR_UIDS:-}
     volumes:
       - /opt/puer-hub/uploads:/app/public/uploads:ro
     ports:

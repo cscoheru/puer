@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  cellarDisabledResponse,
-  cellarEnabled,
-  cellarRateLimit,
-  resolveCellarActor,
-} from "@/lib/cellar-api";
+import { cellarRateLimit, resolveCellarActor } from "@/lib/cellar-api";
 import { searchCellarTeas } from "@/lib/cellar-data";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +21,6 @@ export const dynamic = "force-dynamic";
  * 真实别名就自动生效，不用改代码。
  */
 export async function GET(req: NextRequest) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
 
   const { actor, error } = await resolveCellarActor(req);
   if (error) return error;

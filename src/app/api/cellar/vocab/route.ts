@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cellarDisabledResponse, cellarEnabled, cellarRateLimit, resolveCellarActor } from "@/lib/cellar-api";
+import { cellarRateLimit, resolveCellarActor } from "@/lib/cellar-api";
 import { filterVocab } from "@/lib/cellar";
 import { listVocab } from "@/lib/cellar-data";
 
@@ -20,7 +20,6 @@ export const dynamic = "force-dynamic";
  * 所以这里取回全部条目，再用 `filterVocab` 做筛选（精确匹配优先于 any）。
  */
 export async function GET(req: NextRequest) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
 
   const { actor, error } = await resolveCellarActor(req);
   if (error) return error;

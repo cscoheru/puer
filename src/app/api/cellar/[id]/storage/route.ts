@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  cellarDisabledResponse,
-  cellarEnabled,
-  cellarRateLimit,
-  readJsonBody,
-  resolveCellarActor,
-} from "@/lib/cellar-api";
+import { cellarRateLimit, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
 import { addStorageEpochSchema, zodMessage } from "@/lib/cellar-schemas";
 import { addStorageEpoch } from "@/lib/cellar-data";
 
@@ -21,9 +15,14 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
 
   const { id } = await params;
+
+  // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的参数
+  // 校验错误 —— 那等于告诉他「这个接口存在、还要这些字段」。
+  const { actor, error } = await resolveCellarActor(req);
+  if (error) return error;
+
   const { body, error: bodyError } = await readJsonBody(req);
   if (bodyError) return bodyError;
 
@@ -33,17 +32,15 @@ export async function POST(
   }
   const d = parsed.data;
 
-  const { actor, error } = await resolveCellarActor(req);
-  if (error) return error;
-
   const limited = cellarRateLimit(req, actor!.ownerId, "write", actor!.isProxy);
   if (limited) return limited;
 
   const epochId = await addStorageEpoch(actor!.ownerId, id, {
     startsAt: d.startsAt ? new Date(d.startsAt) : undefined,
     storageScore: d.storageScore ?? null,
-    // 代录的评分来源是「站长评」，本人录的是「自评」。
-    assessedBy: actor!.isProxy ? "editor" : "self",
+    // 这个接口只服务本人换仓（不接 targetUserId），所以评分来源恒为「自评」。
+    // 站长的代录换仓走 POST /api/cellar，评分来源在那边标成「站长评」。
+    assessedBy: "self",
     city: d.city ?? null,
     container: d.container ?? null,
   });

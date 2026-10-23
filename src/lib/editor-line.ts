@@ -29,18 +29,31 @@ import { STAGE_LABELS, type Stage } from "./tasting-extract/vocab.ts";
 export const DEFAULT_EDITOR_UIDS = [1001, 1002];
 
 /**
+ * 解析逗号分隔的 uid 列表。
+ *
+ * 容错口径：**写坏的那一项丢掉，其余照用**。整串都写坏时返回空数组 ——
+ * 调用方据此回落到默认值，而不是「解析失败 = 放行所有人」。
+ *
+ * 站长线作者白名单（`editorAuthorUids`）与茶仓可见人群
+ * （`cellarUidAllowlist`）共用这一份解析 —— 白名单口径一旦分叉，
+ * 就会出现「站长线认得、茶仓不认」这种查不出来的错。
+ */
+export function parseUidList(raw: string | undefined): number[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+
+/**
  * 解析站长作者白名单。环境变量缺失或写坏时回落到默认值 ——
  * 白名单解析失败不该让站长线整个消失。
  */
 export function editorAuthorUids(
   env: Record<string, string | undefined> = process.env,
 ): number[] {
-  const raw = (env.EDITOR_AUTHOR_UIDS ?? "").trim();
-  if (!raw) return [...DEFAULT_EDITOR_UIDS];
-  const ids = raw
-    .split(",")
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isInteger(n) && n > 0);
+  const ids = parseUidList((env.EDITOR_AUTHOR_UIDS ?? "").trim());
   return ids.length ? ids : [...DEFAULT_EDITOR_UIDS];
 }
 

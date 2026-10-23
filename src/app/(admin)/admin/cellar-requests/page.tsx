@@ -334,9 +334,19 @@ function ProxyTab() {
   const loadItems = useCallback(async (userId: string) => {
     try {
       const res = await fetch(`/api/cellar?targetUserId=${encodeURIComponent(userId)}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // 404 = 这个账号看不见茶仓（flag 关着且 uid 不在白名单里）；
+        // 403 = 没有代录权限。这两种都**不能**显示成「这个用户没有茶仓条目」——
+        // 那是把「查不到」说成「没有」，站长会以为用户真的没记录过。
+        // 成功时不碰 message：代录成功的提示语也走同一个 message 状态。
+        setMessage(data.error || "加载失败");
+        setItems([]);
+        return;
+      }
       setItems(Array.isArray(data.items) ? data.items : []);
     } catch {
+      setMessage("加载失败");
       setItems([]);
     }
   }, []);

@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clampListLimit, clampListPage, paginationCapped } from "@/lib/pagination-limits";
-import {
-  cellarDisabledResponse,
-  cellarEnabled,
-  cellarRateLimit,
-  logCellarProxy,
-  readJsonBody,
-  resolveCellarActor,
-} from "@/lib/cellar-api";
+import { cellarRateLimit, logCellarProxy, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
 import { createCellarItemSchema, zodMessage } from "@/lib/cellar-schemas";
 import { createCellarItem, createTeaRequest, listCellarItems } from "@/lib/cellar-data";
 
@@ -22,7 +15,6 @@ export const dynamic = "force-dynamic";
  * 站内 `api/favorites` 的 GET 收 `?userId=` 就能读别人收藏，那是反面教材。
  */
 export async function GET(req: NextRequest) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
 
   const { searchParams } = new URL(req.url);
   const targetUserId = searchParams.get("targetUserId");
@@ -32,10 +24,10 @@ export async function GET(req: NextRequest) {
 
   // 代录视角（管理员看别人的）不受翻页上限约束；普通用户按站内约定收敛。
   const isAdmin = actor!.isProxy;
-  const requestedPage = Number(searchParams.get("page") || "1");
-  const requestedLimit = Number(searchParams.get("limit") || "20");
-  const limit = clampListLimit(requestedLimit, { isAdmin, fallback: 20 });
-  const page = clampListPage(requestedPage, { isAdmin });
+  // 默认页大小只保留在 pagination-limits.ts 一处 —— 这里再写一遍 "20"，
+  // 将来改默认时这个路由会静默不跟着变。解析也交给 clamp* 自己管。
+  const limit = clampListLimit(searchParams.get("limit"), { isAdmin });
+  const page = clampListPage(searchParams.get("page"), { isAdmin });
 
   const limited = cellarRateLimit(req, actor!.ownerId, "read", isAdmin);
   if (limited) return limited;
@@ -65,9 +57,20 @@ export async function GET(req: NextRequest) {
  *    茶品库，条目会自动挂上那款茶。
  *
  * 管理员可传 `targetUserId` 代录 —— 仓储评分的来源会标成「站长评」。
+ *
+ * 代录有两个前提：`cellar:manage` 权限，**以及操作者自己看得见茶仓**
+ * （FEATURE_CELLAR=1，或 uid ∈ EDITOR_AUTHOR_UIDS ∪ CELLAR_UIDS）——
+ * 可见性门在权限门之前，规则见 src/lib/cellar-guard.ts。白名单外的管理员
+ * 拿到的也是 404（而不是 403），跟看不见这个功能的普通用户一样。
  */
 export async function POST(req: NextRequest) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
+  // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的参数
+  // 校验错误 —— 那等于告诉他「这个接口存在、还要这些字段」。
+  // targetUserId 藏在 body 里，归属判定得等 body 解析完，所以先过一遍
+  // 不带 targetUserId 的守卫（可见性 + 登录态 + 合成账号），
+  // 解析完再为代录路径补一次归属判定。
+  const gate = await resolveCellarActor(req);
+  if (gate.error) return gate.error;
 
   const { body, error: bodyError } = await readJsonBody(req);
   if (bodyError) return bodyError;
@@ -78,7 +81,10 @@ export async function POST(req: NextRequest) {
   }
   const input = parsed.data;
 
-  const { actor, error } = await resolveCellarActor(req, input.targetUserId);
+  // 代录（targetUserId 在 body 里）再过一次归属判定。
+  const { actor, error } = input.targetUserId
+    ? await resolveCellarActor(req, input.targetUserId)
+    : gate;
   if (error) return error;
 
   const limited = cellarRateLimit(req, actor!.ownerId, "write", actor!.isProxy);

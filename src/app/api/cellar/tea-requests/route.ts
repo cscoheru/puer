@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  cellarDisabledResponse,
-  cellarEnabled,
-  cellarRateLimit,
-  readJsonBody,
-  resolveCellarActor,
-} from "@/lib/cellar-api";
+import { cellarRateLimit, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
 import { createTeaRequestSchema, zodMessage } from "@/lib/cellar-schemas";
 import { createTeaRequest } from "@/lib/cellar-data";
 
@@ -18,7 +12,10 @@ export const dynamic = "force-dynamic";
  * 想「申请 + 同时进茶仓」用 `POST /api/cellar` 传 `teaRequest`。
  */
 export async function POST(req: NextRequest) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
+  // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的参数
+  // 校验错误 —— 那等于告诉他「这个接口存在、还要这些字段」。
+  const { actor, error } = await resolveCellarActor(req);
+  if (error) return error;
 
   const { body, error: bodyError } = await readJsonBody(req);
   if (bodyError) return bodyError;
@@ -27,9 +24,6 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: zodMessage(parsed.error) }, { status: 400 });
   }
-
-  const { actor, error } = await resolveCellarActor(req);
-  if (error) return error;
 
   const limited = cellarRateLimit(req, actor!.ownerId, "write", false);
   if (limited) return limited;

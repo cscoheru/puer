@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { isFeatureEnabled } from "@/lib/feature-flags";
+import { cellarVisibleTo } from "@/lib/cellar-guard";
 import { getCellarItem } from "@/lib/cellar-data";
 import { getEditorLine } from "@/lib/editor-line-data";
 import CellarDetail from "@/components/cellar/cellar-detail";
@@ -30,10 +30,11 @@ export default async function CellarItemPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!isFeatureEnabled("cellar")) notFound();
+  const session = await auth();
+  // 可见性先判：对看不见的人，条目存不存在都是 404。
+  if (!cellarVisibleTo(session?.user)) notFound();
 
   const { id } = await params;
-  const session = await auth();
   if (!session?.user?.id) notFound();
 
   // 别人的条目取不到 —— 数据层的 where 里带 userId。

@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  cellarDisabledResponse,
-  cellarEnabled,
-  cellarRateLimit,
-  logCellarProxy,
-  readJsonBody,
-  resolveCellarActor,
-} from "@/lib/cellar-api";
+import { cellarRateLimit, logCellarProxy, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
 import { updateCellarItemSchema, zodMessage } from "@/lib/cellar-schemas";
 import { deleteCellarItem, getCellarItem, updateCellarItem } from "@/lib/cellar-data";
 
@@ -21,7 +14,6 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
 
   const { id } = await params;
   const { searchParams } = new URL(req.url);
@@ -49,9 +41,14 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
 
   const { id } = await params;
+
+  // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的参数
+  // 校验错误 —— 那等于告诉他「这个接口存在、还要这些字段」。
+  const { actor, error } = await resolveCellarActor(req);
+  if (error) return error;
+
   const { body, error: bodyError } = await readJsonBody(req);
   if (bodyError) return bodyError;
 
@@ -59,9 +56,6 @@ export async function PATCH(
   if (!parsed.success) {
     return NextResponse.json({ error: zodMessage(parsed.error) }, { status: 400 });
   }
-
-  const { actor, error } = await resolveCellarActor(req);
-  if (error) return error;
 
   const limited = cellarRateLimit(req, actor!.ownerId, "write", actor!.isProxy);
   if (limited) return limited;
@@ -96,7 +90,6 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
 
   const { id } = await params;
   const { actor, error } = await resolveCellarActor(req);

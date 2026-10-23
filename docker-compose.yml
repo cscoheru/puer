@@ -94,6 +94,12 @@ services:
       # 不必重建镜像。关着时前台 /tea-cellar 404、接口 404、导航不出现；
       # 后台审核队列不受门禁（前台关了但队列里还有待办时站长仍要能处理）。
       FEATURE_CELLAR: ${FEATURE_CELLAR:-0}
+      # 茶仓的**可见人群**（uid 白名单，逗号分隔）。FEATURE_CELLAR=0 时，
+      # 只有名单里的 uid 能看见并使用茶仓 —— 2026-10-23 起先只对站长开放，
+      # 将来开 10 位内测种子用户就往这里追加 uid（改 .env 后
+      # `docker compose up -d app` 即可，不必重建镜像）。
+      # 留空时回落到站长线作者白名单 EDITOR_AUTHOR_UIDS（默认 1001,1002）。
+      CELLAR_UIDS: ${CELLAR_UIDS:-}
     volumes:
       - ./uploads/forum:/app/public/uploads/forum
       - ./uploads/videos:/app/public/uploads/videos

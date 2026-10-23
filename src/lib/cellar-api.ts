@@ -22,15 +22,21 @@
  *
  *  - **401**：没登录。前台接口用这个（`requireAdmin` 那种 403 是后台语义）。
  *  - **403**：登录了但没这个权限（代录别人、合成账号）。
- *  - **404**：功能没开（feature flag 关闭）。不返回 403 是因为
- *    「功能不存在」不该让爬虫知道有个待上线的功能。
+ *  - **404**：**这个账号看不见茶仓**（全局 flag 关着，且 uid 不在白名单里）。
+ *    不返回 401/403 是因为「功能不存在」不该让爬虫知道有个待上线的功能。
+ *
+ * ## 可见性在这里收口
+ *
+ * 判定（FEATURE_CELLAR 全局开关 / uid 白名单）在 `cellarVisibleTo`
+ * （src/lib/cellar-guard.ts，纯函数可单测），**每个茶仓接口的第一道门都是
+ * `resolveCellarActor`**。路由里不要再各写一遍 feature flag 判断 ——
+ * 那是以前 14 处重复判定的来源，漏一处就是没门禁的接口。
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { isFeatureEnabled } from "@/lib/feature-flags";
-import { decideCellarAccess } from "@/lib/cellar-guard";
+import { cellarVisibleTo, decideCellarAccess } from "@/lib/cellar-guard";
 import { prisma } from "@/lib/prisma";
 import {
   checkRateLimit,
@@ -40,13 +46,18 @@ import {
   LIMIT_LIST_READ,
 } from "@/lib/rate-limit";
 
-/** 功能开关。关闭时所有茶仓接口都当「不存在」。 */
-export function cellarEnabled(): boolean {
-  return isFeatureEnabled("cellar");
-}
-
-/** 功能未开启时的响应。 */
-export function cellarDisabledResponse(): NextResponse {
+/**
+ * 功能未开启时的响应。
+ *
+ * **可见性判定统一在这里收口**：所有茶仓接口都先过 `resolveCellarActor`，
+ * 由它判断「这个人能不能看见茶仓」。所以路由里**不需要**再各判一次
+ * feature flag —— 以前每条路由都写一遍 `if (!cellarEnabled())`，漏一处
+ * 就是个没门禁的接口。
+ *
+ * 模块私有：路由一律走 `resolveCellarActor`，不要再单独 import 它 ——
+ * 单独判一次就等于把可见性判定又分叉出去。
+ */
+function cellarDisabledResponse(): NextResponse {
   return NextResponse.json({ error: "功能尚未开启" }, { status: 404 });
 }
 
@@ -73,11 +84,21 @@ export async function resolveCellarActor(
   targetUserId?: string | null,
 ): Promise<{ actor: CellarActor | null; error: NextResponse | null }> {
   const session = await auth();
+
+  // ── 可见性先判 ──────────────────────────────────────────────────────
+  // 顺序很重要：不可见的人回 **404**（功能不存在），不是 401/403。
+  // 回 401 等于告诉爬虫「这里有个接口，只是要登录」—— 一个还没上线
+  // 的功能不该被知道存在。
+  //
+  // 判定规则（FEATURE_CELLAR 全局开关 / uid 白名单）见 src/lib/cellar-guard.ts。
+  if (!cellarVisibleTo(session?.user)) {
+    return { actor: null, error: cellarDisabledResponse() };
+  }
+
   const decision = decideCellarAccess(
     session?.user
       ? {
           id: session.user.id,
-          role: session.user.role,
           isSynthetic: session.user.isSynthetic,
         }
       : null,
@@ -128,6 +149,10 @@ export async function resolveCellarActor(
  *
  * 走应用日志（stdout → docker logs），不新建表 —— F2 阶段够用，
  * 真要做成产品化的审计台账再说。
+ *
+ * **记的是「代录尝试」，不是「代录已完成」**：这一行写在真正的读写**之前**，
+ * 所以写库失败时它同样在。失败的代录恰恰是最该被查到的那种 —— 只记成功
+ * 的话，出事那次反而没记录。查日志的人别把 action=write 读成「写入已成功」。
  */
 export function logCellarProxy(
   action: "read" | "write",

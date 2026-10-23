@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  cellarDisabledResponse,
-  cellarEnabled,
-  cellarRateLimit,
-  readJsonBody,
-  resolveCellarActor,
-} from "@/lib/cellar-api";
+import { cellarRateLimit, readJsonBody, resolveCellarActor } from "@/lib/cellar-api";
 import { purgeCellarData } from "@/lib/cellar-data";
 
 export const dynamic = "force-dynamic";
@@ -20,13 +14,13 @@ export const dynamic = "force-dynamic";
  * 双击/误触不该删掉一个人几个月的记录。前端还要再弹一次确认框。
  */
 export async function POST(req: NextRequest) {
-  if (!cellarEnabled()) return cellarDisabledResponse();
+  // 第一道门是**可见性**：看不见茶仓的人回 404，不能让他拿到 400 的
+  // 「请确认删除」—— 那等于告诉他「这个接口存在、而且是个删数据的口子」。
+  const { actor, error } = await resolveCellarActor(req);
+  if (error) return error;
 
   const { body, error: bodyError } = await readJsonBody(req);
   if (bodyError) return bodyError;
-
-  const { actor, error } = await resolveCellarActor(req);
-  if (error) return error;
 
   const confirm = (body as { confirm?: unknown } | null)?.confirm;
   if (confirm !== "DELETE") {

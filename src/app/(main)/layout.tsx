@@ -3,6 +3,7 @@ import Header from "@/components/layout/header";
 import { cookies, headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { featureFlagSnapshot } from "@/lib/feature-flags";
+import { cellarVisibleTo } from "@/lib/cellar-guard";
 import { pickLocale } from "@/i18n/translations";
 import "../globals.css";
 
@@ -30,11 +31,22 @@ export default async function MainLayout({ children }: { children: React.ReactNo
   // 不再依赖 hydrate 后 fetch /api/auth/session(此前登录态要等资源加载完才显示)。
   const session = await auth();
 
+  // 茶仓的可见性是**按人**算的：全局 flag 开着 → 全体可见；否则只有 uid
+  // 白名单（站长 + 内测种子用户）里的人可见。
+  //
+  // 服务端算成一个布尔值再往下传，客户端不必知道名单是什么 —— 也就不会出现
+  // 「导航按一份名单显示、接口按另一份名单拒绝」这种漂移。客户端的
+  // useFeatureFlag("cellar") 读到的已经是「**这个人**能不能看见」。
+  const features = {
+    ...featureFlagSnapshot(),
+    cellar: cellarVisibleTo(session?.user),
+  };
+
   return (
     <Providers
       initialLocale={initialLocale}
       session={session}
-      features={featureFlagSnapshot()}
+      features={features}
     >
       <Header />
       <main className="flex-1">{children}</main>
