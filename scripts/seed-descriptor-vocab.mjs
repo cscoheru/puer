@@ -38,8 +38,14 @@ import { PrismaClient } from "../src/generated/prisma/client.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { callLLM, minimaxTarget, glmTarget } from "../src/lib/llm-provider.ts";
-import { DIM_LABELS as APP_DIM_LABELS } from "../src/lib/cellar.ts";
 import { editorAuthorUids } from "../src/lib/editor-line.ts";
+import {
+  buildVocabRows,
+  collectWordStats,
+  pickFrequentWords,
+  renderVocabCsv,
+  VOCAB_DIMS,
+} from "../src/lib/descriptor-vocab.ts";
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
@@ -58,23 +64,16 @@ const AUTHOR_UIDS = editorAuthorUids();
 
 const prisma = new PrismaClient();
 
-/** 年份段：按茶的年份划。 */
-function ageBracket(year) {
-  if (year == null) return "any";
-  if (year >= 2020) return "young";
-  if (year >= 2010) return "mid";
-  return "aged";
-}
+// 维度清单只有一份：src/lib/descriptor-vocab.ts 的 VOCAB_DIMS
+//（与站内四维同一套 key）。「any」是额外加的第五个归类（不属于任何单一维度）。
 
-// 四维标签与站内共用一份（src/lib/cellar.ts）—— 维度改名不会让词库与界面脱节。
-// 「通用」是本脚本额外加的第五个归类（不属于任何单一维度）。
-const DIM_LABELS = { ...APP_DIM_LABELS, any: "通用" };
-
-function esc(v) {
-  const s = v == null ? "" : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
+/**
+ * 取数 + 统计。
+ *
+ * 算术全在 `src/lib/descriptor-vocab.ts` 里（纯函数，有单测）——
+ * 这里只负责把 Prisma 的结果喂进去。统计口径改了就改那边，
+ * 不要在这里另写一份。
+ */
 async function collect() {
   const notes = await prisma.tastingNote.findMany({
     where: {
@@ -87,41 +86,10 @@ async function collect() {
     },
   });
 
-  /**
-   * tag → { total, cats: { raw: {count, brackets}, ripe: {count, brackets} } }
-   *
-   * **按生熟分开统计**：同一个词在生普与熟普里的年份分布常常完全不同
-   * （比如「烟香」多见于老生普，「堆味」多见于新熟普）。年份段必须按
-   * 生熟各算各的 —— 用合并后的分布会给其中一个生熟写上错的年份段。
-   */
-  const map = new Map();
-  for (const n of notes) {
-    const list = Array.isArray(n.descriptors)
-      ? n.descriptors.filter((x) => typeof x === "string")
-      : [];
-    const cat = n.tea?.type === "ripe" ? "ripe" : "raw";
-    const bracket = ageBracket(n.tea?.year);
-    for (const raw of list) {
-      const tag = raw.trim();
-      if (!tag || tag.length > 20) continue;
-      let e = map.get(tag);
-      if (!e) {
-        e = { total: 0, cats: { raw: { count: 0, brackets: {} }, ripe: { count: 0, brackets: {} } } };
-        map.set(tag, e);
-      }
-      e.total++;
-      const c = e.cats[cat];
-      c.count++;
-      c.brackets[bracket] = (c.brackets[bracket] ?? 0) + 1;
-    }
-  }
+  const stats = collectWordStats(notes);
+  const kept = pickFrequentWords(stats, { minCount: MIN_COUNT, limit: LIMIT });
 
-  const kept = [...map.entries()]
-    .filter(([, e]) => e.total >= MIN_COUNT)
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, LIMIT);
-
-  return { totalNotes: notes.length, totalWords: map.size, kept };
+  return { totalNotes: notes.length, totalWords: stats.size, kept };
 }
 
 /** 让模型把词按四维粗分类。 */
@@ -143,6 +111,16 @@ async function classify(tags) {
 词语列表：
 ${list}`;
 
+  // prompt 里逐条列维度，但清单在 VOCAB_DIMS —— 两边对不上就是漂了，
+  // 与其让模型把新维度判成 any，不如在这里直接叫停。
+  for (const d of VOCAB_DIMS) {
+    if (!prompt.includes(d)) {
+      throw new Error(
+        `prompt 里没有维度 ${d} —— 维度清单与 src/lib/descriptor-vocab.ts 不一致，先对齐再跑。`,
+      );
+    }
+  }
+
   const target = minimaxTarget();
   const result = await callLLM(target, prompt, {
     maxTokens: 4000,
@@ -158,7 +136,7 @@ ${list}`;
     for (const [k, v] of Object.entries(map)) {
       const idx = Number(k) - 1;
       if (!Number.isInteger(idx) || idx < 0 || idx >= tags.length) continue;
-      if (typeof v !== "string" || !(v in DIM_LABELS)) continue;
+      if (typeof v !== "string" || !VOCAB_DIMS.includes(v)) continue;
       out.set(tags[idx], v);
     }
   }
@@ -178,6 +156,17 @@ async function main() {
     return;
   }
 
+  // 先确认能拼出行，再花钱调模型 —— 口径错掉的话早失败早发现，
+  // 而且不用白等一次分类请求。（2026-10-23 的翻车就是「拼出 0 行」）
+  if (!buildVocabRows(kept).length) {
+    console.error(
+      "\n拼不出任何行 —— 词库会是空的。先别 --apply，" +
+        "检查统计口径（src/lib/descriptor-vocab.ts）再继续。",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const tags = kept.map(([t]) => t);
   console.log(`\n请求 LLM 分类（${tags.length} 个词）…`);
   let dims = new Map();
@@ -192,40 +181,15 @@ async function main() {
   }
   console.log(`分类来源：${source}`);
 
-  // 组装要落库的行：每个词 × 它出现过的生熟
-  const rows = [];
-  for (const [tag, e] of kept) {
-    const dim = dims.get(tag) ?? "any";
-    const cats = [];
-    if (e.raw > 0) cats.push(["raw", e.raw]);
-    if (e.ripe > 0) cats.push(["ripe", e.ripe]);
-    for (const [cat] of cats) {
-      // 年份段：该生熟下出现最多的那个；分布太散就归 any
-      const brackets = Object.entries(e.brackets).sort((a, b) => b[1] - a[1]);
-      const top = brackets[0];
-      const total = brackets.reduce((s, [, v]) => s + v, 0);
-      const age = top && top[1] / total >= 0.6 ? top[0] : "any";
-      rows.push({
-        tag,
-        category: cat,
-        ageBracket: age,
-        dim,
-        count: e.count,
-        source: dims.has(tag) ? "llm" : "seed",
-      });
-    }
-  }
+  // 组装要落库的行：每个词 × 它出现过的每个生熟。
+  // 纯算术在 src/lib/descriptor-vocab.ts（有单测），这里不重复实现一遍。
+  const rows = buildVocabRows(kept, dims);
 
   // 报告：给站长核对
-  const csv = [
-    ["词", "生熟", "年份段", "维度", "出现次数"].map(esc).join(","),
-    ...rows.map((r) =>
-      [r.tag, r.category, r.ageBracket, r.dim, r.count].map(esc).join(","),
-    ),
-  ].join("\n");
+  const csv = renderVocabCsv(rows);
   // 目录可能不存在（服务器上 docs/f1/ 就没建）—— 自己建，别指望调用方先建。
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, `﻿${csv}\n`, "utf8");
+  writeFileSync(OUT, csv, "utf8");
   console.log(`\n分类报告已写：${OUT}（给站长核对用）`);
 
   const byDim = {};
