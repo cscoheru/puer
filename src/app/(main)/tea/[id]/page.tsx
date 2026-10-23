@@ -14,6 +14,8 @@ import { visibleArticleWhere } from "@/lib/article-visibility";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 import { parseMarket } from "@/lib/market-info";
 import { isMirrorNoteLive } from "@/lib/tasting-note-plan";
+import { getEditorLine } from "@/lib/editor-line-data";
+import EditorLineView from "@/components/tea/editor-line";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +91,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
     redirect(`/login?next=${encodeURIComponent(`/tea/${id}`)}`);
   }
 
-  const [allTastingNotes, articles] = await Promise.all([
+  const [allTastingNotes, articles, editorLine] = await Promise.all([
     prisma.tastingNote.findMany({
       where: { teaId: id },
       orderBy: { createdAt: "desc" },
@@ -117,6 +119,8 @@ export default async function TeaDetailPage({ params }: PageProps) {
       include: articleIncludes,
       orderBy: { createdAt: "desc" },
     }).catch(() => [] as ArticleWithRelations[]),
+    // 站长线（PRD §5 Phase 1）：只取站长原始笔记，AI/帖子镜像不进。
+    getEditorLine(id).catch(() => null),
   ]);
 
   // 镜像笔记的可见性跟随源帖：只保留源帖**当前**处于「已发布且非私密」的笔记。
@@ -146,7 +150,12 @@ export default async function TeaDetailPage({ params }: PageProps) {
   const WALL_PREVIEW_COUNT = 10; // 图片墙两行（桌面 5 列 × 2）
 
   // Public conversion timeline (curated summary only), oldest → newest
+  //
+  // 站长的原始笔记**不**进这条时间线 —— 它们由「站长线」单独展示（带阶段、
+  // 器具、来源声明）。这里只留社区的品鉴与跟进帖镜像，避免同一条记录出现两遍。
+  const editorNoteIds = new Set((editorLine?.tastings ?? []).map((t) => t.id));
   const publicTimeline = tastingNotes
+    .filter((n) => !editorNoteIds.has(n.id))
     .map((n) => {
       if (canViewFullArchive) {
         return {
@@ -358,13 +367,28 @@ export default async function TeaDetailPage({ params }: PageProps) {
       </div>
       )}
 
-      {/* P2-R2 转化档案 — 历年品鉴公开摘要时间线（非 admin 可见） */}
+      {/* 站长线（PRD §5 Phase 1）— 站长一手品鉴时间轴 + 来源声明 */}
+      {editorLine && (
+        <EditorLineView
+          tastings={editorLine.tastings.map((t) => ({
+            ...t,
+            // 摘要同属受保护内容：非付费/非 admin 只能拿到截断版（P2-R22）
+            summary:
+              !canViewFullArchive && t.summary && t.summary.length > ARCHIVE_PREVIEW_LEN
+                ? `${t.summary.slice(0, ARCHIVE_PREVIEW_LEN)}……`
+                : t.summary,
+          }))}
+          statement={editorLine.statement}
+        />
+      )}
+
+      {/* P2-R2 转化档案 — 社区品鉴公开摘要时间线（非 admin 可见） */}
       {!isAdmin && publicTimeline.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg md:text-2xl font-serif font-bold text-stone-800 mb-1">
-            转化档案 · 历年品鉴 ({publicTimeline.length})
+            社区品鉴 · 历年记录 ({publicTimeline.length})
           </h2>
-          <p className="text-xs text-stone-400 mb-4">从第一次开汤到最近的品鉴摘要，跟踪这款茶的状态变化</p>
+          <p className="text-xs text-stone-400 mb-4">茶友们的品鉴摘要；站长的记录见上方「站长线」</p>
           <div className="relative border-l-2 border-amber-200 ml-2 space-y-4">
             {publicTimeline.map((n) => {
               const avg =
