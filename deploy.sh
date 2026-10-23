@@ -15,7 +15,8 @@ readonly SSH_BIN="${PUER_SSH_BIN:-ssh}"
 readonly SCP_BIN="${PUER_SCP_BIN:-scp}"
 
 readonly -a APP_CONTEXT=(
-  package.json package-lock.json tsconfig.json next.config.ts postcss.config.mjs
+  package.json package-lock.json tsconfig.json tsconfig.typecheck.json
+  next.config.ts postcss.config.mjs
   eslint.config.mjs components.json prisma prisma.config.ts public src Dockerfile
 )
 readonly -a WS_CONTEXT=(
