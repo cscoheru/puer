@@ -9,6 +9,7 @@ import SearchBar from "@/components/search-bar";
 import UserMenu from "@/components/user-menu";
 import { useLocale } from "@/i18n/context";
 import { twHref, localeSwitch } from "@/i18n/translations";
+import { can } from "@/lib/permissions";
 
 export default function Header() {
   const { data: session } = useSession();
@@ -44,7 +45,7 @@ export default function Header() {
   };
 
   // 茶记入口仅管理员可见(原 level>=2 与 /tasting 页面 role 判定不一致,统一为 admin)
-  const showLevelLinks = session?.user?.role === "admin";
+  const showLevelLinks = can(session?.user, "admin:access");
   const showUserLinks = !!session?.user;
 
   return (

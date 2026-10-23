@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { recomputeTeaStats } from "@/lib/tea-stats";
+import { can } from "@/lib/permissions";
 
 /** P2-R12 品鉴笔记「降级合并」：把某条笔记从当前茶品移动到另一茶品，
  *  作为目标茶品的一条品鉴日记。用于修正归档时合并不准确的情况。 */
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
 

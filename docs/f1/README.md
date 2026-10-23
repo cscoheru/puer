@@ -24,13 +24,17 @@ PRD v0.3 §5 Phase 1。目标：从**站长原始笔记**抽取 `stage` / `delta
 node --import tsx scripts/f1-extract.mjs --limit 20        # 看效果
 node --import tsx scripts/f1-extract.mjs --apply           # 写库
 
-# 2. 导出待修正清单（含每条当前值与来源）
-node --import tsx scripts/f1-corrections.mjs --export      # → docs/f1/corrections.tsv
-
-# 3. 改完回写（默认 dry-run）
-node --import tsx scripts/f1-corrections.mjs --import docs/f1/corrections.tsv
-node --import tsx scripts/f1-corrections.mjs --import docs/f1/corrections.tsv --commit
+# 2. 改值 —— 走后台界面，不需要脚本
+#    /admin/tasting-notes：就地改 / 导出 CSV / 导入 CSV
 ```
+
+**修正功能在后台界面里**（`/admin/tasting-notes`），站长自己就能用：
+- **就地改**：表格里改完点保存，单条或批量；
+- **导出 CSV** → 在 Excel 里改 → **导入 CSV** 导回。
+
+两种方式用同一套规则（`src/lib/tasting-corrections.ts`），接口是
+`/api/admin/tasting-notes`（GET 列表 / `?format=csv` 导出 / PUT 回写）。
+改过的字段在 `extractionMeta.basis` 里标成 `manual`。
 
 ## 修正表约定（最后 5 列）
 
@@ -38,7 +42,7 @@ node --import tsx scripts/f1-corrections.mjs --import docs/f1/corrections.tsv --
 |---|---|
 | 留空 | 不改 |
 | `-` | 清空该字段 |
-| 实值 | 改成这个值 |
+| 实值 | 改成这个值（stage/delta 接受中文或英文枚举） |
 
 - `stage`：上升期 / 巅峰期 / 适饮期 / 走下坡
 - `delta`：更好 / 差不多 / 更差

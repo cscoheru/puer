@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { recomputeTeaStats } from "@/lib/tea-stats";
+import { can } from "@/lib/permissions";
 
 /** P2-R12 品鉴笔记「升级独立」：把某条笔记从当前茶品拆出，独立为一个
  *  新茶品（该笔记成为新茶品的首篇品鉴日记）。新茶品 isClassic=false
  *  （归档待审，需管理员在经典审核台发布后才进入经典普洱区）。 */
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "admin") {
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
 
