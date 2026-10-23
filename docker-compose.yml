@@ -89,6 +89,11 @@ services:
       # `docker compose up -d app` 即可生效，不必重建镜像。
       FEATURE_ANTI_ABUSE_RATE_LIMIT: ${FEATURE_ANTI_ABUSE_RATE_LIMIT:-1}
       FEATURE_ANTI_ABUSE_PAGINATION_CAP: ${FEATURE_ANTI_ABUSE_PAGINATION_CAP:-1}
+      # F2 我的茶仓（PRD v0.3 §5 Phase 2）。**默认关**（0）—— 新功能先暗着发，
+      # 站长在 .env 里写 FEATURE_CELLAR=1 再 `docker compose up -d app` 即可开启，
+      # 不必重建镜像。关着时前台 /tea-cellar 404、接口 404、导航不出现；
+      # 后台审核队列不受门禁（前台关了但队列里还有待办时站长仍要能处理）。
+      FEATURE_CELLAR: ${FEATURE_CELLAR:-0}
     volumes:
       - ./uploads/forum:/app/public/uploads/forum
       - ./uploads/videos:/app/public/uploads/videos
