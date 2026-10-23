@@ -26,47 +26,35 @@ import {
   type Stage,
 } from "./vocab.ts";
 import { buildExtractionPrompt, PROMPT_VERSION } from "./prompt.ts";
+import {
+  callLLM,
+  glmTarget,
+  minimaxTarget,
+  type LLMTarget,
+} from "../llm-provider.ts";
 
 /**
- * 供应商链：按顺序尝试，配额类错误才降级到下一家。
+ * 供应商链：MiniMax 主力（配额错误原地重试）→ GLM。
  *
- * 2026-10-22 实测：MiniMax 的 Token Plan 用量打满（429/2056），
- * DeepSeek 与 GLM 正常。所以「一家挂了整条管线停摆」是不可接受的 ——
- * 回填 1600 条要跑很久，中途配额耗尽必须有后备。
+ * 2026-10-22 实测：MiniMax 的 Token Plan 会打满（429/2056），DeepSeek 直接
+ * 402 欠费，GLM 正常。所以默认链是 MiniMax → GLM；DeepSeek 只有在明确指定
+ * 时才用（它现在欠费，配额恢复了才有意义）。
+ *
+ * 重试由共享实现 `src/lib/llm-provider.ts` 负责，各管线不再各写一份 fetch。
  */
-interface ProviderSpec {
-  id: string;
-  env: string;
-  url: string;
-  model: string;
-  maxKey: "max_tokens" | "max_completion_tokens";
-  extra?: Record<string, unknown>;
-}
+const PROVIDERS = ["minimax", "glm"] as const;
 
-const PROVIDERS: ProviderSpec[] = [
-  {
-    id: "minimax",
-    env: "MINIMAX_API_KEY",
-    url: "https://api.minimax.cn/v1/chat/completions",
-    model: process.env.MINIMAX_MODEL || "MiniMax-M3",
-    maxKey: "max_completion_tokens",
-    extra: { thinking: { type: "disabled" } },
-  },
-  {
-    id: "deepseek",
-    env: "DEEPSEEK_API_KEY",
-    url: "https://api.deepseek.com/v1/chat/completions",
-    model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-    maxKey: "max_tokens",
-  },
-  {
-    id: "glm",
-    env: "GLM_API_KEY",
-    url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    model: process.env.GLM_MODEL || "glm-4-flash",
-    maxKey: "max_tokens",
-  },
-];
+/**
+ * DeepSeek：默认不参与，但保留定义以便配额恢复后显式启用。
+ * 2026-10-22 实测 402 Insufficient Balance。
+ */
+const DEEPSEEK_TARGET = {
+  id: "deepseek",
+  url: "https://api.deepseek.com/v1/chat/completions",
+  model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+  maxKey: "max_tokens" as const,
+  apiKey: process.env.DEEPSEEK_API_KEY,
+};
 
 const LLM_TIMEOUT_MS = 45_000;
 
@@ -348,60 +336,22 @@ async function callWithFallback(
   prompt: string,
   only?: string[],
 ): Promise<LLMReply> {
-  const failures: string[] = [];
-  const chain = only?.length
-    ? PROVIDERS.filter((p) => only.includes(p.id))
-    : PROVIDERS;
+  const chain = only?.length ? only : [...PROVIDERS];
+  const fallbacks: LLMTarget[] = [];
 
-  for (const p of chain) {
-    const apiKey = process.env[p.env];
-    if (!apiKey) {
-      failures.push(`${p.id}:未配置 ${p.env}`);
-      continue;
-    }
-    try {
-      const raw = await callProvider(prompt, p, apiKey);
-      return { raw, model: p.model, source: p.id };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // 只有「配额/限流」类错误才换下一家；鉴权错误、格式错误都应当立刻暴露，
-      // 否则会拿着错 key 挨个供应商试一遍，把真正的问题埋掉。
-      const retriable = /429|402|2056|quota|exceed|insufficient|rate.?limit/i.test(msg);
-      if (!retriable) throw e;
-      failures.push(`${p.id}:${msg.slice(0, 60)}`);
-    }
-  }
+  if (chain.includes("glm")) fallbacks.push(glmTarget());
+  if (chain.includes("deepseek")) fallbacks.push(DEEPSEEK_TARGET);
 
-  throw new Error(`所有 LLM 供应商都不可用 → ${failures.join(" | ")}`);
-}
-
-async function callProvider(
-  prompt: string,
-  p: ProviderSpec,
-  apiKey: string,
-): Promise<unknown> {
-  const res = await fetch(p.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: p.model,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      [p.maxKey]: 600,
-      response_format: { type: "json_object" },
-      ...(p.extra ?? {}),
-    }),
-    signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+  const res = await callLLM(minimaxTarget(), prompt, {
+    maxTokens: 600,
+    timeoutMs: LLM_TIMEOUT_MS,
+    // 配额类错误原地重试：配额会恢复，换模型只会让同一个数据集混进两种判断。
+    retries: 2,
+    backoffMs: [2000, 8000],
+    fallbacks,
   });
-  if (!res.ok) {
-    const err = await res.text().catch(() => "");
-    throw new Error(`LLM ${res.status}: ${err.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  return parseContent(data);
+
+  return { raw: res.content, model: res.model, source: res.source };
 }
 
 function parseContent(data: unknown): unknown {

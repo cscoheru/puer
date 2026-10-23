@@ -61,6 +61,11 @@ const PROVIDER_ONLY = (arg("provider-only", "") || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+/** 只处理这些 id（逗号分隔）。用于重试某一批失败的笔记。 */
+const ONLY_IDS = (arg("ids", "") || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -156,6 +161,9 @@ async function main() {
     }
     log(`作者：uid=${author.uid} ${author.nickname || author.username}`);
 
+    // 注意：Prisma 会把 JS 数组序列化成 jsonb，`= ANY($n::text[])` 匹配不到
+    // （静默返回 0 行）。所以传逗号串，在 SQL 里用 string_to_array 拆开。
+    const idFilter = ONLY_IDS.length ? `AND id = ANY(string_to_array($4, ',')::text[])` : "";
     const selectSql = `
       SELECT id, title, content, "createdAt",
              stage, "deltaVsPrev", grams, vessel, descriptors, "extractionMeta"
@@ -163,22 +171,28 @@ async function main() {
       WHERE "authorId" = $1
         AND source <> 'article'
         AND ($2::boolean OR "extractionMeta" IS NULL)
+        ${idFilter}
       ORDER BY "createdAt" ASC
       LIMIT $3
     `;
     const notes = await prisma.$queryRawUnsafe(
       selectSql,
       author.id,
-      FORCE,
+      FORCE || ONLY_IDS.length > 0,
       SAMPLE > 0 ? SAMPLE : LIMIT,
+      ...(ONLY_IDS.length ? [ONLY_IDS.join(",")] : []),
     );
 
+    // 计数的占位符与 select 不同（没有 LIMIT），单独写一份
+    const countIdFilter = ONLY_IDS.length ? `AND id = ANY(string_to_array($3, ',')::text[])` : "";
     const countRows = await prisma.$queryRawUnsafe(
       `SELECT count(*)::int AS c FROM tasting_notes
         WHERE "authorId" = $1 AND source <> 'article'
-          AND ($2::boolean OR "extractionMeta" IS NULL)`,
+          AND ($2::boolean OR "extractionMeta" IS NULL)
+          ${countIdFilter}`,
       author.id,
-      FORCE,
+      FORCE || ONLY_IDS.length > 0,
+      ...(ONLY_IDS.length ? [ONLY_IDS.join(",")] : []),
     );
     const total = countRows?.[0]?.c ?? 0;
     log(`待处理：${total} 条（已有抽取结果的会被跳过${FORCE ? "，但 --force 已开" : ""}）`);

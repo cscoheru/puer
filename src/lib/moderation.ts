@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import {
+  callLLM,
+  minimaxTarget,
+  ollamaTarget,
+} from "@/lib/llm-provider";
 
 /**
  * 内容审核:本地敏感词 → AI(MiniMax)→ 故障转人工 三层闸。
@@ -23,8 +28,6 @@ export interface ModResult {
 
 const AI_TIMEOUT_MS = 8000;
 const PUBLISH_CONFIDENCE = 0.7;
-const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
-const MINIMAX_MODEL = "MiniMax-M3";
 // lilith tailnet LLM fallback: MiniMax quota 打满时切本地 GPU
 const LILITH_URL = process.env.LILITH_LLM_URL || "http://lilith:11434/v1/chat/completions";
 const LILITH_MODEL = process.env.LILITH_LLM_MODEL || "qwen2.5:7b";
@@ -124,11 +127,14 @@ export async function screenContent(text: string): Promise<ModResult> {
   }
 }
 
-// ─── AI 调用(MiniMax 优先, lilith tailnet LLM 兜底) ──────────────────────────
+// ─── AI 调用(MiniMax 主力 + 重试, lilith tailnet LLM 最后兜底) ───────────────
 // MiniMax-M3 默认开 adaptive thinking(先思考再答),审核链路低延迟,
-// 显式 disabled 让其直接输出 JSON;response_format json_object 若网关
-// 不识别会忽略,prompt 已强约束只返回 JSON,解析失败由上层 catch 兜底。
-// Ollama (lilith) 用 max_tokens 而非 max_completion_tokens,无需 Authorization。
+// 显式 disabled 让其直接输出 JSON。调用参数统一在 src/lib/llm-provider.ts,
+// 各管线不再各写一份 fetch(R25 半切换事故的根因)。
+//
+// 兜底顺序:MiniMax(配额错误原地重试) → lilith tailnet。
+// 2026-10-22 实测 MiniMax 配额会打满(429/2056),重试比换模型划算,
+// 也避免同一天不同审核结果来自不同模型。
 async function classifyByAI(
   text: string
 ): Promise<{ category: string; confidence: number; reason: string }> {
@@ -145,67 +151,17 @@ ${text.slice(0, 4000)}
 
 只返回 JSON,不要任何解释:{"category":"normal|adult|gambling|drug|political|investment","confidence":0到1的小数,"reason":"不超过30字的中文理由"}`;
 
-  // 1. MiniMax 优先
-  try {
-    return await callLLM(prompt, MINIMAX_URL, MINIMAX_MODEL, {
-      apiKey: process.env.MINIMAX_API_KEY,
-      maxTokensKey: "max_completion_tokens",
-      thinkingDisabled: true,
-      timeoutMs: AI_TIMEOUT_MS,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "";
-    // 只对配额/限流类错误 fallback 到 lilith;网络错误直接 fail-closed
-    const isQuotaError = /429|402|2056|quota|exceed|insufficient/i.test(msg);
-    if (!isQuotaError) throw e;
-    // 2. lilith tailnet LLM 兜底
-    return await callLLM(prompt, LILITH_URL, LILITH_MODEL, {
-      maxTokensKey: "max_tokens",
-      timeoutMs: LILITH_TIMEOUT_MS,
-    });
-  }
-}
-
-interface LLMCallOpts {
-  apiKey?: string;
-  maxTokensKey: "max_tokens" | "max_completion_tokens";
-  thinkingDisabled?: boolean;
-  timeoutMs: number;
-}
-
-async function callLLM(
-  prompt: string,
-  url: string,
-  model: string,
-  opts: LLMCallOpts
-): Promise<{ category: string; confidence: number; reason: string }> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
-
-  const body: Record<string, unknown> = {
-    model,
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0,
-    [opts.maxTokensKey]: 200,
-    response_format: { type: "json_object" },
-  };
-  if (opts.thinkingDisabled) body.thinking = { type: "disabled" };
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(opts.timeoutMs),
+  const res = await callLLM(minimaxTarget(), prompt, {
+    maxTokens: 200,
+    timeoutMs: AI_TIMEOUT_MS,
+    retries: 2,
+    backoffMs: [1500, 5000],
+    fallbacks: [
+      ollamaTarget("lilith", LILITH_URL, LILITH_MODEL),
+    ],
   });
 
-  if (!res.ok) {
-    const err = await res.text().catch(() => "");
-    throw new Error(`LLM ${res.status}: ${err.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  const content: string = data?.choices?.[0]?.message?.content || "{}";
-  const parsed = JSON.parse(content);
+  const parsed = (res.content ?? {}) as Record<string, unknown>;
   const confidence = Number(parsed.confidence);
   return {
     category: typeof parsed.category === "string" ? parsed.category : "normal",
