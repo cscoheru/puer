@@ -35,9 +35,10 @@
  */
 
 import { PrismaClient } from "../src/generated/prisma/client.js";
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { callLLM, minimaxTarget, glmTarget } from "../src/lib/llm-provider.ts";
+import { DIM_LABELS as APP_DIM_LABELS } from "../src/lib/cellar.ts";
 import { editorAuthorUids } from "../src/lib/editor-line.ts";
 
 function arg(name, fallback) {
@@ -65,13 +66,9 @@ function ageBracket(year) {
   return "aged";
 }
 
-const DIM_LABELS = {
-  aroma: "香气",
-  flavor: "滋味",
-  waterPath: "水路",
-  bodyFeel: "体感",
-  any: "通用",
-};
+// 四维标签与站内共用一份（src/lib/cellar.ts）—— 维度改名不会让词库与界面脱节。
+// 「通用」是本脚本额外加的第五个归类（不属于任何单一维度）。
+const DIM_LABELS = { ...APP_DIM_LABELS, any: "通用" };
 
 function esc(v) {
   const s = v == null ? "" : String(v);
@@ -90,7 +87,13 @@ async function collect() {
     },
   });
 
-  /** tag → { count, raw, ripe, brackets{} } */
+  /**
+   * tag → { total, cats: { raw: {count, brackets}, ripe: {count, brackets} } }
+   *
+   * **按生熟分开统计**：同一个词在生普与熟普里的年份分布常常完全不同
+   * （比如「烟香」多见于老生普，「堆味」多见于新熟普）。年份段必须按
+   * 生熟各算各的 —— 用合并后的分布会给其中一个生熟写上错的年份段。
+   */
   const map = new Map();
   for (const n of notes) {
     const list = Array.isArray(n.descriptors)
@@ -103,18 +106,19 @@ async function collect() {
       if (!tag || tag.length > 20) continue;
       let e = map.get(tag);
       if (!e) {
-        e = { count: 0, raw: 0, ripe: 0, brackets: {} };
+        e = { total: 0, cats: { raw: { count: 0, brackets: {} }, ripe: { count: 0, brackets: {} } } };
         map.set(tag, e);
       }
-      e.count++;
-      e[cat]++;
-      e.brackets[bracket] = (e.brackets[bracket] ?? 0) + 1;
+      e.total++;
+      const c = e.cats[cat];
+      c.count++;
+      c.brackets[bracket] = (c.brackets[bracket] ?? 0) + 1;
     }
   }
 
   const kept = [...map.entries()]
-    .filter(([, e]) => e.count >= MIN_COUNT)
-    .sort((a, b) => b[1].count - a[1].count)
+    .filter(([, e]) => e.total >= MIN_COUNT)
+    .sort((a, b) => b[1].total - a[1].total)
     .slice(0, LIMIT);
 
   return { totalNotes: notes.length, totalWords: map.size, kept };
@@ -219,6 +223,8 @@ async function main() {
       [r.tag, r.category, r.ageBracket, r.dim, r.count].map(esc).join(","),
     ),
   ].join("\n");
+  // 目录可能不存在（服务器上 docs/f1/ 就没建）—— 自己建，别指望调用方先建。
+  mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, `﻿${csv}\n`, "utf8");
   console.log(`\n分类报告已写：${OUT}（给站长核对用）`);
 

@@ -104,6 +104,10 @@ export default function CellarDataControls() {
             <span className="text-red-600">此操作不可撤销。</span>
             账号本身与你在社区发的帖子不受影响。
           </p>
+          <p className="text-xs text-stone-400 mb-2">
+            你提交过的「自建茶品申请」会保留茶品名、品牌、年份与生熟
+            （那是社区收录这款茶需要的），但你写的备注会被清空。
+          </p>
           <div className="flex gap-2 flex-wrap items-center">
             <input
               value={confirmText}

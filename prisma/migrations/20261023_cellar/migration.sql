@@ -21,6 +21,13 @@
 
 -- ─── 1. users：社区带同意开关（Phase 3 用，本次只建字段不做聚合）────────
 
+-- 锁超时：ALTER TABLE users 要拿 ACCESS EXCLUSIVE 锁。没有 lock_timeout
+-- 时，它会排在任何已持有 users 锁的长事务后面 —— 而**后面每一个查 users
+-- 的查询**（也就是旧镜像的每一次登录与会话查找）都排在 ALTER 后面。
+-- 这正是「迁移必须能在旧镜像还在跑的时候执行」要排除的情况。
+-- 3 秒拿不到锁就失败退出，等一会儿重跑即可（脚本幂等）。
+SET lock_timeout = '3s';
+
 ALTER TABLE "users"
   ADD COLUMN IF NOT EXISTS "shareAggregate" BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS "shareConsentedAt" TIMESTAMP(3);
@@ -45,6 +52,14 @@ CREATE TABLE IF NOT EXISTS "cellar_items" (
 
 CREATE INDEX IF NOT EXISTS "cellar_items_userId_idx" ON "cellar_items" ("userId");
 CREATE INDEX IF NOT EXISTS "cellar_items_teaId_idx"  ON "cellar_items" ("teaId");
+-- 审核通过时按 teaRequestId 批量回填 teaId（cellar-data.ts 的 reviewTeaRequest）。
+-- Postgres **不会**给外键列自动建索引（MySQL 会）—— 缺了它就是全表扫。
+CREATE INDEX IF NOT EXISTS "cellar_items_teaRequestId_idx"
+  ON "cellar_items" ("teaRequestId");
+-- 列表查询：where userId + order by updatedAt desc, id desc。合在一起才能
+-- 一次索引扫描出有序结果，否则每次列表都要额外排一次序。
+CREATE INDEX IF NOT EXISTS "cellar_items_userId_updatedAt_id_idx"
+  ON "cellar_items" ("userId", "updatedAt" DESC, "id" DESC);
 
 DO $$
 BEGIN
@@ -172,6 +187,10 @@ CREATE TABLE IF NOT EXISTS "tea_requests" (
 CREATE INDEX IF NOT EXISTS "tea_requests_status_createdAt_idx"
   ON "tea_requests" ("status", "createdAt");
 CREATE INDEX IF NOT EXISTS "tea_requests_userId_idx" ON "tea_requests" ("userId");
+-- 后台列表不带 status 过滤时按 createdAt 排序用（status 复合索引的前导列
+-- 是 status，不带过滤就用不上）。
+CREATE INDEX IF NOT EXISTS "tea_requests_createdAt_idx"
+  ON "tea_requests" ("createdAt" DESC);
 
 DO $$
 BEGIN
@@ -217,6 +236,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'descriptor_vocab_ageBracket_check') THEN
     ALTER TABLE "descriptor_vocab" ADD CONSTRAINT "descriptor_vocab_ageBracket_check"
       CHECK ("ageBracket" IS NULL OR "ageBracket" IN ('young', 'mid', 'aged', 'any'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'descriptor_vocab_source_check') THEN
+    ALTER TABLE "descriptor_vocab" ADD CONSTRAINT "descriptor_vocab_source_check"
+      CHECK ("source" IN ('seed', 'llm', 'editor'));
   END IF;
 END $$;
 

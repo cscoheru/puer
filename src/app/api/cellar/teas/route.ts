@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import {
   cellarDisabledResponse,
   cellarEnabled,
   cellarRateLimit,
   resolveCellarActor,
 } from "@/lib/cellar-api";
+import { searchCellarTeas } from "@/lib/cellar-data";
 
 export const dynamic = "force-dynamic";
 
@@ -37,27 +37,7 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get("q") || "").trim();
   if (!q) return NextResponse.json({ teas: [] });
 
-  const teas = await prisma.tea.findMany({
-    where: {
-      deletedAt: null,
-      OR: [
-        { name: { contains: q, mode: "insensitive" } },
-        { brand: { contains: q, mode: "insensitive" } },
-        { aliases: { has: q } },
-      ],
-    },
-    // 经典优先，其次按品鉴笔记数（被品得多的通常是用户真正会买的）。
-    orderBy: [{ isClassic: "desc" }, { tastingNoteCount: "desc" }],
-    take: 20,
-    select: {
-      id: true,
-      name: true,
-      brand: true,
-      year: true,
-      type: true,
-      isClassic: true,
-    },
-  });
+  const teas = await searchCellarTeas(q);
 
   return NextResponse.json({ teas });
 }

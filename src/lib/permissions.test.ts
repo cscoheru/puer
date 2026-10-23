@@ -134,3 +134,34 @@ test("checkRoleChange：非法角色名直接拒绝", () => {
   assert.equal(r.ok, false);
   assert.match(r.ok === false ? r.error : "", /角色无效/);
 });
+
+// ── cellar:manage（PRD v0.3 §5 Phase 2）────────────────────────────────
+//
+// 代录 = 帮别的用户写他**私有的**茶仓条目。这是全站权限最重的一个动作，
+// 所以每个角色的判定都要钉死 —— 将来改矩阵时漏掉一行，就是越权。
+
+test("cellar:manage 只给管理员（代录写的是别人的私有数据）", () => {
+  assert.equal(can({ id: "u1", role: "user" }, "cellar:manage"), false);
+  assert.equal(can({ id: "u1", role: "editor" }, "cellar:manage"), false);
+  assert.equal(can({ id: "u1", role: "moderator" }, "cellar:manage"), false);
+  assert.equal(can({ id: "u1", role: "system" }, "cellar:manage"), false);
+  assert.equal(can({ id: "a1", role: "admin" }, "cellar:manage"), true);
+});
+
+test("cellar:manage：合成账号即使是 admin 也不给", () => {
+  assert.equal(
+    can({ id: "a1", role: "admin", isSynthetic: true }, "cellar:manage"),
+    false,
+  );
+});
+
+test("cellar:manage 不在任何非管理员角色的动作表里", () => {
+  for (const role of ["user", "editor", "moderator", "system"] as const) {
+    assert.equal(
+      actionsForRole(role).includes("cellar:manage"),
+      false,
+      `${role} 不该有 cellar:manage`,
+    );
+  }
+  assert.equal(actionsForRole("admin").includes("cellar:manage"), true);
+});

@@ -2,15 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import EditorLineView from "@/components/tea/editor-line";
 import QuickTastingForm from "@/components/cellar/quick-tasting-form";
-import {
-  DELTA_LABELS,
-  STAGE_LABELS,
-  overallScore,
-  storageBandLabel,
-  STORAGE_ANCHORS,
-} from "@/lib/cellar";
+import { overallScore, storageBandLabel } from "@/lib/cellar";
+import { DELTA_LABELS, STAGE_LABELS } from "@/lib/tasting-extract/vocab";
+import StorageAnchorPicker from "@/components/cellar/storage-anchor-picker";
 import type { EditorLine } from "@/lib/editor-line";
 
 /**
@@ -70,9 +67,11 @@ export default function CellarDetail({
   item: ItemData;
   editorLine: EditorLine | null;
 }) {
+  const router = useRouter();
   const [item, setItem] = useState(initialItem);
   const [vocab, setVocab] = useState<string[]>([]);
   const [showStorage, setShowStorage] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
@@ -85,21 +84,39 @@ export default function CellarDetail({
     }
   }, [initialItem.id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // **不**在挂载时 load()：服务端组件已经把条目取好传进来了（useState 的
+  // 初值），挂载再取一遍就是同一份数据取两次 —— 4 条 SQL 跑两遍。
+  // load() 只在写操作之后调用（记完品鉴、换完仓）。
 
   // 描述词库：按这款茶的生熟取；取不到就空着（点选是可选功能）。
   useEffect(() => {
     const cat = item.tea?.type === "ripe" ? "ripe" : "raw";
     fetch(`/api/cellar/vocab?category=${cat}`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : { entries: [] }))
       .then((d) => {
         const entries = Array.isArray(d.entries) ? d.entries : [];
         setVocab(entries.map((e: { tag: string }) => e.tag));
       })
       .catch(() => setVocab([]));
   }, [item.tea?.type]);
+
+  // 删条目：不可撤销，且会连带删掉全部品鉴记录 —— 所以要确认两次。
+  const remove = async () => {
+    if (
+      !confirm(
+        "删除这个条目？\n它的全部品鉴记录与仓储记录会一起删掉，不可撤销。",
+      )
+    ) {
+      return;
+    }
+    const res = await fetch(`/api/cellar/${item.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(data.error || "删除失败");
+      return;
+    }
+    router.push("/tea-cellar");
+  };
 
   const last = item.tastings[item.tastings.length - 1] ?? null;
   const currentEpoch = item.epochs[item.epochs.length - 1] ?? null;
@@ -221,6 +238,46 @@ export default function CellarDetail({
                   load();
                 }}
               />
+            )}
+          </section>
+
+          {/* 条目信息：改 / 删 */}
+          <section className="bg-white border border-stone-200 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-stone-800">条目信息</h2>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowEdit((v) => !v)}
+                  className="text-xs text-stone-500 hover:text-amber-700 transition"
+                >
+                  {showEdit ? "收起" : "编辑"}
+                </button>
+                <button
+                  onClick={remove}
+                  className="text-xs text-red-600 hover:underline transition"
+                >
+                  删除这个条目
+                </button>
+              </div>
+            </div>
+
+            {showEdit ? (
+              <EditItemForm
+                item={item}
+                onSaved={(msg) => {
+                  setMessage(msg);
+                  setShowEdit(false);
+                  load();
+                }}
+              />
+            ) : (
+              <div className="text-xs text-stone-400 space-y-1">
+                <p>提醒间隔：每 {item.remindEveryMonths} 个月</p>
+                {item.qtyNote && <p>备注：{item.qtyNote}</p>}
+                {item.acquiredAt && (
+                  <p>入仓：{item.acquiredAt.slice(0, 10)}</p>
+                )}
+              </div>
             )}
           </section>
 
@@ -405,22 +462,7 @@ function StorageForm({
       <p className="text-xs text-stone-500 mb-2">
         {currentScore != null ? "换仓（新增一段仓储期，旧的保留）" : "登记仓储"}
       </p>
-      <div className="flex gap-2 flex-wrap mb-2">
-        {STORAGE_ANCHORS.map((a) => (
-          <button
-            key={a.score}
-            onClick={() => setScore(score === a.score ? null : a.score)}
-            title={a.desc}
-            className={`px-2.5 py-1.5 text-xs rounded-lg border transition ${
-              score === a.score
-                ? "border-amber-600 bg-amber-50 text-amber-800 font-medium"
-                : "border-stone-200 text-stone-600 hover:border-amber-300"
-            }`}
-          >
-            {a.score} {a.label}
-          </button>
-        ))}
-      </div>
+      <StorageAnchorPicker value={score} onChange={setScore} className="mb-2" />
       <div className="grid grid-cols-2 gap-3">
         <input
           value={city}
@@ -440,6 +482,106 @@ function StorageForm({
         onClick={submit}
         disabled={busy}
         className="w-full mt-3 py-2 text-sm bg-amber-700 text-white rounded-lg hover:bg-amber-800 transition disabled:opacity-40"
+      >
+        {busy ? "保存中…" : "保存"}
+      </button>
+    </div>
+  );
+}
+
+/** 改条目：名字、入仓时间、备注、提醒间隔。 */
+function EditItemForm({
+  item,
+  onSaved,
+}: {
+  item: ItemData;
+  onSaved: (message: string) => void;
+}) {
+  const [name, setName] = useState(item.name ?? "");
+  const [qtyNote, setQtyNote] = useState(item.qtyNote ?? "");
+  const [acquiredAt, setAcquiredAt] = useState(
+    item.acquiredAt ? item.acquiredAt.slice(0, 10) : "",
+  );
+  const [remindEveryMonths, setRemindEveryMonths] = useState(
+    item.remindEveryMonths,
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/cellar/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim() || null,
+          qtyNote: qtyNote.trim() || null,
+          acquiredAt: acquiredAt
+            ? new Date(`${acquiredAt}T00:00:00.000Z`).toISOString()
+            : null,
+          remindEveryMonths,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "保存失败");
+        return;
+      }
+      onSaved("已保存");
+    } catch {
+      setError("保存失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm">
+        <span className="text-xs text-stone-500">名称（自建茶用）</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full mt-1 px-3 py-2 border border-stone-300 rounded-lg text-sm"
+        />
+      </label>
+      <label className="block text-sm">
+        <span className="text-xs text-stone-500">备注（如「还剩半饼」）</span>
+        <input
+          value={qtyNote}
+          onChange={(e) => setQtyNote(e.target.value)}
+          className="w-full mt-1 px-3 py-2 border border-stone-300 rounded-lg text-sm"
+        />
+      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm">
+          <span className="text-xs text-stone-500">入仓日期</span>
+          <input
+            type="date"
+            value={acquiredAt}
+            onChange={(e) => setAcquiredAt(e.target.value)}
+            className="w-full mt-1 px-3 py-2 border border-stone-300 rounded-lg text-sm"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-xs text-stone-500">提醒间隔（月）</span>
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={remindEveryMonths}
+            onChange={(e) => setRemindEveryMonths(Number(e.target.value))}
+            className="w-full mt-1 px-3 py-2 border border-stone-300 rounded-lg text-sm"
+          />
+        </label>
+      </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <button
+        onClick={submit}
+        disabled={busy}
+        className="px-4 py-2 text-sm bg-amber-700 text-white rounded-lg hover:bg-amber-800 disabled:opacity-40"
       >
         {busy ? "保存中…" : "保存"}
       </button>

@@ -1040,6 +1040,12 @@ model CellarItem {
 
   @@index([userId])
   @@index([teaId])
+  // 审核通过时按 teaRequestId 批量回填 teaId（见 cellar-data.ts 的
+  // reviewTeaRequest）。Postgres 不会自动给外键列建索引 —— 缺了它就是全表扫。
+  @@index([teaRequestId])
+  // 列表查询：where userId + order by updatedAt desc, id desc。合在一起才能
+  // 一次索引扫描出有序结果，否则每次列表都要额外排一次序。
+  @@index([userId, updatedAt(sort: Desc), id(sort: Desc)])
   @@map("cellar_items")
 }
 
@@ -1126,6 +1132,7 @@ model TeaRequest {
   updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
+  @@index([createdAt(sort: Desc)])
   @@index([userId])
   @@map("tea_requests")
 }

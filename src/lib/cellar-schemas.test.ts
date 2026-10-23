@@ -130,12 +130,40 @@ test("品鉴：耗时秒数不能为负", () => {
 });
 
 test("品鉴：图片最多 9 张", () => {
+  const img = "https://puer.im/uploads/forum/a.jpg";
   assert.equal(
-    addTastingSchema.safeParse({ images: Array(9).fill("https://x.test/a.jpg") }).success,
+    addTastingSchema.safeParse({ images: Array(9).fill(img) }).success,
     true,
   );
   assert.equal(
-    addTastingSchema.safeParse({ images: Array(10).fill("https://x.test/a.jpg") }).success,
+    addTastingSchema.safeParse({ images: Array(10).fill(img) }).success,
+    false,
+  );
+});
+
+test("品鉴：图片只收站内上传的地址（外站地址一律拒）", () => {
+  // 站里的图片落地在 /uploads/ 下。外站地址不该进一条声称「仅自己可见」
+  // 的记录里 —— 那等于把别人的图片地址存进自己的私有数据。
+  assert.equal(
+    addTastingSchema.safeParse({ images: ["https://evil.test/x.jpg"] }).success,
+    false,
+  );
+  assert.equal(
+    addTastingSchema.safeParse({ images: ["https://puer.im/uploads/tea/a.jpg"] })
+      .success,
+    true,
+  );
+  assert.equal(
+    addTastingSchema.safeParse({ images: ["javascript:alert(1)"] }).success,
+    false,
+  );
+});
+
+test("品鉴：visibility 不由 API 决定（社区带的同意只有一个开关）", () => {
+  // 记录级的 visibility 是第二条同意通道 —— 照它实现就会绕过账号级的
+  // share_aggregate 同意，把单条记录发出去。所以 API 层不收它。
+  assert.equal(
+    addTastingSchema.safeParse({ visibility: "shared" }).success,
     false,
   );
 });

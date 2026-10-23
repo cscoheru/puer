@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import StorageAnchorPicker from "@/components/cellar/storage-anchor-picker";
+import { useTeaSearch } from "@/components/cellar/use-tea-search";
+import type { TeaOption } from "@/components/cellar/use-tea-search";
 
 /**
  * 茶仓后台（PRD v0.3 §5 Phase 2）。
@@ -29,19 +32,10 @@ interface RequestRow {
   cellarItemCount: number;
 }
 
-interface TeaOption {
-  id: string;
-  name: string;
-  brand: string | null;
-  year: number | null;
-  type: string | null;
-}
-
 interface UserRow {
   id: string;
   uid: number | null;
   username: string;
-  nickname: string | null;
   level: number;
   isSynthetic: boolean;
 }
@@ -93,18 +87,29 @@ function RequestsTab() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("pending");
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   // 正在并入哪一条
   const [merging, setMerging] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [teas, setTeas] = useState<TeaOption[]>([]);
   const [picked, setPicked] = useState<TeaOption | null>(null);
+  // 选茶搜索（去抖 + 拉取）与用户侧共用同一个 hook。
+  const { q, setQ, teas, searching, error: searchError } = useTeaSearch(
+    "/api/admin/cellar/teas",
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/cellar/requests?status=${status}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // 403（没有 cellar:manage）不能显示成「没有符合条件的申请」——
+        // 那是把权限问题说成了队列为空。
+        setError(data.error || "加载失败");
+        setRows([]);
+        return;
+      }
+      setError("");
       setRows(Array.isArray(data.rows) ? data.rows : []);
     } catch {
       setRows([]);
@@ -117,26 +122,6 @@ function RequestsTab() {
     load();
   }, [load]);
 
-  // 搜「并入哪款茶」
-  useEffect(() => {
-    const term = q.trim();
-    if (!term) {
-      setTeas([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/admin/cellar/teas?q=${encodeURIComponent(term)}`,
-        );
-        const data = await res.json();
-        setTeas(Array.isArray(data.teas) ? data.teas : []);
-      } catch {
-        setTeas([]);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
 
   const review = async (
     id: string,
@@ -186,6 +171,11 @@ function RequestsTab() {
       {message && (
         <p className="mb-3 text-sm px-3 py-2 rounded bg-amber-50 text-amber-800 border border-amber-200">
           {message}
+        </p>
+      )}
+      {error && (
+        <p className="mb-3 text-sm px-3 py-2 rounded bg-red-50 text-red-700 border border-red-200">
+          {error}
         </p>
       )}
 
@@ -390,9 +380,7 @@ function ProxyTab() {
                 onClick={() => pick(u)}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 transition"
               >
-                <span className="text-stone-800">
-                  {u.nickname || u.username}
-                </span>
+                <span className="text-stone-800">{u.username}</span>
                 <span className="text-xs text-stone-400 ml-2">
                   {u.uid ? `UID ${u.uid} · ` : ""}Lv.{u.level}
                   {u.isSynthetic && " · 合成账号"}
@@ -407,7 +395,7 @@ function ProxyTab() {
         <div>
           <div className="flex items-center gap-3 mb-4">
             <h2 className="text-lg font-semibold text-stone-800">
-              {target.nickname || target.username} 的茶仓
+              {target.username} 的茶仓
             </h2>
             <button
               onClick={() => {
@@ -480,34 +468,16 @@ function ProxyAddForm({
   targetUserId: string;
   onDone: (message: string) => void;
 }) {
-  const [q, setQ] = useState("");
-  const [teas, setTeas] = useState<TeaOption[]>([]);
   const [picked, setPicked] = useState<TeaOption | null>(null);
+  const { q, setQ, teas, searching, error: searchError } = useTeaSearch(
+    "/api/admin/cellar/teas",
+  );
   const [score, setScore] = useState<number | null>(null);
   const [city, setCity] = useState("");
   const [container, setContainer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const term = q.trim();
-    if (!term) {
-      setTeas([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/admin/cellar/teas?q=${encodeURIComponent(term)}`,
-        );
-        const data = await res.json();
-        setTeas(Array.isArray(data.teas) ? data.teas : []);
-      } catch {
-        setTeas([]);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
 
   const submit = async () => {
     if (!picked) return;
@@ -576,20 +546,8 @@ function ProxyAddForm({
         </ul>
       )}
 
-      <div className="flex gap-2 flex-wrap mt-3">
-        {[45, 50, 55, 60].map((s) => (
-          <button
-            key={s}
-            onClick={() => setScore(score === s ? null : s)}
-            className={`px-2.5 py-1.5 text-xs rounded-lg border transition ${
-              score === s
-                ? "border-amber-600 bg-amber-50 text-amber-800 font-medium"
-                : "border-stone-200 text-stone-600 hover:border-amber-300"
-            }`}
-          >
-            {s}
-          </button>
-        ))}
+      <div className="flex gap-2 flex-wrap mt-3 items-center">
+        <StorageAnchorPicker value={score} onChange={setScore} />
         <input
           value={city}
           onChange={(e) => setCity(e.target.value)}

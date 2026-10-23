@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { parseCsv } from "./tasting-corrections.ts";
 import {
   CELLAR_EXPORT_CSV_HEADER,
   DIM_KEYS,
@@ -15,6 +16,7 @@ import {
   cellarExportCsv,
   cellarExportJson,
   cellarExportRows,
+  cellarCsvCell,
   type ExportItem,
 } from "./cellar.ts";
 
@@ -193,6 +195,16 @@ const sampleItems: ExportItem[] = [
       container: "紫砂罐",
       legacyStorageLabel: null,
     },
+    epochs: [
+      {
+        startsAt: "2026-01-02T00:00:00.000Z",
+        storageScore: 50,
+        assessedBy: "self",
+        city: "昆明",
+        container: "紫砂罐",
+        legacyStorageLabel: null,
+      },
+    ],
     tastings: [
       {
         id: "ct1",
@@ -218,6 +230,7 @@ const sampleItems: ExportItem[] = [
     qtyNote: null,
     remindEveryMonths: 6,
     currentStorage: null,
+    epochs: [],
     tastings: [],
   },
 ];
@@ -248,6 +261,81 @@ test("每一行的列数与表头一致（否则数据会错位）", () => {
   }
 });
 
+test("导出的 CSV 能被解析回来（备注里的逗号/引号/换行都不丢）", () => {
+  // 备注是自由文本（上限 5000 字），里面出现逗号、双引号、换行都完全正常。
+  // 这正是 toCsv 的转义存在的理由 —— 用生产解析器验一遍才算数。
+  const nasty = '他说"这饼很甜"，\n然后又改口';
+  const csv = cellarExportCsv([
+    {
+      ...sampleItems[0],
+      tastings: [{ ...sampleItems[0].tastings[0], note: nasty }],
+    },
+  ]);
+  const table = parseCsv(csv);
+  assert.equal(table.rows.length, 1, "一条品鉴 = 一行 CSV（备注里的换行不该多出行）");
+  assert.equal(table.rows[0]["品鉴备注"], nasty);
+  assert.equal(Object.keys(table.rows[0]).length, CELLAR_EXPORT_CSV_HEADER.length);
+});
+
+test("表头与数据列一一对应（改表头不会错位）", () => {
+  const row = cellarExportRows(sampleItems)[0];
+  const map = Object.fromEntries(
+    CELLAR_EXPORT_CSV_HEADER.map((h, i) => [h, row[i]]),
+  );
+  assert.equal(map["条目ID"], "ci1");
+  assert.equal(map["仓储评分"], 50);
+  assert.equal(map["仓储档"], "标准仓");
+  assert.equal(map["仓储评分人"], "self");
+  assert.equal(map["仓储期序号"], 1);
+  assert.equal(map["仓储期数"], 1);
+  assert.equal(map["品鉴ID"], "ct1");
+  assert.equal(map["综合"], 7);
+  assert.equal(map["描述词"], "蜜香,水路细");
+});
+
+test("换过仓的条目：每一段仓储期都出现在导出里（不能只留最新那段）", () => {
+  const item: ExportItem = {
+    ...sampleItems[0],
+    currentStorage: {
+      startsAt: "2026-06-01T00:00:00.000Z",
+      storageScore: 55,
+      assessedBy: "self",
+      city: "广州",
+      container: null,
+      legacyStorageLabel: null,
+    },
+    epochs: [
+      {
+        startsAt: "2026-01-02T00:00:00.000Z",
+        storageScore: 45,
+        assessedBy: "self",
+        city: "昆明",
+        container: "紫砂罐",
+        legacyStorageLabel: null,
+      },
+      {
+        startsAt: "2026-06-01T00:00:00.000Z",
+        storageScore: 55,
+        assessedBy: "self",
+        city: "广州",
+        container: null,
+        legacyStorageLabel: null,
+      },
+    ],
+  };
+  const table = parseCsv(cellarExportCsv([item]));
+  const scores = table.rows.map((r) => r["仓储评分"]);
+  assert.deepEqual(scores, ["45", "55"], "两段仓储期都要在");
+  assert.deepEqual(
+    table.rows.map((r) => r["仓储期序号"]),
+    ["1", "2"],
+  );
+  assert.deepEqual(
+    table.rows.map((r) => r["仓储期数"]),
+    ["2", "2"],
+  );
+});
+
 test("没有品鉴记录的条目也会出现在导出里（不能丢条目）", () => {
   const csv = cellarExportCsv(sampleItems);
   assert.match(csv, /ci2/);
@@ -268,4 +356,38 @@ test("导出 JSON 带版本号与条目", () => {
   assert.equal(j.version, 1);
   assert.equal(j.items.length, 2);
   assert.ok(j.exportedAt);
+});
+
+// ─── CSV 公式注入 ─────────────────────────────────────────────────────────
+
+test("CSV 单元格以 = + - @ 开头时加单引号（Excel 会当公式求值）", () => {
+  assert.equal(cellarCsvCell("=1+1"), "'=1+1");
+  assert.equal(cellarCsvCell("+SUM(A1)"), "'+SUM(A1)");
+  assert.equal(cellarCsvCell("-2+3"), "'-2+3");
+  assert.equal(cellarCsvCell("@cmd"), "'@cmd");
+  assert.equal(cellarCsvCell("  =1+1"), "'  =1+1", "前导空白也要挡（Excel 会跳过它）");
+});
+
+test("普通文本不受影响", () => {
+  assert.equal(cellarCsvCell("蜜香"), "蜜香");
+  assert.equal(cellarCsvCell("他说，这饼很甜"), "他说，这饼很甜");
+  assert.equal(cellarCsvCell(""), "");
+  assert.equal(cellarCsvCell(null), "");
+  assert.equal(cellarCsvCell(undefined), "");
+});
+
+test("导出的 CSV 里，恶意备注不会变成公式", () => {
+  const nasty = '=HYPERLINK("http://x","点我")';
+  const csv = cellarExportCsv([
+    {
+      ...sampleItems[0],
+      tastings: [{ ...sampleItems[0].tastings[0], note: nasty }],
+    },
+  ]);
+  // 解析回来看那一格：Excel 会把以 = 开头的文本当公式，
+  // 前面加的单引号让它变成纯文本。
+  const table = parseCsv(csv);
+  const cell = table.rows[0]["品鉴备注"];
+  assert.ok(cell.startsWith("'"), `单元格应以单引号开头，实际是 ${cell}`);
+  assert.equal(cell.slice(1), nasty, "内容本身不能被改");
 });

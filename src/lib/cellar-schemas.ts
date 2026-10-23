@@ -21,13 +21,18 @@
  */
 
 import { z } from "zod";
+// 相对路径：这个文件要被裸 `node --test` 直接跑（路径别名 @/ 解析不了）。
+// 阶段/对照的取值**只有一份** —— 在 F1 的词表里（src/lib/tasting-extract/vocab.ts），
+// DB 的 CHECK 约束是它的第三份镜像，改一处要三处一起改。
+import { DELTAS, STAGES } from "./tasting-extract/vocab.ts";
+import { STORAGE_SCORE_MAX, STORAGE_SCORE_MIN } from "./cellar.ts";
 
 /** 仓储评分：45–60 的整数（锚点 45/50/55/60，允许中间值）。 */
 export const storageScoreSchema = z
   .number()
   .int()
-  .min(45, "仓储评分不能低于 45")
-  .max(60, "仓储评分不能高于 60");
+  .min(STORAGE_SCORE_MIN, `仓储评分不能低于 ${STORAGE_SCORE_MIN}`)
+  .max(STORAGE_SCORE_MAX, `仓储评分不能高于 ${STORAGE_SCORE_MAX}`);
 
 /**
  * 四维评分：每维 1–10 的整数。
@@ -103,15 +108,42 @@ export const addStorageEpochSchema = z.strictObject({
 /** 记一条品鉴。 */
 export const addTastingSchema = z.strictObject({
   tastedAt: z.iso.datetime().optional(),
-  stage: z.enum(["ascending", "peak", "drinking", "declining"]).nullable().optional(),
-  deltaVsPrev: z.enum(["better", "same", "worse"]).nullable().optional(),
+  stage: z.enum(STAGES).nullable().optional(),
+  deltaVsPrev: z.enum(DELTAS).nullable().optional(),
   dims: dimsSchema.nullable().optional(),
   descriptors: z.array(z.string().min(1).max(40)).max(20).optional(),
   grams: z.number().min(1).max(100).nullable().optional(),
   vessel: z.string().max(40).nullable().optional(),
   note: z.string().max(5000).nullable().optional(),
-  images: z.array(z.string().max(500)).max(9).optional(),
-  visibility: z.enum(["private", "shared"]).optional(),
+  // 图片只收站内上传的地址：/api/upload 落地的是公开 URL（UUID 不可猜但
+  // 无访问控制），所以「私有的品鉴图片」这件事目前站里做不到。限制成
+  // 站内域名至少不会让人往记录里塞任意的第三方地址。
+  // ⚠️ 隐私政策里关于图片的措辞要与此处一致（见 privacy/page.tsx）。
+  images: z
+    .array(
+      z
+        .string()
+        .max(500)
+        .refine(
+          (v) => {
+            try {
+              const u = new URL(v, "https://puer.im");
+              return (
+                u.protocol === "https:" || u.protocol === "http:"
+              ) && u.pathname.startsWith("/uploads/");
+            } catch {
+              return false;
+            }
+          },
+          { message: "图片必须是站内上传的地址" },
+        ),
+    )
+    .max(9)
+    .optional(),
+  // ⚠️ 刻意**不**接受 "shared"：社区带的同意只有一个开关 ——
+  // 账号级的 share_aggregate / share_consented_at（见隐私政策 §7）。
+  // 记录级的 visibility 是第二条同意通道，将来照它实现就会绕过账号级
+  // 同意，把单条记录发出去。列在 DB 里留着给 Phase 3 按账号级同意来判定。
   elapsedSeconds: z.number().int().min(0).max(86400).nullable().optional(),
 });
 

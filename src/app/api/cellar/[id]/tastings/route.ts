@@ -7,7 +7,7 @@ import {
   resolveCellarActor,
 } from "@/lib/cellar-api";
 import { addTastingSchema, zodMessage } from "@/lib/cellar-schemas";
-import { addTasting, getCellarItem } from "@/lib/cellar-data";
+import { addTasting, listItemTastings } from "@/lib/cellar-data";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +52,6 @@ export async function POST(
     vessel: d.vessel ?? null,
     note: d.note ?? null,
     images: d.images ?? undefined,
-    visibility: d.visibility ?? "private",
     elapsedSeconds: d.elapsedSeconds ?? null,
   });
 
@@ -80,9 +79,10 @@ export async function GET(
   const limited = cellarRateLimit(req, actor!.ownerId, "read", actor!.isProxy);
   if (limited) return limited;
 
-  const item = await getCellarItem(actor!.ownerId, id);
-  if (!item) {
+  // 只查品鉴这一张表 —— 取整个条目详情要 4 条 SQL，其中 3 条的结果会被丢掉。
+  const tastings = await listItemTastings(actor!.ownerId, id);
+  if (!tastings) {
     return NextResponse.json({ error: "条目不存在" }, { status: 404 });
   }
-  return NextResponse.json({ tastings: item.tastings });
+  return NextResponse.json({ tastings });
 }

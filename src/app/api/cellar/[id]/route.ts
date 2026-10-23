@@ -3,6 +3,7 @@ import {
   cellarDisabledResponse,
   cellarEnabled,
   cellarRateLimit,
+  logCellarProxy,
   readJsonBody,
   resolveCellarActor,
 } from "@/lib/cellar-api";
@@ -36,6 +37,9 @@ export async function GET(
   const item = await getCellarItem(actor!.ownerId, id);
   if (!item) {
     return NextResponse.json({ error: "条目不存在" }, { status: 404 });
+  }
+  if (actor!.isProxy) {
+    logCellarProxy("read", actor!.actorId, actor!.ownerId, `item:${id}`);
   }
   return NextResponse.json(item);
 }

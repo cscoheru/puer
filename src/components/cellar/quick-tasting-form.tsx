@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DELTA_LABELS, STAGE_LABELS } from "@/lib/cellar";
-import type { Delta, Stage } from "@/lib/cellar";
+import { DELTA_LABELS, STAGE_LABELS } from "@/lib/tasting-extract/vocab";
+import { DELTAS, STAGES } from "@/lib/tasting-extract/vocab";
+import type { Delta, Stage } from "@/lib/tasting-extract/vocab";
+import { DIM_KEYS, DIM_LABELS, overallScore, parseDims } from "@/lib/cellar";
 
 /**
  * 快速品鉴（PRD v0.3 §5 Phase 2）。
@@ -28,15 +30,9 @@ import type { Delta, Stage } from "@/lib/cellar";
  * 而它是 Phase 2 的退出指标，必须真实采集。
  */
 
-const DELTAS: Delta[] = ["better", "same", "worse"];
-const STAGES: Stage[] = ["ascending", "peak", "drinking", "declining"];
-
-const DIM_FIELDS = [
-  { key: "aroma", label: "香气" },
-  { key: "flavor", label: "滋味" },
-  { key: "waterPath", label: "水路" },
-  { key: "bodyFeel", label: "体感" },
-] as const;
+// 四维的 key 与中文标签只有一份 —— 在 `src/lib/cellar.ts`（DIM_KEYS /
+// DIM_LABELS）。阶段/对照的取值也只有一份 —— 在 F1 的词表里。
+const DIM_FIELDS = DIM_KEYS.map((key) => ({ key, label: DIM_LABELS[key] }));
 
 export interface QuickTastingDefaults {
   grams: number | null;
@@ -68,7 +64,10 @@ export default function QuickTastingForm({
   const [error, setError] = useState("");
 
   // 可选项
+  // 四维的输入值。写进 state 的是**已校验**的整数 —— 服务端的 zod 会把
+  // 越界/小数的整条请求打回 400，那样连合法的阶段、备注都存不进去。
   const [dims, setDims] = useState<Record<string, number>>({});
+  const [dimsError, setDimsError] = useState("");
   const [descriptors, setDescriptors] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [grams, setGrams] = useState<string>(
@@ -97,10 +96,23 @@ export default function QuickTastingForm({
     try {
       const payload: Record<string, unknown> = {
         stage,
-        elapsedSeconds: Math.round((Date.now() - startedAt.current) / 1000),
+        // 夹到服务端的上限：页面开久了（>24h）再记一条，原始值会被 400 打回，
+        // 白白丢掉那一次品鉴。
+        elapsedSeconds: Math.min(
+          86400,
+          Math.round((Date.now() - startedAt.current) / 1000),
+        ),
       };
       if (defaults.hasPrevious && delta) payload.deltaVsPrev = delta;
-      if (Object.keys(dims).length) payload.dims = dims;
+      if (Object.keys(dims).length) {
+        // 兜一遍：客户端已经拦过越界与小数，这里防的是将来加字段时漏校验。
+        const parsed = parseDims(dims);
+        if (parsed.errors.length) {
+          setError(parsed.errors.join("；"));
+          return;
+        }
+        payload.dims = parsed.dims ?? undefined;
+      }
       if (descriptors.length) payload.descriptors = descriptors;
       if (note.trim()) payload.note = note.trim();
       if (grams.trim()) payload.grams = Number(grams);
@@ -188,6 +200,12 @@ export default function QuickTastingForm({
 
       {showOptional && (
         <div className="mb-4 pt-4 border-t border-stone-100 space-y-4">
+          {defaults.previousDescriptors.length > 0 && (
+            <p className="text-[0.7rem] text-stone-400">
+              上次写的：{defaults.previousDescriptors.join(" / ")}
+              <span className="ml-1">（只是参考，不默认勾选）</span>
+            </p>
+          )}
           {/* 四维 */}
           <div>
             <p className="text-xs text-stone-500 mb-1.5">四维评分（1–10）</p>
@@ -203,24 +221,34 @@ export default function QuickTastingForm({
                     value={dims[f.key] ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
-                      setDims((prev) => {
-                        const next = { ...prev };
-                        if (!v) delete next[f.key];
-                        else next[f.key] = Number(v);
-                        return next;
-                      });
+                      setDimsError("");
+                      if (!v) {
+                        setDims((prev) => {
+                          const next = { ...prev };
+                          delete next[f.key];
+                          return next;
+                        });
+                        return;
+                      }
+                      const n = Number(v);
+                      if (!Number.isInteger(n) || n < 1 || n > 10) {
+                        setDimsError(`${f.label}要在 1–10 之间（整数）`);
+                        return;
+                      }
+                      setDimsError("");
+                      setDims((prev) => ({ ...prev, [f.key]: n }));
                     }}
                     className="w-20 px-2 py-1.5 border border-stone-200 rounded text-sm"
                   />
                 </label>
               ))}
             </div>
-            {Object.keys(dims).length === 4 && (
+            {dimsError && (
+              <p className="text-[0.7rem] text-red-600 mt-1.5">{dimsError}</p>
+            )}
+            {overallScore(dims) !== null && (
               <p className="text-[0.7rem] text-stone-400 mt-1.5">
-                综合分{" "}
-                {(
-                  (DIM_FIELDS.reduce((sum, f) => sum + (dims[f.key] ?? 0), 0) / 4)
-                ).toFixed(1)}
+                综合分 {overallScore(dims)}
               </p>
             )}
           </div>

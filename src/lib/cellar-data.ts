@@ -69,6 +69,17 @@ export interface CellarItemListRow {
  * 列出某个用户的茶仓条目。
  *
  * 按最近一次品鉴时间倒序 —— 刚喝过的排在最前面，用户回访时不用翻。
+ *
+ * ## 为什么拆成四个查询而不是一次带关系
+ *
+ * Prisma 默认的关系加载策略是「query」：嵌套的 `take: 1` **不会**变成
+ * SQL 的 LIMIT，而是把该页所有条目的全部仓储期/品鉴行拉回来、在引擎里
+ * 再裁成 1 条。而 `_count` 会生成一个**没有过滤**的整表聚合
+ * （`GROUP BY cellarItemId` 扫全表），LEFT JOIN 到列表查询上 ——
+ * 开销随**全站**用量增长，而不是随这一页增长。
+ *
+ * 所以改成四个**页面范围**的查询：主表 + DISTINCT ON 取最新仓储期 +
+ * DISTINCT ON 取最近一次品鉴 + 只对这页 id 分组计数。
  */
 export async function listCellarItems(
   userId: string,
@@ -94,21 +105,45 @@ export async function listCellarItems(
         nextRemindAt: true,
         createdAt: true,
         tea: { select: { name: true, year: true, brand: true, type: true } },
-        storageEpochs: {
-          orderBy: { startsAt: "desc" },
-          take: 1,
-          select: { storageScore: true, city: true, container: true },
-        },
-        tastings: {
-          orderBy: { tastedAt: "desc" },
-          take: 1,
-          select: { tastedAt: true, deltaVsPrev: true },
-        },
-        _count: { select: { tastings: true } },
       },
     }),
     prisma.cellarItem.count({ where: { userId } }),
   ]);
+
+  const ids = rows.map((r) => r.id);
+  if (!ids.length) return { items: [], total };
+
+  // DISTINCT ON：每个条目只取一行（最新的一条）。Prisma 会把 distinct
+  // 字段排到 ORDER BY 前面，语义就是 Postgres 的 DISTINCT ON。
+  const [epochs, lastTastings, counts] = await Promise.all([
+    prisma.storageEpoch.findMany({
+      where: { cellarItemId: { in: ids } },
+      orderBy: [{ startsAt: "desc" }],
+      distinct: ["cellarItemId"],
+      select: {
+        cellarItemId: true,
+        storageScore: true,
+        city: true,
+        container: true,
+      },
+    }),
+    prisma.cellarTasting.findMany({
+      where: { cellarItemId: { in: ids } },
+      orderBy: [{ tastedAt: "desc" }],
+      distinct: ["cellarItemId"],
+      select: { cellarItemId: true, tastedAt: true, deltaVsPrev: true },
+    }),
+    // 计数只针对这一页的条目 —— 不做整表聚合。
+    prisma.cellarTasting.groupBy({
+      by: ["cellarItemId"],
+      where: { cellarItemId: { in: ids } },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const epochBy = new Map(epochs.map((e) => [e.cellarItemId, e]));
+  const lastBy = new Map(lastTastings.map((t) => [t.cellarItemId, t]));
+  const countBy = new Map(counts.map((c) => [c.cellarItemId, c._count._all]));
 
   return {
     total,
@@ -125,12 +160,12 @@ export async function listCellarItems(
       remindEveryMonths: r.remindEveryMonths,
       nextRemindAt: r.nextRemindAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
-      tastingCount: r._count.tastings,
-      lastTastedAt: r.tastings[0]?.tastedAt.toISOString() ?? null,
-      lastDelta: r.tastings[0]?.deltaVsPrev ?? null,
-      storageScore: r.storageEpochs[0]?.storageScore ?? null,
-      storageCity: r.storageEpochs[0]?.city ?? null,
-      storageContainer: r.storageEpochs[0]?.container ?? null,
+      tastingCount: countBy.get(r.id) ?? 0,
+      lastTastedAt: lastBy.get(r.id)?.tastedAt.toISOString() ?? null,
+      lastDelta: lastBy.get(r.id)?.deltaVsPrev ?? null,
+      storageScore: epochBy.get(r.id)?.storageScore ?? null,
+      storageCity: epochBy.get(r.id)?.city ?? null,
+      storageContainer: epochBy.get(r.id)?.container ?? null,
     })),
   };
 }
@@ -414,7 +449,6 @@ export interface AddTastingInput {
   vessel?: string | null;
   note?: string | null;
   images?: string[];
-  visibility?: "private" | "shared";
   elapsedSeconds?: number | null;
 }
 
@@ -443,7 +477,7 @@ export async function addTasting(
       vessel: input.vessel ?? null,
       note: input.note ?? null,
       images: input.images ?? undefined,
-      visibility: input.visibility ?? "private",
+      // visibility 不由 API 决定 —— 恒为 private（DB 列的默认值）。
       elapsedSeconds: input.elapsedSeconds ?? null,
     },
     select: { id: true },
@@ -451,28 +485,55 @@ export async function addTasting(
   return tasting.id;
 }
 
-/** 取一条目最近一次品鉴（快速品鉴表单用来「沿用上次」）。 */
-export async function getLastTasting(
+/**
+ * 取一个条目的全部品鉴记录（时间轴）。
+ *
+ * 条目不存在或不属于该用户时返回 null（区别于「有条目但没有品鉴」——
+ * 那种情况返回空数组）。
+ */
+export async function listItemTastings(
   userId: string,
   itemId: string,
-): Promise<{
-  grams: number | null;
-  vessel: string | null;
-  descriptors: string[];
-  deltaVsPrev: string | null;
-} | null> {
-  const r = await prisma.cellarTasting.findFirst({
-    where: { cellarItemId: itemId, userId },
-    orderBy: { tastedAt: "desc" },
-    select: { grams: true, vessel: true, descriptors: true, deltaVsPrev: true },
+): Promise<CellarItemDetail["tastings"] | null> {
+  const owned = await prisma.cellarItem.findFirst({
+    where: { id: itemId, userId },
+    select: { id: true },
   });
-  if (!r) return null;
-  return {
-    grams: r.grams,
-    vessel: r.vessel,
-    descriptors: asStringArray(r.descriptors),
-    deltaVsPrev: r.deltaVsPrev,
-  };
+  if (!owned) return null;
+
+  const rows = await prisma.cellarTasting.findMany({
+    where: { cellarItemId: itemId, userId },
+    orderBy: { tastedAt: "asc" },
+    select: {
+      id: true,
+      tastedAt: true,
+      stage: true,
+      deltaVsPrev: true,
+      dims: true,
+      descriptors: true,
+      grams: true,
+      vessel: true,
+      note: true,
+      images: true,
+      visibility: true,
+      elapsedSeconds: true,
+    },
+  });
+
+  return rows.map((t) => ({
+    id: t.id,
+    tastedAt: t.tastedAt.toISOString(),
+    stage: t.stage,
+    deltaVsPrev: t.deltaVsPrev,
+    dims: asDims(t.dims),
+    descriptors: asStringArray(t.descriptors),
+    grams: t.grams,
+    vessel: t.vessel,
+    note: t.note,
+    images: asStringArray(t.images),
+    visibility: t.visibility,
+    elapsedSeconds: t.elapsedSeconds,
+  }));
 }
 
 // ─── 导出与删除 ───────────────────────────────────────────────────────────
@@ -486,17 +547,15 @@ export async function exportCellarData(userId: string): Promise<ExportItem[]> {
   });
 
   return rows.map((r) => {
-    const latest = r.storageEpochs[r.storageEpochs.length - 1];
-    const currentStorage: ExportStorage | null = latest
-      ? {
-          startsAt: latest.startsAt.toISOString(),
-          storageScore: latest.storageScore,
-          assessedBy: latest.assessedBy,
-          city: latest.city,
-          container: latest.container,
-          legacyStorageLabel: latest.legacyStorageLabel,
-        }
-      : null;
+    const epochs: ExportStorage[] = r.storageEpochs.map((e) => ({
+      startsAt: e.startsAt.toISOString(),
+      storageScore: e.storageScore,
+      assessedBy: e.assessedBy,
+      city: e.city,
+      container: e.container,
+      legacyStorageLabel: e.legacyStorageLabel,
+    }));
+    const latest = epochs[epochs.length - 1] ?? null;
 
     const tastings: ExportTasting[] = r.tastings.map((t) => ({
       id: t.id,
@@ -520,7 +579,8 @@ export async function exportCellarData(userId: string): Promise<ExportItem[]> {
       acquiredAt: r.acquiredAt?.toISOString() ?? null,
       qtyNote: r.qtyNote,
       remindEveryMonths: r.remindEveryMonths,
-      currentStorage,
+      currentStorage: latest,
+      epochs,
       tastings,
     };
   });
@@ -530,14 +590,23 @@ export async function exportCellarData(userId: string): Promise<ExportItem[]> {
  * 一键删除我的全部数据。
  *
  * PRD §4：用户数据可随时删除。级联删掉条目 → 品鉴 → 仓储期。
- * 自建茶品申请保留 —— 它是给**社区**的贡献，删掉会让站长白审。
+ *
+ * **自建茶品申请要区别对待**：申请本身是对**社区**的贡献（这款茶该
+ * 进茶品库），删掉会让站长白审。但申请里的自由文本备注是**用户写的
+ * 个人内容**，「删除我的全部数据」不能留着它 —— 所以清空备注，只留
+ * 茶品名/品牌/年份/生熟这些「社区需要的信息」。
  */
 export async function purgeCellarData(
   userId: string,
-): Promise<{ items: number; tastings: number }> {
+): Promise<{ items: number; tastings: number; requestsScrubbed: number }> {
   const before = await prisma.cellarTasting.count({ where: { userId } });
   const res = await prisma.cellarItem.deleteMany({ where: { userId } });
-  return { items: res.count, tastings: before };
+  // 备注是用户写的，清掉；申请本身留着给站长并入茶品库。
+  const scrub = await prisma.teaRequest.updateMany({
+    where: { userId, note: { not: null } },
+    data: { note: null },
+  });
+  return { items: res.count, tastings: before, requestsScrubbed: scrub.count };
 }
 
 // ─── 自建茶品申请 ─────────────────────────────────────────────────────────
@@ -684,6 +753,42 @@ export async function reviewTeaRequest(
 }
 
 // ─── 描述词库 ─────────────────────────────────────────────────────────────
+
+/**
+ * 选茶的搜索（用户侧与后台侧共用同一份查询）。
+ *
+ * 之前两个接口各写了一份 —— where、orderBy、take 全一样，只差 select。
+ * 两份会各自漂移（比如别名匹配改了只改一边）。现在只有这一份。
+ */
+export async function searchCellarTeas(
+  q: string,
+  opts: { includeClassic?: boolean } = {},
+): Promise<
+  { id: string; name: string; brand: string | null; year: number | null; type: string | null; isClassic?: boolean }[]
+> {
+  const teas = await prisma.tea.findMany({
+    where: {
+      deletedAt: null,
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { brand: { contains: q, mode: "insensitive" } },
+        { aliases: { has: q } },
+      ],
+    },
+    // 经典优先，其次按品鉴笔记数（被品得多的通常是用户真正会买的）。
+    orderBy: [{ isClassic: "desc" }, { tastingNoteCount: "desc" }],
+    take: 20,
+    select: {
+      id: true,
+      name: true,
+      brand: true,
+      year: true,
+      type: true,
+      ...(opts.includeClassic === false ? {} : { isClassic: true }),
+    },
+  });
+  return teas;
+}
 
 export async function listVocab(opts: {
   category?: "raw" | "ripe" | "any";

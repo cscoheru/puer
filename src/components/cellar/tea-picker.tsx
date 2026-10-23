@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useTeaSearch } from "@/components/cellar/use-tea-search";
 
 /**
  * 茶品选择器：搜茶品库（经典优先），找不到就自建。
@@ -13,57 +14,22 @@ import { useEffect, useRef, useState } from "react";
  * 但它是唯一一处将来能放「班章」「老班章」这类俗称的地方 —— 现在接上，
  * 等站长补了真实别名就自动生效。
  */
-
-export interface TeaOption {
-  id: string;
-  name: string;
-  brand: string | null;
-  year: number | null;
-  type: string | null;
-  isClassic?: boolean;
-}
-
 export default function TeaPicker({
   onPick,
   onSelfBuild,
   autoFocus = false,
 }: {
-  onPick: (tea: TeaOption) => void;
+  onPick: (tea: import("@/components/cellar/use-tea-search").TeaOption) => void;
   onSelfBuild: () => void;
   autoFocus?: boolean;
 }) {
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<TeaOption[]>([]);
-  const [searching, setSearching] = useState(false);
+  const { q, setQ, teas, searching, error } = useTeaSearch("/api/cellar/teas");
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 弹窗里的输入框要自动获得焦点（HTML 的 autoFocus 属性在这里不生效）。
   useEffect(() => {
-    if (autoFocus) inputRef.current?.focus();
-  }, [autoFocus]);
-
-  // 搜索：300ms 去抖，避免每敲一个字就打一次库。
-  useEffect(() => {
-    const term = q.trim();
-    if (!term) {
-      setResults([]);
-      return;
-    }
-    setSearching(true);
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/cellar/teas?q=${encodeURIComponent(term)}`,
-        );
-        const data = await res.json();
-        setResults(Array.isArray(data.teas) ? data.teas : []);
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
+    inputRef.current?.focus();
+  }, []);
 
   return (
     <div>
@@ -75,11 +41,15 @@ export default function TeaPicker({
         className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm bg-white"
       />
 
-      {searching && (
-        <p className="text-xs text-stone-400 mt-2">搜索中…</p>
+      {searching && <p className="text-xs text-stone-400 mt-2">搜索中…</p>}
+
+      {error && (
+        <p className="text-xs text-red-600 mt-2">
+          {error}（这不是「没找到」，先别急着自建）
+        </p>
       )}
 
-      {!searching && q.trim() && results.length === 0 && (
+      {!searching && !error && q.trim() && teas.length === 0 && (
         <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-sm text-amber-900 mb-2">
             茶品库里没有「{q.trim()}」。
@@ -93,9 +63,9 @@ export default function TeaPicker({
         </div>
       )}
 
-      {results.length > 0 && (
+      {teas.length > 0 && (
         <ul className="mt-2 max-h-64 overflow-y-auto border border-stone-200 rounded-lg divide-y divide-stone-100 bg-white">
-          {results.map((t) => (
+          {teas.map((t) => (
             <li key={t.id}>
               <button
                 onClick={() => onPick(t)}

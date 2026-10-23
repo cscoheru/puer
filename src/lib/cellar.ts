@@ -21,16 +21,17 @@
 
 // 相对路径：这个文件要被裸 node 直接跑单测（npm run test:unit 不带 tsx），
 // 路径别名 @/ 在那里解析不了。
-import {
-  DELTA_LABELS,
-  STAGE_LABELS,
-  type Delta,
-  type Stage,
-} from "./tasting-extract/vocab.ts";
 import { toCsv } from "./tasting-corrections.ts";
 
-export { DELTA_LABELS, STAGE_LABELS };
-export type { Delta, Stage };
+/**
+ * 词表**只有一份**：阶段/对照/器具的取值与标签都在
+ * `src/lib/tasting-extract/vocab.ts`（F1 已经落库，站长按那份复核过 522 行）。
+ * 这里不再转发 —— 多一条 import 路径就多一处可能漂移的地方。
+ * 需要词表的文件直接 import `./tasting-extract/vocab.ts`。
+ */
+
+/** 仓储评分的来源：自评（用户自己打的）/ 站长评（管理员代录）。 */
+export type AssessedBy = "self" | "editor";
 
 // ─── 仓储评分（PRD §6）────────────────────────────────────────────────────
 
@@ -232,7 +233,7 @@ export const DEFAULT_REMIND_MONTHS = 6;
  * 这里只给**建议**，不自动改用户的设置 —— 自动改会让人措手不及。
  */
 export function suggestRemindMonths(
-  lastDelta: Delta | string | null | undefined,
+  lastDelta: string | null | undefined,
   base: number = DEFAULT_REMIND_MONTHS,
 ): number {
   const months = Number.isInteger(base) && base > 0 ? base : DEFAULT_REMIND_MONTHS;
@@ -321,33 +322,47 @@ export interface ExportItem {
   acquiredAt: string | null;
   qtyNote: string | null;
   remindEveryMonths: number;
+  /** 当前仓储期（最新一条），方便直接看。 */
   currentStorage: ExportStorage | null;
+  /**
+   * 全部仓储期（按 startsAt 升序）。
+   *
+   * 换仓是**新增一条**、旧的保留 —— 所以历史必须一起导出。只导
+   * currentStorage 会把「这饼茶去年在哪个仓」这段历史悄悄丢掉，
+   * 而那正是仓储这条线存在的意义。
+   */
+  epochs: ExportStorage[];
   tastings: ExportTasting[];
 }
 
 /**
- * 导出 CSV 的表头。
+ * 导出 CSV 的表头 —— **拆成两段**。
  *
- * 一行 = 一条品鉴记录，条目信息冗余在前面（没有品鉴的条目也出一行，
- * 否则导出就会丢条目）。**描述词用逗号分隔** —— 与 F1 的修正表同一套
- * CSV 约定，Excel 里直接能改。
+ * 一行 = 一条品鉴记录 × 一个仓储期，所以表头天然分两块：条目/仓储信息
+ * 在前，品鉴信息在后。拆开命名之后，行宽与补空位的列数都从这两段**算**
+ * 出来，不再手写数字 —— 写死的话，往前段加一列，后面所有品鉴列会静默错位。
  *
  * ⚠️ 表头**不能重名**：CSV 解析成对象时同名的列后者覆盖前者，
  * 一份数据就凭空少一列。所以条目备注与品鉴备注必须分开命名。
  */
-export const CELLAR_EXPORT_CSV_HEADER = [
+export const CELLAR_EXPORT_BASE_HEADER = [
   "条目ID",
   "茶品",
   "自建名",
   "入仓时间",
   "条目备注",
   "提醒间隔(月)",
+  "仓储期序号",
+  "仓储期数",
   "仓储评分",
   "仓储档",
   "仓储评分人",
   "城市",
   "容器",
   "仓储起",
+] as const;
+
+export const CELLAR_EXPORT_TASTING_HEADER = [
   "品鉴ID",
   "品鉴时间",
   "阶段",
@@ -364,66 +379,110 @@ export const CELLAR_EXPORT_CSV_HEADER = [
   "图片",
   "可见性",
   "耗时秒",
+] as const;
+
+export const CELLAR_EXPORT_CSV_HEADER = [
+  ...CELLAR_EXPORT_BASE_HEADER,
+  ...CELLAR_EXPORT_TASTING_HEADER,
 ];
 
-/** 把导出数据铺成 CSV 行。 */
+/**
+ * CSV 单元格的值 —— 加一道**公式注入**的防护。
+ *
+ * 备注、描述词、条目名都是用户写的自由文本。Excel / LibreOffice /
+ * Google Sheets 打开 CSV 时，单元格里以 `=` `+` `-` `@` 开头的文本会被
+ * 当成**公式**求值（CSV injection）。用户在自己的备注里写「=1+1」，
+ * 打开导出表就变成一个算式 —— 看着无害，但同一段代码将来给管理员导出
+ * 别人的数据时就是一条可执行路径。
+ *
+ * 处理办法：前面加一个单引号，Excel 会把它当纯文本。开头是空白或
+ * 制表符/回车时同样危险（Excel 会跳过前导空白再判断），所以先剥掉
+ * 前导空白再判断。
+ */
+export function cellarCsvCell(value: unknown): string {
+  const s = value === null || value === undefined ? "" : String(value);
+  const trimmed = s.replace(/^[\s\t\r\n]+/, "");
+  if (/^[=+\-@]/.test(trimmed)) return `'${s}`;
+  return s;
+}
+
+/**
+ * 把导出数据铺成 CSV 行。
+ *
+ * 一行 = 一条品鉴记录 × 一个仓储期。
+ *
+ * 为什么要交叉：换仓是**新增一条仓储期**、旧的保留。只导最新的那条，
+ * 「这饼茶去年在哪个仓」这段历史就没了 —— 而那正是仓储这条线存在的意义。
+ * 一个条目通常只有一段仓储期（大多数情况行数不变），换过仓的条目行数
+ * 翻倍，每行用「仓储期序号」标清楚是哪一段。
+ *
+ * 没有仓储期也没有品鉴的条目，也要出一行（否则导出就丢条目）。
+ */
 export function cellarExportRows(
   items: ExportItem[],
 ): (string | number | null | undefined)[][] {
   const rows: (string | number | null | undefined)[][] = [];
-  // 条目信息占前 12 列，品鉴信息占后 16 列。
-  // 空行的列数**按表头算**，不写死数字 —— 写死的话，改了表头就会错位。
-  const baseWidth = 12;
-  const tastingWidth = CELLAR_EXPORT_CSV_HEADER.length - baseWidth;
+  // 行宽与补空位的列数都从表头**算**出来，不写死数字。
+  const tastingWidth = CELLAR_EXPORT_TASTING_HEADER.length;
 
   for (const item of items) {
-    const st = item.currentStorage;
-    const base: (string | number | null | undefined)[] = [
-      item.id,
-      item.teaName ?? "",
-      item.name ?? "",
-      item.acquiredAt ?? "",
-      item.qtyNote ?? "",
-      item.remindEveryMonths,
-      st?.storageScore ?? "",
-      st ? storageBandLabel(st.storageScore) : "",
-      st?.assessedBy ?? "",
-      st?.city ?? "",
-      st?.container ?? "",
-      st?.startsAt ?? "",
-    ];
-    if (item.tastings.length === 0) {
-      rows.push([...base, ...new Array(tastingWidth).fill("")]);
-      continue;
-    }
-    for (const t of item.tastings) {
-      rows.push([
-        ...base,
-        t.id,
-        t.tastedAt,
-        t.stage ?? "",
-        t.deltaVsPrev ?? "",
-        t.dims?.aroma ?? "",
-        t.dims?.flavor ?? "",
-        t.dims?.waterPath ?? "",
-        t.dims?.bodyFeel ?? "",
-        overallScore(t.dims) ?? "",
-        t.descriptors.join(","),
-        t.grams ?? "",
-        t.vessel ?? "",
-        t.note ?? "",
-        t.images.join(","),
-        t.visibility,
-        t.elapsedSeconds ?? "",
-      ]);
-    }
+    const epochs = item.epochs.length ? item.epochs : [null];
+    const tastings = item.tastings.length ? item.tastings : [null];
+
+    epochs.forEach((epoch, epochIndex) => {
+      const base: (string | number | null | undefined)[] = [
+        item.id,
+        item.teaName ?? "",
+        item.name ?? "",
+        item.acquiredAt ?? "",
+        item.qtyNote ?? "",
+        item.remindEveryMonths,
+        epoch ? epochIndex + 1 : "",
+        item.epochs.length,
+        epoch?.storageScore ?? "",
+        epoch ? storageBandLabel(epoch.storageScore) : "",
+        epoch?.assessedBy ?? "",
+        epoch?.city ?? "",
+        epoch?.container ?? "",
+        epoch?.startsAt ?? "",
+      ];
+
+      for (const t of tastings) {
+        if (!t) {
+          rows.push([...base, ...new Array(tastingWidth).fill("")]);
+          continue;
+        }
+        rows.push([
+          ...base,
+          t.id,
+          t.tastedAt,
+          t.stage ?? "",
+          t.deltaVsPrev ?? "",
+          t.dims?.aroma ?? "",
+          t.dims?.flavor ?? "",
+          t.dims?.waterPath ?? "",
+          t.dims?.bodyFeel ?? "",
+          overallScore(t.dims) ?? "",
+          t.descriptors.join(","),
+          t.grams ?? "",
+          t.vessel ?? "",
+          t.note ?? "",
+          t.images.join(","),
+          t.visibility,
+          t.elapsedSeconds ?? "",
+        ]);
+      }
+    });
   }
   return rows;
 }
 
 /** 导出 CSV（带 BOM，Excel 打开不乱码）。 */
 export function cellarExportCsv(items: ExportItem[]): string {
-  return toCsv(CELLAR_EXPORT_CSV_HEADER, cellarExportRows(items));
+  // 公式注入防护在**写出去的最后一步**做 —— 上面铺行时保持原值，
+  // 便于对齐检查。
+  const rows = cellarExportRows(items).map((r) => r.map(cellarCsvCell));
+  return toCsv([...CELLAR_EXPORT_CSV_HEADER], rows);
 }
 
 /** 导出 JSON 的载荷。 */

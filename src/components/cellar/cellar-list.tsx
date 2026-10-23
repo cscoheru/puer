@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import TeaPicker, { type TeaOption } from "@/components/cellar/tea-picker";
-import { storageBandLabel, STORAGE_ANCHORS } from "@/lib/cellar";
+import TeaPicker from "@/components/cellar/tea-picker";
+import type { TeaOption } from "@/components/cellar/use-tea-search";
+import { storageBandLabel } from "@/lib/cellar";
+import StorageAnchorPicker from "@/components/cellar/storage-anchor-picker";
 
 /**
  * 我的茶仓 —— 条目列表 + 添加茶。
@@ -41,21 +43,37 @@ const DELTA_TEXT: Record<string, string> = {
 export default function CellarList() {
   const { data: session, status } = useSession();
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/cellar");
+      const res = await fetch(`/api/cellar?page=${page}&limit=${pageSize}`);
       const data = await res.json();
+      if (!res.ok) {
+        // 401/403/404 各有各的语义，不能一律当成「茶仓是空的」——
+        // 那样合成账号会看到「添加第一款」按钮，点了必然失败。
+        setError(data.error || "加载失败");
+        setItems([]);
+        return;
+      }
+      setError("");
       setItems(Array.isArray(data.items) ? data.items : []);
+      setTotal(typeof data.total === "number" ? data.total : 0);
+      setPages(typeof data.pages === "number" && data.pages > 0 ? data.pages : 1);
     } catch {
+      setError("加载失败");
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, pageSize]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -88,7 +106,7 @@ export default function CellarList() {
             我的茶仓
           </h1>
           <p className="text-stone-500 text-sm mt-1">
-            {loading ? "加载中…" : `共 ${items.length} 款茶`}
+            {loading ? "加载中…" : `共 ${total} 款茶`}
           </p>
         </div>
         <button
@@ -112,7 +130,11 @@ export default function CellarList() {
         </p>
       )}
 
-      {loading ? (
+      {error ? (
+        <p className="mb-4 text-sm px-3 py-2 rounded bg-red-50 text-red-700 border border-red-200">
+          {error}
+        </p>
+      ) : loading ? (
         <div className="text-center py-12 text-stone-400">加载中…</div>
       ) : items.length === 0 ? (
         <div className="text-center py-12 border border-dashed border-stone-200 rounded-xl bg-white">
@@ -171,6 +193,28 @@ export default function CellarList() {
             </li>
           ))}
         </ul>
+      )}
+
+      {pages > 1 && (
+        <div className="mt-6 flex items-center justify-center gap-3 text-sm">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="px-3 py-1.5 border border-stone-300 rounded disabled:opacity-40 hover:bg-stone-50"
+          >
+            上一页
+          </button>
+          <span className="text-stone-500">
+            第 {page} / {pages} 页
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(pages, p + 1))}
+            disabled={page >= pages}
+            className="px-3 py-1.5 border border-stone-300 rounded disabled:opacity-40 hover:bg-stone-50"
+          >
+            下一页
+          </button>
+        </div>
       )}
 
       {showAdd && (
@@ -364,24 +408,11 @@ function AddTeaDialog({
           <p className="text-xs text-stone-500 mb-2">
             仓储登记（可跳过，之后再补）
           </p>
-          <div className="flex gap-2 flex-wrap mb-2">
-            {STORAGE_ANCHORS.map((a) => (
-              <button
-                key={a.score}
-                onClick={() =>
-                  setStorageScore(storageScore === a.score ? null : a.score)
-                }
-                title={a.desc}
-                className={`px-2.5 py-1.5 text-xs rounded-lg border transition ${
-                  storageScore === a.score
-                    ? "border-amber-600 bg-amber-50 text-amber-800 font-medium"
-                    : "border-stone-200 text-stone-600 hover:border-amber-300"
-                }`}
-              >
-                {a.score} {a.label}
-              </button>
-            ))}
-          </div>
+          <StorageAnchorPicker
+            value={storageScore}
+            onChange={setStorageScore}
+            className="mb-2"
+          />
           <div className="grid grid-cols-2 gap-3">
             <input
               value={city}

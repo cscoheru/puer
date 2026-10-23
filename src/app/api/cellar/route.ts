@@ -5,6 +5,7 @@ import {
   cellarDisabledResponse,
   cellarEnabled,
   cellarRateLimit,
+  logCellarProxy,
   readJsonBody,
   resolveCellarActor,
 } from "@/lib/cellar-api";
@@ -39,12 +40,18 @@ export async function GET(req: NextRequest) {
   const limited = cellarRateLimit(req, actor!.ownerId, "read", isAdmin);
   if (limited) return limited;
 
+  // 代录读别人私有数据 —— 留痕。
+  if (actor!.isProxy) {
+    logCellarProxy("read", actor!.actorId, actor!.ownerId, "list");
+  }
+
   const { items, total } = await listCellarItems(actor!.ownerId, { page, limit });
   return NextResponse.json({
     items,
     total,
     page,
     limit,
+    pages: Math.max(1, Math.ceil(total / limit)),
     capped: paginationCapped(requestedPage, page),
   });
 }
@@ -99,6 +106,10 @@ export async function POST(req: NextRequest) {
       weightSpec: input.teaRequest.weightSpec ?? null,
       note: input.teaRequest.note ?? null,
     });
+  }
+
+  if (actor!.isProxy) {
+    logCellarProxy("write", actor!.actorId, actor!.ownerId, "create-item");
   }
 
   const id = await createCellarItem(actor!.ownerId, {
