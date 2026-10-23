@@ -4,6 +4,7 @@ import {
   clampListLimit,
   clampListPage,
   clampOffset,
+  listPaginationView,
   paginationCapped,
   MAX_PUBLIC_LIMIT,
   MAX_PUBLIC_PAGE,
@@ -76,4 +77,87 @@ test("越界标记：请求页大于实际页时为真", () => {
   assert.equal(paginationCapped(99999, MAX_PUBLIC_PAGE), true);
   assert.equal(paginationCapped(2, 2), false);
   assert.equal(paginationCapped(1, 2), false);
+});
+
+test("分页视图：页数夹到真能翻到的深度", () => {
+  // total=5000、limit=20 → 总共 250 页，但服务端只翻得到 50。
+  // 客户端直接渲染 250 的话，用户在第 50 页点「下一页」会原地打转。
+  const v = listPaginationView(
+    { total: 5000, limit: 20, effectivePage: 50 },
+    anon,
+  );
+  assert.equal(v.pages, MAX_PUBLIC_PAGE);
+  assert.equal(v.truncated, true);
+});
+
+test("分页视图：管理员不受翻页深度限制（与服务端一致）", () => {
+  const v = listPaginationView(
+    { total: 5000, limit: 20, effectivePage: 120 },
+    admin,
+  );
+  assert.equal(v.pages, 250);
+  assert.equal(v.truncated, false);
+});
+
+test("分页视图：翻得到就不算截断", () => {
+  // 60 款茶、每页 20 → 3 页，全都能翻到。
+  const v = listPaginationView(
+    { total: 60, limit: 20, effectivePage: 3 },
+    anon,
+  );
+  assert.equal(v.pages, 3);
+  assert.equal(v.truncated, false);
+});
+
+test("分页视图：页码用服务端实际返回的那个，不夹到末页上", () => {
+  // 请求第 50 页而列表只有 3 页 → 服务端返回 page=50（空列表）。
+  // 夹成 3 会显示成「第 3 / 3 页」配一个空列表 —— 用户会以为自己的茶
+  // 没了。宁可显示「第 50 / 3 页」这种一眼看出不对的。
+  const v = listPaginationView(
+    { total: 60, limit: 20, effectivePage: 50 },
+    anon,
+  );
+  assert.equal(v.page, 50);
+  assert.equal(v.pages, 3);
+});
+
+test("分页视图：页码至少是 1", () => {
+  assert.equal(
+    listPaginationView({ total: 60, limit: 20, effectivePage: 0 }, anon).page,
+    1,
+  );
+  assert.equal(
+    listPaginationView({ total: 60, limit: 20, effectivePage: -5 }, anon).page,
+    1,
+  );
+});
+
+test("分页视图：空列表也有一页", () => {
+  const v = listPaginationView({ total: 0, limit: 20, effectivePage: 1 }, anon);
+  assert.equal(v.pages, 1);
+  assert.equal(v.page, 1);
+  assert.equal(v.truncated, false);
+});
+
+test("分页视图：NaN / undefined 不会漏进页码（否则页面渲染成「第 NaN 页」）", () => {
+  // typeof NaN === "number" —— 客户端的 `typeof x === "number"` 守卫
+  // 拦不住 NaN，漏进去的话 pages > 1 为假，整个翻页条会凭空消失。
+  const nan = listPaginationView(
+    { total: NaN, limit: NaN, effectivePage: NaN },
+    anon,
+  );
+  assert.ok(Number.isFinite(nan.page), `page 是 ${nan.page}`);
+  assert.ok(Number.isFinite(nan.pages), `pages 是 ${nan.pages}`);
+  assert.equal(nan.pages, 1);
+
+  const undef = listPaginationView(
+    {
+      total: undefined as unknown as number,
+      limit: undefined as unknown as number,
+      effectivePage: undefined as unknown as number,
+    },
+    anon,
+  );
+  assert.ok(Number.isFinite(undef.page), `page 是 ${undef.page}`);
+  assert.ok(Number.isFinite(undef.pages), `pages 是 ${undef.pages}`);
 });

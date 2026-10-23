@@ -1,0 +1,25 @@
+{
+  // 类型检查用的**干净**配置 —— program 里只有源码，一个生成文件都没有。
+  //
+  // 为什么不用 tsconfig.json 直接跑：它的 include 里有 .next/types/** 与
+  // .next/dev/types/**/*.ts —— 那是 Next 生成的文件。文件被写坏时
+  // （dev server 写一半被杀掉），里面的语法错会让 tsc **整程放弃语义
+  // 检查**，src/ 里任何类型错误都看不见，退出码还是 0。
+  // 2026-10-23 就这样放过一个「每次列表请求都 500」的上线 bug
+  // （GET /api/cellar 引用了没声明的 requestedPage）。
+  //
+  // 这里**不要** include next-env.d.ts —— 它 import 的是
+  // .next/dev/types/routes.d.ts，那是 dev server 每次改路由就重写的文件，
+  // 同样会把 program 弄脏。
+  //
+  // 构建期该做的路由类型校验仍然走 tsconfig.json（next build 用它）；
+  // 这里只回答一个问题：源码本身有没有类型错误。
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts"],
+  "compilerOptions": {
+    // 增量：重复跑类型检查只要一两秒。buildinfo 放在 node_modules/.cache 里
+    // —— 放在仓库根目录会每次都留一份 git 噪音。
+    "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.cache/typecheck.tsbuildinfo"
+  }
+}

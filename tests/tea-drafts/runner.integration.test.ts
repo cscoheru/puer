@@ -23,30 +23,58 @@
  */
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 import { runTeaDraftRunner, type RunnerConfig } from "@/lib/tea-drafts/runner.ts";
 
-const URL = process.env.TEST_DATABASE_URL;
-if (URL && !URL.includes("_test")) {
-  // Hard refuse: never run integration writes against a non-test database.
-  throw new Error(
-    `Refusing: TEST_DATABASE_URL must target a *_test database (got: ${URL}).`,
-  );
+// 名字里带上 TEST_ 是有意的：原来的 `URL` 会把全局的 URL 构造器**遮蔽**掉
+// —— 同一个文件里再想 `new URL(...)` 解析连接串就打到了这个字符串上。
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+
+/**
+ * 库名 —— 判定「这是不是测试库」只看它。
+ *
+ * 之前是 `URL.includes("_test")`：在**整条连接串**里找子串。用户名、
+ * 密码、主机名里出现 "_test" 都能让检查通过，然后这个套件就对着
+ * 生产库真的写数据 —— `postgresql://svc_test_prod:pw@db.internal/puer`
+ * 就能过检。
+ */
+function dbNameOf(connectionString: string): string {
+  try {
+    return new URL(connectionString).pathname.replace(/^\//, "");
+  } catch {
+    return "";
+  }
 }
-const ENABLED = !!URL;
+
+if (TEST_DATABASE_URL) {
+  const dbName = dbNameOf(TEST_DATABASE_URL);
+  if (!/(^|_)test$/.test(dbName)) {
+    // 只报库名，**不报整条连接串** —— 连接串里有密码，报出去就等于
+    // 把凭据写进 CI 日志。
+    throw new Error(
+      `Refusing: TEST_DATABASE_URL must target a *_test database ` +
+        `(got database: ${dbName || "<unparsable>"}).`,
+    );
+  }
+}
+const ENABLED = !!TEST_DATABASE_URL;
 
 function makeClient(connectionString: string): PrismaClient {
-  const adapter = new PrismaPg({
-    connectionString,
-    max: 20,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
+  // Prisma 6 没有 driver adapter —— 用 datasources 直连，跟 src/lib/prisma.ts
+  // 和 scripts/auto-post.mjs 同一种写法。曾经这里写的是 Prisma 7 的
+  // PrismaPg adapter，而仓库降级到 Prisma 6 时没跟着改：
+  // @prisma/adapter-pg 既不在 package.json 里也没装，
+  // 于是这个文件连 import 都过不去 —— npm run test:db 从来跑不起来。
+  //
+  // 顺带说明：adapter 上那组连接池参数（max 20 / 空闲 30s / 连接 5s）
+  // 在 Prisma 6 的经典引擎里没有对应位置 —— 连接池大小走 URL 上的
+  // connection_limit，测试库用默认池子够。
+  return new PrismaClient({
+    datasources: { db: { url: connectionString } },
   });
-  return new PrismaClient({ adapter });
 }
 
-const prisma: PrismaClient | null = ENABLED ? makeClient(URL!) : null;
+const prisma: PrismaClient | null = ENABLED ? makeClient(TEST_DATABASE_URL!) : null;
 
 function db(): PrismaClient {
   if (!prisma) throw new Error("prisma not initialized (ENABLED=false)");
@@ -247,7 +275,7 @@ test("advisory lock: a run held out by another transaction's lock bows out immed
   // A SEPARATE client (own pool/connection) holds the transaction-scoped lock
   // for the duration of its callback. The runner (on the main client) cannot
   // acquire it and must return skipped-already-running — proving serialization.
-  const holder = makeClient(URL!);
+  const holder = makeClient(TEST_DATABASE_URL!);
   try {
     await holder.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ locked: boolean }>>`

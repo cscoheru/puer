@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test:deploy": "bash scripts/test-deploy.sh",
     "test:unit": "node --test --test-reporter=spec src/lib/*.test.ts src/lib/tea-drafts/*.test.ts src/lib/news-draft/*.test.ts src/lib/tasting-extract/*.test.ts scripts/*.test.mjs",
     "test:policy": "node --test --test-reporter=spec src/lib/upload-policy.test.ts",

@@ -25,9 +25,15 @@ export async function GET(req: NextRequest) {
   // 代录视角（管理员看别人的）不受翻页上限约束；普通用户按站内约定收敛。
   const isAdmin = actor!.isProxy;
   // 默认页大小只保留在 pagination-limits.ts 一处 —— 这里再写一遍 "20"，
-  // 将来改默认时这个路由会静默不跟着变。解析也交给 clamp* 自己管。
+  // 将来改默认时这个路由会静默不跟着变。
+  //
+  // requestedPage 是**用户请求的原始页码**，page 是夹取后的实际页码；
+  // 两者分开才知道有没有被收敛（capped）。它们必须都存在 ——
+  // 少了 requestedPage，paginationCapped 拿不到参数，
+  // 这个路由会在**每次**列表请求时抛 ReferenceError（整个 500）。
+  const requestedPage = parseInt(searchParams.get("page") || "1", 10);
   const limit = clampListLimit(searchParams.get("limit"), { isAdmin });
-  const page = clampListPage(searchParams.get("page"), { isAdmin });
+  const page = clampListPage(requestedPage, { isAdmin });
 
   const limited = cellarRateLimit(req, actor!.ownerId, "read", isAdmin);
   if (limited) return limited;

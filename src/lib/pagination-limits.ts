@@ -78,3 +78,40 @@ export function paginationCapped(
 ): boolean {
   return requestedPage > effectivePage;
 }
+
+/**
+ * 列表页的分页视图 —— 客户端按这个渲染，不自己算。
+ *
+ * 两个口径在这里合流：
+ *  - `pages` 是**真能翻到的**页数。服务端给的页数（total / limit）不受
+ *    翻页深度上限约束，不夹一下的话，用户在第 50 页点「下一页」会原地
+ *    打转 —— 服务端把 51 收敛回 50，还是给第 50 页的数据。
+ *  - `page` 是服务端**实际**返回的页码（请求页可能被收敛过）。
+ *    这里不把它夹到 `pages` 上：宁可显示「第 50 / 3 页」这种一眼看出
+ *    不对的，也不显示「第 3 / 3 页」配一个空列表 —— 后者会让人以为
+ *    自己的茶不见了。
+ *
+ * `truncated` = 「还有记录翻不到」（总数推出的页数比能翻到的多）。
+ * 这跟服务端的 `capped` **不是一回事**：
+ * `capped` 说的是「你**这次**请求被收敛了」（requestedPage > page），
+ * 而客户端把 pages 夹住之后就再也不会请求超出上限的页，那个标志于是
+ * 恒为 false —— 拿它当截断提示的开关就是死代码。
+ *
+ * 入参只要 total 与 limit 就够：站内的列表接口（/api/articles、/api/teas、
+ * /api/tea-inventory、/api/cellar）都返回这两个字段，口径统一。
+ */
+export function listPaginationView(
+  input: { total: number; limit: number; effectivePage: number },
+  opts: { isAdmin: boolean },
+): { page: number; pages: number; truncated: boolean } {
+  const total = Number.isFinite(input.total) ? Math.max(0, input.total) : 0;
+  const limit = Number.isFinite(input.limit) ? Math.max(1, input.limit) : 1;
+  const effectivePage = Number.isFinite(input.effectivePage)
+    ? Math.max(1, input.effectivePage)
+    : 1;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const pages = opts.isAdmin
+    ? totalPages
+    : Math.min(totalPages, MAX_PUBLIC_PAGE);
+  return { page: effectivePage, pages, truncated: totalPages > pages };
+}

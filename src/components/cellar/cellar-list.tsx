@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import TeaPicker from "@/components/cellar/tea-picker";
 import type { TeaOption } from "@/components/cellar/use-tea-search";
 import { storageBandLabel } from "@/lib/cellar";
+import { listPaginationView } from "@/lib/pagination-limits";
 import StorageAnchorPicker from "@/components/cellar/storage-anchor-picker";
 
 /**
@@ -46,7 +47,15 @@ export default function CellarList() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // 服务端返回的页数是按 total 算的，**不**受翻页深度上限约束。
+  // 不夹到 MAX_PUBLIC_PAGE 的话，用户在第 50 页点「下一页」会原地打转 ——
+  // 服务端把 51 收敛回 50，还是给第 50 页的数据。夹取收在
+  // listPaginationView 里（服务端与客户端共用一份口径）。
   const [pages, setPages] = useState(1);
+  // 服务端**实际**返回的页码（用户请求的页码可能被收敛过）。
+  const [effPage, setEffPage] = useState(1);
+  // 还有记录翻不到（总数推出的页数比能翻到的多）。如实说，别假装到底了。
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
@@ -66,7 +75,19 @@ export default function CellarList() {
       setError("");
       setItems(Array.isArray(data.items) ? data.items : []);
       setTotal(typeof data.total === "number" ? data.total : 0);
-      setPages(typeof data.pages === "number" && data.pages > 0 ? data.pages : 1);
+      // 分页口径收在 listPaginationView 里（客户端不再自己算）。
+      // isAdmin 恒为 false：这是用户自己的茶仓，服务端对本人请求会收敛翻页深度。
+      const view = listPaginationView(
+        {
+          total: typeof data.total === "number" ? data.total : 0,
+          limit: typeof data.limit === "number" ? data.limit : pageSize,
+          effectivePage: typeof data.page === "number" ? data.page : page,
+        },
+        { isAdmin: false },
+      );
+      setPages(view.pages);
+      setEffPage(view.page);
+      setTruncated(view.truncated);
     } catch {
       setError("加载失败");
       setItems([]);
@@ -119,6 +140,19 @@ export default function CellarList() {
           添加茶
         </button>
       </div>
+
+      {truncated && (
+        <p className="mt-3 mb-4 text-xs px-3 py-2 rounded bg-amber-50 text-amber-800 border border-amber-200">
+          列表最多可翻到第 {pages} 页（共 {total} 款茶）。完整记录可以在
+          <Link
+            href="/settings"
+            className="underline underline-offset-2 hover:text-amber-900"
+          >
+            设置 → 我的数据
+          </Link>
+          里导出。
+        </p>
+      )}
 
       <p className="text-xs text-stone-400 mb-6">
         茶仓里的记录默认只有你自己看得到。记一条品鉴只要三下点击。
@@ -198,19 +232,23 @@ export default function CellarList() {
       {pages > 1 && (
         <div className="mt-6 flex items-center justify-center gap-3 text-sm">
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="px-3 py-1.5 border border-stone-300 rounded disabled:opacity-40 hover:bg-stone-50"
+            onClick={() => setPage(Math.max(1, effPage - 1))}
+            disabled={effPage <= 1}
+            className="px-3 py-1.5 min-h-[44px] inline-flex items-center border border-stone-300 rounded disabled:opacity-40 hover:bg-stone-50"
           >
             上一页
           </button>
-          <span className="text-stone-500">
-            第 {page} / {pages} 页
+          <span
+            className="text-stone-500"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            第 {effPage} / {pages} 页
           </span>
           <button
-            onClick={() => setPage((p) => Math.min(pages, p + 1))}
-            disabled={page >= pages}
-            className="px-3 py-1.5 border border-stone-300 rounded disabled:opacity-40 hover:bg-stone-50"
+            onClick={() => setPage(Math.min(pages, effPage + 1))}
+            disabled={effPage >= pages}
+            className="px-3 py-1.5 min-h-[44px] inline-flex items-center border border-stone-300 rounded disabled:opacity-40 hover:bg-stone-50"
           >
             下一页
           </button>
