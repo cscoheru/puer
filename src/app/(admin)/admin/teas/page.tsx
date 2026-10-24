@@ -44,7 +44,7 @@ export default function AdminTeasPage() {
   const [keepId, setKeepId] = useState<string>("");
 
   useEffect(() => {
-    fetch("/api/teas?limit=9999")
+    fetch("/api/teas?limit=9999&includePending=1")
       .then((r) => r.json())
       .then((data) => setTeas(data.teas || []))
       .catch(() => setMessage("加载失败"))

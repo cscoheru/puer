@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { TEA_TIER_LABELS, teaTier, visibleTeaWhere } from "./tea-tier.ts";
+import { TEA_TIER_LABELS, canViewPendingTea, teaTier, visibleTeaWhere } from "./tea-tier.ts";
 
 // ─── 分层判定 ─────────────────────────────────────────────────────────────
 
@@ -24,26 +24,33 @@ test("三层的显示名都有", () => {
   });
 });
 
-// ─── 可见性口径（只有一份）───────────────────────────────────────────────
+// ─── 公开目录的可见性（只有一份）─────────────────────────────────────────
 
-test("管理员看得见全部（含待整理 —— 那是他的工作台）", () => {
-  assert.deepEqual(visibleTeaWhere({ id: "u1", isAdmin: true }), {});
+test("公开目录对所有人隐藏「待整理」—— 包括管理员自己", () => {
+  // 站长 2026-10-24 报的「搜出来一堆重复」是**他自己在公开页上搜的**。
+  // 管理员在公开页仍能搜到待整理条目的话，那条抱怨在他视角里就没解决。
+  assert.deepEqual(visibleTeaWhere(), { needsReview: false });
 });
 
-test("匿名只看得到非待整理的", () => {
-  assert.deepEqual(visibleTeaWhere({ id: null, isAdmin: false }), {
-    needsReview: false,
-  });
+// ─── 详情页的可见性（直链）───────────────────────────────────────────────
+
+test("详情页：普通条目谁都能看", () => {
+  assert.equal(
+    canViewPendingTea({ createdBy: "u1", isClassic: false, needsReview: false }, null),
+    true,
+  );
 });
 
-test("登录用户看得到非待整理的 + 自己建的待整理条目", () => {
-  const w = visibleTeaWhere({ id: "u1", isAdmin: false });
-  assert.ok(Array.isArray((w as { OR?: unknown[] }).OR), "应该是一个 OR 条件");
-  const or = (w as { OR: Record<string, unknown>[] }).OR;
-  assert.equal(or.length, 2);
-  assert.deepEqual(or[0], { needsReview: false });
-  // 自己建的那条：待整理 + 创建者是我
-  assert.deepEqual(or[1], { needsReview: true, createdBy: "u1" });
+test("详情页：待整理的条目，站长与创建者看得到", () => {
+  const tea = { createdBy: "u1", isClassic: false, needsReview: true };
+  assert.equal(canViewPendingTea(tea, { id: "admin", isAdmin: true }), true);
+  assert.equal(canViewPendingTea(tea, { id: "u1", isAdmin: false }), true);
+});
+
+test("详情页：待整理的条目，别人看不到", () => {
+  const tea = { createdBy: "u1", isClassic: false, needsReview: true };
+  assert.equal(canViewPendingTea(tea, { id: "u2", isAdmin: false }), false);
+  assert.equal(canViewPendingTea(tea, null), false);
 });
 
 // ─── 读点收口：每个读点都必须走同一份口径 ───────────────────────────────
@@ -58,9 +65,9 @@ test("登录用户看得到非待整理的 + 自己建的待整理条目", () =>
  */
 const READ_POINTS: [string, RegExp][] = [
   ["src/app/api/teas/route.ts", /visibleTeaWhere|needsReview/],
-  ["src/app/api/teas/[id]/route.ts", /needsReview/],
+  ["src/app/api/teas/[id]/route.ts", /canViewPendingTea|needsReview/],
   ["src/app/(main)/tea/page.tsx", /visibleTeaWhere|needsReview/],
-  ["src/app/(main)/tea/[id]/page.tsx", /needsReview/],
+  ["src/app/(main)/tea/[id]/page.tsx", /canViewPendingTea|needsReview/],
   ["src/lib/cellar-data.ts", /visibleTeaWhere|needsReview/],
   ["src/app/api/admin/teas/classic/route.ts", /needsReview/],
   ["src/app/api/admin/tasting-notes/promote/route.ts", /needsReview/],

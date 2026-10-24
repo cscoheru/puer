@@ -60,11 +60,15 @@ export async function GET(req: NextRequest) {
   const safeLimit = clampListLimit(limit, { isAdmin });
   const page = clampListPage(requestedPage, { isAdmin });
 
-  // 可见性口径只有一份（src/lib/tea-tier.ts）：「待整理」的茶品除了站长
-  // 与创建者本人，谁都看不见。
-  const where: Record<string, unknown> = {
-    ...visibleTeaWhere({ id: session?.user?.id ?? null, isAdmin }),
-  };
+  // 公开目录的可见性口径只有一份（src/lib/tea-tier.ts）：「待整理」对
+  // 所有人隐藏（含管理员）—— 站长自己搜到的结果也不能有重复。
+  //
+  // 后台的整理队列要看到全部，用 ?includePending=1（仅管理员可用）。
+  const includePending =
+    searchParams.get("includePending") === "1" && isAdmin;
+  const where: Record<string, unknown> = includePending
+    ? {}
+    : visibleTeaWhere();
   if (!session?.user) where.isClassic = true;
   if (brand) where.brand = brand;
   if (year) where.year = parseInt(year);
@@ -113,5 +117,9 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json(tea, { status: 201 });
+  // 明确告诉创建者：这条现在**只有站长看得见**，公开目录里搜不到。
+  return NextResponse.json(
+    { ...tea, pending: true },
+    { status: 201 },
+  );
 }

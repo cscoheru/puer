@@ -60,26 +60,37 @@ export interface TeaViewer {
 }
 
 /**
- * **看得见的茶品**的 where 片段（Prisma）。
+ * **公开目录**里看得见的茶品（Prisma where 片段）。
  *
- * - 管理员 → 全部可见（含待整理，那是他的工作台）
- * - 登录用户 → 经典 + 普通 + **自己建的待整理条目**
- *   （用户刚建的那条不能连自己都看不到，但也不该在整理之前就公开）
- * - 匿名 → 只有经典
+ * 「待整理」对**所有人**隐藏 —— 包括管理员自己。
  *
- * ⚠️ 这是**唯一**一份可见性口径。读点调它，别自己写 `needsReview: false` ——
- * 漏一个就是「待整理的茶品从某个缝里漏出去了」。
+ * ⚠️ 为什么管理员也看不见：站长 2026-10-24 报的「搜出来一堆重复」是**他
+ * 自己在公开页上搜的**。如果管理员在公开页仍能搜到待整理的条目，那条
+ * 抱怨在他自己的视角里就一天都没解决。整理队列在后台（`/admin/teas`
+ * 的「只看待整理」），那里本来就该看到全部。
+ *
+ * 详情页是另一回事：直链进去时，创建者本人与站长仍然看得到（见
+ * `canViewPendingTea`）—— 那是「我刚建的那条，让我看一眼」，不是
+ * 「公开目录里混着重复条目」。
+ *
+ * ⚠️ 这是**唯一**一份公开可见性口径。读点调它，别自己写
+ * `needsReview: false` —— 漏一个就是「待整理的茶品从某个缝里漏出去了」。
  */
-export function visibleTeaWhere(viewer: TeaViewer): Record<string, unknown> {
-  if (viewer.isAdmin) return {};
-  if (!viewer.id) return { needsReview: false };
-  return {
-    OR: [
-      { needsReview: false },
-      // 自己建的待整理条目：自己看得见，别人看不见
-      { needsReview: true, createdBy: viewer.id },
-    ],
-  };
+export function visibleTeaWhere(): Record<string, unknown> {
+  return { needsReview: false };
+}
+
+/**
+ * 详情页的可见性：待整理的条目，创建者本人与站长看得到。
+ */
+export function canViewPendingTea(
+  tea: { createdBy: string; isClassic: boolean; needsReview: boolean },
+  viewer: TeaViewer | null,
+): boolean {
+  if (!tea.needsReview) return true;
+  if (!viewer) return false;
+  if (viewer.isAdmin) return true;
+  return tea.createdBy === viewer.id;
 }
 
 /**

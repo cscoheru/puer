@@ -43,10 +43,10 @@ export default async function TeaListPage({ searchParams }: PageProps) {
   const parsedPage = Number.parseInt(params.page || "1", 10);
   const page = Math.min(Math.max(1, Number.isFinite(parsedPage) ? parsedPage : 1), 500);
 
-  // 「待整理」的茶品不在公开库里（站长的工作台不算公开页）。
+  // 「待整理」的茶品不在公开库里 —— 对所有人隐藏，包括管理员自己。
   const where: Record<string, unknown> = {
     deletedAt: null,
-    ...visibleTeaWhere({ id: session?.user?.id ?? null, isAdmin }),
+    ...visibleTeaWhere(),
   };
   if (classicOnly) where.isClassic = true;
   if (brand) where.brand = brand;

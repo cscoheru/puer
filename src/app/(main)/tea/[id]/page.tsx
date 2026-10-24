@@ -17,6 +17,7 @@ import { isMirrorNoteLive } from "@/lib/tasting-note-plan";
 import { getEditorLine } from "@/lib/editor-line-data";
 import EditorLineView from "@/components/tea/editor-line";
 import { can } from "@/lib/permissions";
+import { canViewPendingTea } from "@/lib/tea-tier";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   // 否则 404 的 HTML 里还带着茶名/厂牌/年份（跟上面那段注释说的是同一件事）。
   if (tea.needsReview) {
     const s = await auth();
-    if (!can(s?.user, "admin:access") && tea.createdBy !== s?.user?.id) {
+    const v = s?.user ? { id: s.user.id, isAdmin: can(s.user, "admin:access") } : null;
+    if (!canViewPendingTea(tea, v)) {
       return { title: "茶品未找到", robots: { index: false, follow: false } };
     }
   }
@@ -99,9 +101,9 @@ export default async function TeaDetailPage({ params }: PageProps) {
   if (!tea.isClassic && !session?.user) {
     redirect(`/login?next=${encodeURIComponent(`/tea/${id}`)}`);
   }
-  // 「待整理」的茶品：只有站长与创建者本人看得见 —— 别人看到的是 404
+  // 「待整理」的茶品：直链进来时，创建者本人与站长看得见；别人是 404
   // （不是 403：「它存在但你不能看」本身就是信息）。
-  if (tea.needsReview && !isAdmin && tea.createdBy !== session?.user?.id) {
+  if (!canViewPendingTea(tea, session?.user ? { id: session.user.id, isAdmin } : null)) {
     notFound();
   }
 

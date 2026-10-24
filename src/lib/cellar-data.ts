@@ -934,9 +934,10 @@ export async function searchCellarTeas(
   // 可见性口径只有一份（src/lib/tea-tier.ts）。
   // ⚠️ where 的**顶层**不能有两个 OR —— 所以关键词匹配与可见性条件
   // 一起放进 AND 里，OR 各自嵌在自己的元素中。
-  const visibility = visibleTeaWhere(
-    opts.viewer ?? { id: null, isAdmin: false },
-  );
+  // 公开目录口径：「待整理」对所有人隐藏。管理员要在并库里找待整理的
+  // 条目时，用 viewer.isAdmin 显式打开。
+  const visibility =
+    opts.viewer?.isAdmin === true ? {} : visibleTeaWhere();
   const teas = await prisma.tea.findMany({
     where: {
       deletedAt: null,

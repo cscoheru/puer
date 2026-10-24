@@ -40,7 +40,7 @@ export default function AdminClassicsPage() {
   const [mergeTarget, setMergeTarget] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    fetch("/api/teas?limit=9999")
+    fetch("/api/teas?limit=9999&includePending=1")
       .then((r) => r.json())
       .then((data) => setTeas(data.teas || []))
       .catch(() => setMessage("加载失败"))
@@ -159,7 +159,7 @@ export default function AdminClassicsPage() {
       setMessage(`✓ 已独立为新茶品（归档待审）：${name || noteTitle}`);
       setOpenNotes((prev) => { const n = { ...prev }; delete n[fromTeaId]; return n; });
       // 拉最新列表（含新茶品与计数）
-      fetch("/api/teas?limit=9999").then((r) => r.json()).then((d) => setTeas(d.teas || [])).catch(() => {});
+      fetch("/api/teas?limit=9999&includePending=1").then((r) => r.json()).then((d) => setTeas(d.teas || [])).catch(() => {});
     } else {
       const err = await res.json().catch(() => ({}));
       setMessage(err.error || "拆分失败");
