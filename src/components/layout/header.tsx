@@ -207,6 +207,16 @@ export default function Header() {
               <Link href="/settings" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-600 hover:bg-amber-50 transition min-h-[44px] flex items-center">
                 ⚙️ {_("设置")}
               </Link>
+              {/* 规则与条款：桌面端在侧栏底部，手机端侧栏不显示 —— 没有别处的入口 */}
+              <Link href="/rules" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-600 hover:bg-amber-50 transition min-h-[44px] flex items-center">
+                📜 {_("社区规则")}
+              </Link>
+              <Link href="/privacy" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-600 hover:bg-amber-50 transition min-h-[44px] flex items-center">
+                🔒 {_("隐私政策")}
+              </Link>
+              <Link href="/help" onClick={closeMenu} className="block py-3 px-3 -mx-3 rounded-lg text-stone-600 hover:bg-amber-50 transition min-h-[44px] flex items-center">
+                ❓ {_("帮助")}
+              </Link>
             </div>
           )}
         </div>

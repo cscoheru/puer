@@ -151,7 +151,16 @@ export default async function ForumSidebar({ locale: forcedLocale }: { locale?: 
 
   return (
     <aside className="w-56 lg:w-64 shrink-0 hidden lg:block">
-      <div className="sticky top-20 space-y-3">
+      {/*
+        侧栏比视口高（社区版块是全量列表）+ sticky → 底部（社区规则/隐私政策）
+        永远够不着：sticky 元素一旦比视口高，它就钉在顶部，超出视口的部分
+        永远滚不到。
+
+        所以给它一个「视口高度 - 顶部偏移」的上限，让**侧栏自己**能滚。
+        不加 overscroll-contain：侧栏滚到底之后，滚轮继续交还给页面
+        （不加会卡在边界上）。
+      */}
+      <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto space-y-3 [scrollbar-width:thin]">
         {/* 导航 */}
         <nav className="bg-white border border-stone-200 rounded-lg p-2">
           {NAV_ITEMS.map((item) => (
