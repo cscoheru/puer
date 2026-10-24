@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { ROLES, ROLE_LABELS, isKnownRole } from "@/lib/permissions";
+import { generateTempPassword, MIN_PASSWORD_LENGTH } from "@/lib/password-reset";
 
 interface User {
   id: string;
@@ -24,6 +25,22 @@ interface User {
   role: string;
   createdAt: string;
   _count: { articles: number; comments: number };
+}
+
+/** 待处理的密码重置申请（用户在登录页点「忘记密码」留下的）。 */
+interface ResetRequest {
+  id: string;
+  note: string | null;
+  createdAt: string;
+  user: { id: string; uid: number | null; username: string; email: string };
+}
+
+/** 正在重置密码的对象：直接重置某个用户，或处理一条申请。 */
+interface ResetTarget {
+  userId: string;
+  username: string;
+  uid: number | null;
+  requestId?: string;
 }
 
 const LEVEL_COLORS = [
@@ -49,7 +66,32 @@ export default function AdminUsersPage() {
   const [createForm, setCreateForm] = useState({ username: "", password: "", role: "user" as "user" | "admin" });
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createdUid, setCreatedUid] = useState<number | null>(null);
+  // 密码重置
+  const [resetRequests, setResetRequests] = useState<ResetRequest[]>([]);
+  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
   const limit = 20;
+
+  const fetchResetRequests = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/password-resets");
+      if (!res.ok) return;
+      const data = await res.json();
+      setResetRequests(Array.isArray(data.requests) ? data.requests : []);
+    } catch {
+      setResetRequests([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // promise 链写法（与下面 level-config 那个一致）：setState 在回调里，
+    // 不在 effect 体里同步调用。
+    fetch("/api/admin/password-resets")
+      .then((r) => (r.ok ? r.json() : { requests: [] }))
+      .then((d) => setResetRequests(Array.isArray(d.requests) ? d.requests : []))
+      .catch(() => setResetRequests([]));
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -165,6 +207,42 @@ export default function AdminUsersPage() {
     }
   };
 
+  /** 打开重置弹窗。requestId 有值 = 处理一条申请，否则 = 直接重置该用户。 */
+  const openReset = (t: ResetTarget) => {
+    setResetTarget(t);
+    setResetPassword("");
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetTarget || resetPassword.length < 6) return;
+    setResetBusy(true);
+    try {
+      const url = resetTarget.requestId
+        ? `/api/admin/password-resets/${resetTarget.requestId}`
+        : `/api/admin/users/${resetTarget.userId}/password`;
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: resetPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "重置失败");
+        return;
+      }
+      setMessage(
+        `已重置「${resetTarget.username}」的密码，请把新密码告知本人。`,
+      );
+      setResetTarget(null);
+      setResetPassword("");
+      fetchResetRequests();
+    } catch {
+      setMessage("重置失败");
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
   const totalPages = Math.ceil(total / limit);
 
   const handleCreateUser = async () => {
@@ -260,6 +338,59 @@ export default function AdminUsersPage() {
         </div>
       )}
 
+      {/* 重置密码弹窗 */}
+      {resetTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => !resetBusy && setResetTarget(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-stone-800 mb-1">
+              重置「{resetTarget.username}」的密码
+            </h3>
+            <p className="text-xs text-stone-500 mb-3">
+              {resetTarget.uid != null && `UID #${resetTarget.uid} · `}
+              新密码至少 6 位。站内没有邮件通道，请把新密码另行告知本人。
+            </p>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+                placeholder="新密码"
+                autoComplete="off"
+                className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-300 font-mono"
+              />
+              <button
+                onClick={() => setResetPassword(generateTempPassword())}
+                className="px-3 py-1.5 text-xs border border-stone-200 rounded-lg hover:bg-stone-50 transition"
+              >
+                随机生成
+              </button>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <button
+                onClick={() => setResetTarget(null)}
+                disabled={resetBusy}
+                className="px-3 py-1.5 text-sm text-stone-500 hover:text-stone-700"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleResetPassword}
+                disabled={resetBusy || resetPassword.length < MIN_PASSWORD_LENGTH}
+                className="px-4 py-1.5 text-sm bg-amber-800 text-white rounded-lg hover:bg-amber-900 disabled:opacity-50"
+              >
+                {resetBusy ? "重置中..." : "确认重置"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="bg-white border border-stone-200 rounded-lg p-4 mb-4 flex flex-wrap items-center gap-3">
         <input
@@ -310,6 +441,54 @@ export default function AdminUsersPage() {
         <p className="mb-4 p-3 bg-amber-50 text-amber-800 rounded-lg text-sm">
           {message}
         </p>
+      )}
+
+      {/* 密码重置申请：用户在登录页点「忘记密码」留下的 */}
+      {resetRequests.length > 0 && (
+        <div className="bg-white border border-amber-300 rounded-lg p-4 mb-4">
+          <h2 className="text-sm font-semibold text-stone-800 mb-3">
+            密码重置申请（{resetRequests.length}）
+          </h2>
+          <p className="text-xs text-stone-500 mb-3">
+            站内没有邮件通道，用户提交申请后需要你重置密码并另行告知本人。
+          </p>
+          <div className="space-y-2">
+            {resetRequests.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-wrap items-center gap-3 border border-stone-100 rounded-lg px-3 py-2"
+              >
+                <div className="flex-1 min-w-[200px]">
+                  <p className="text-sm text-stone-800">
+                    {r.user.username}
+                    <span className="ml-2 text-xs text-stone-400">
+                      #{r.user.uid ?? "-"} · {r.user.email}
+                    </span>
+                  </p>
+                  {r.note && (
+                    <p className="text-xs text-stone-500 mt-0.5">说明：{r.note}</p>
+                  )}
+                  <p className="text-[0.65rem] text-stone-400 mt-0.5">
+                    申请于 {r.createdAt.slice(0, 16).replace("T", " ")}
+                  </p>
+                </div>
+                <button
+                  onClick={() =>
+                    openReset({
+                      userId: r.user.id,
+                      username: r.user.username,
+                      uid: r.user.uid,
+                      requestId: r.id,
+                    })
+                  }
+                  className="px-3 py-1.5 text-xs bg-amber-800 text-white rounded-lg hover:bg-amber-900 transition"
+                >
+                  重置密码
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {loading ? (
@@ -423,6 +602,19 @@ export default function AdminUsersPage() {
                           >
                             查看
                           </Link>
+                          <button
+                            onClick={() =>
+                              openReset({
+                                userId: u.id,
+                                username: u.username,
+                                uid: u.uid,
+                              })
+                            }
+                            className="px-2 py-1 text-xs text-stone-500 hover:text-amber-700 hover:bg-amber-50 rounded transition"
+                            title="重置该用户的密码"
+                          >
+                            重置密码
+                          </button>
                           {u.isSynthetic ? (
                             <button
                               onClick={() => handleSyntheticToggle(u.id, false)}

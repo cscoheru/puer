@@ -23,6 +23,40 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // 忘记密码：站内没有邮件通道，所以是「提交申请 → 管理员在后台重置」。
+  const [forgot, setForgot] = useState(false);
+  const [forgotNote, setForgotNote] = useState("");
+  const [forgotMsg, setForgotMsg] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!account.trim()) {
+      setForgotMsg("请先填写你的账号");
+      return;
+    }
+    setForgotBusy(true);
+    setForgotMsg("");
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account: account.trim(), note: forgotNote.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setForgotMsg(data.error || "提交失败，请稍后再试");
+        return;
+      }
+      setForgotMsg(data.message || "已收到你的密码重置申请，站长会尽快处理。");
+      setForgotNote("");
+    } catch {
+      setForgotMsg("提交失败，请稍后再试");
+    } finally {
+      setForgotBusy(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -56,6 +90,64 @@ export default function LoginPage() {
           <p className="text-stone-500 mt-2 text-sm md:text-base">以茶会友，品鉴真味</p>
         </div>
 
+        {forgot ? (
+          <form onSubmit={handleForgot} className="space-y-5">
+            <div>
+              <h2 className="text-sm font-medium text-stone-700">忘记密码</h2>
+              <p className="text-xs text-stone-500 mt-1 leading-relaxed">
+                填写你的账号提交申请，站长会帮你重置密码并另行告知。
+                申请结果会通过站内通知告诉你。
+              </p>
+            </div>
+
+            {forgotMsg && (
+              <div className="p-3 text-sm text-amber-800 bg-amber-50 rounded-lg border border-amber-200">
+                {forgotMsg}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">账号</label>
+              <input
+                type="text"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
+                placeholder="UID、用户名或邮箱"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                补充说明（可选）
+              </label>
+              <textarea
+                value={forgotNote}
+                onChange={(e) => setForgotNote(e.target.value)}
+                rows={2}
+                maxLength={200}
+                placeholder="怎么联系你、最近一次能登录是什么时候…"
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition resize-none"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={forgotBusy}
+              className="w-full py-2.5 bg-amber-800 hover:bg-amber-900 text-white rounded-lg font-medium transition disabled:opacity-50"
+            >
+              {forgotBusy ? "提交中..." : "提交重置申请"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setForgot(false); setForgotMsg(""); setError(""); }}
+              className="w-full text-sm text-stone-500 hover:text-stone-700 transition"
+            >
+              返回登录
+            </button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
             <div className="p-3 text-sm text-red-700 bg-red-50 rounded-lg border border-red-200">
@@ -94,7 +186,18 @@ export default function LoginPage() {
           >
             {loading ? "登录中..." : "登录"}
           </button>
+
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => { setForgot(true); setError(""); }}
+              className="text-sm text-stone-500 hover:text-amber-800 transition"
+            >
+              忘记密码？
+            </button>
+          </div>
         </form>
+        )}
 
         <p className="text-center text-sm text-stone-500 mt-6">
           还没有账号？{" "}

@@ -3,6 +3,8 @@ import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_LOGIN } from "@/lib/rate-limit";
+import { findUserByAccount } from "@/lib/user-lookup";
+import { sessionInvalidated } from "@/lib/password-reset";
 
 // Simple in-memory cache for auth user data (30s TTL)
 const authCache = new Map<string, { data: AuthCacheData; expiresAt: number }>();
@@ -17,6 +19,8 @@ interface AuthCacheData {
   nickname: string | null;
   /** 系统控制的账号（自动发布号等）。权限层用它挡住后台权限。 */
   isSynthetic: boolean;
+  /** 密码最后修改时刻 —— 用来作废改密前的旧会话。 */
+  passwordChangedAt: Date | null;
 }
 
 function getCachedUser(id: string): AuthCacheData | null {
@@ -53,19 +57,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const { allowed } = checkRateLimit(rateLimitKey(ip, "login"), LIMIT_LOGIN);
         if (!allowed) return null;
 
-        const input = (credentials.email as string).trim();
-        // 4-digit number → UID; otherwise try username first, then email
-        const isUid = /^\d{4}$/.test(input);
-
-        let user = null;
-        if (isUid) {
-          user = await prisma.user.findUnique({ where: { uid: parseInt(input, 10) } });
-        } else {
-          user = await prisma.user.findUnique({ where: { username: input } });
-          if (!user) {
-            user = await prisma.user.findUnique({ where: { email: input } });
-          }
-        }
+        // 账号解析（UID / 用户名 / 邮箱）只有一份 —— 登录与「忘记密码」
+        // 共用 user-lookup.ts，口径分叉会出现「能登录却申请不了重置」。
+        const user = await findUserByAccount(credentials.email as string);
 
         if (!user || !user.passwordHash) return null;
 
@@ -101,6 +95,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const cached = getCachedUser(token.id as string);
         if (cached) {
           if (cached.banStatus === "banned") return null;
+          // 改密后旧会话失效（JWT 是无状态的，只能靠签发时刻来判）
+          if (sessionInvalidated(cached.passwordChangedAt, token.iat)) return null;
           token.level = cached.level;
           token.role = cached.role;
           token.picture = cached.avatar;
@@ -110,10 +106,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         } else {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { level: true, role: true, avatar: true, banStatus: true, uid: true, nickname: true, isSynthetic: true },
+            select: { level: true, role: true, avatar: true, banStatus: true, uid: true, nickname: true, isSynthetic: true, passwordChangedAt: true },
           });
           if (dbUser) {
             if (dbUser.banStatus === "banned") return null;
+            if (sessionInvalidated(dbUser.passwordChangedAt, token.iat)) return null;
             token.level = dbUser.level;
             token.role = dbUser.role;
             token.picture = dbUser.avatar;
@@ -128,6 +125,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               uid: dbUser.uid,
               nickname: dbUser.nickname,
               isSynthetic: dbUser.isSynthetic,
+              passwordChangedAt: dbUser.passwordChangedAt,
             });
           }
         }

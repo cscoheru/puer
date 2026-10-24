@@ -69,6 +69,7 @@ export const LIMIT_API_GENERAL = { max: 60, windowMs: 60 * 1000 };     // 60 per
 export const LIMIT_POST = { max: 10, windowMs: 60 * 60 * 1000 };       // 10 posts per hour
 export const LIMIT_QA = { max: 6, windowMs: 60 * 1000 };               // 6 Q&A per minute (LLM cost)
 export const LIMIT_REVIEW = { max: 3, windowMs: 60 * 60 * 1000 };       // 3 manual review requests per hour
+export const LIMIT_FORGOT_PASSWORD = { max: 3, windowMs: 60 * 60 * 1000 }; // 3 password-reset requests per hour
 
 /**
  * 列表接口的账号级限速（PRD v0.3 §8「按 IP 与账号限速」）。
