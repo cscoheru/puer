@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/admin-auth";
+import { invalidateAuthCache } from "@/lib/auth";
 import { RESET_STATUS, resetPasswordSchema } from "@/lib/password-reset";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +75,9 @@ export async function PUT(
       },
     }),
   ]);
+
+  // 立刻作废旧会话（否则 30 秒的 auth 缓存窗口内，旧 token 仍然有效）
+  invalidateAuthCache(request.userId);
 
   return NextResponse.json({ success: true });
 }

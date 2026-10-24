@@ -30,6 +30,17 @@ function getCachedUser(id: string): AuthCacheData | null {
   return null;
 }
 
+/**
+ * 让某个用户的缓存立刻失效。
+ *
+ * 改密码后必须调它：auth 缓存有 30 秒 TTL，不清掉的话，**旧会话在改密后
+ * 还能继续用**（封禁检查也有同样的 30 秒延迟，那是既定取舍；密码不一样 ——
+ * 密码泄露后被改密，30 秒够人把数据搬走）。
+ */
+export function invalidateAuthCache(userId: string): void {
+  authCache.delete(userId);
+}
+
 function setCachedUser(id: string, data: AuthCacheData): void {
   authCache.set(id, { data, expiresAt: Date.now() + AUTH_CACHE_TTL });
   // Evict stale entries when cache grows beyond 500
