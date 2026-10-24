@@ -68,11 +68,20 @@ export interface StorageAnchor {
 }
 
 export const STORAGE_ANCHORS: readonly StorageAnchor[] = [
-  { score: 45, label: "标准偏干", desc: "（占位）仓储偏干，转化慢但不易霉变" },
-  { score: 50, label: "标准仓", desc: "（占位）不干不湿，转化节奏正常" },
-  { score: 55, label: "标准偏湿", desc: "（占位）仓储偏湿，转化快，需留意霉变" },
+  { score: 45, label: "偏干", desc: "（占位）仓储偏干，转化慢但不易霉变" },
+  { score: 50, label: "标准干仓", desc: "（占位）干仓，转化节奏正常" },
+  { score: 55, label: "偏湿", desc: "（占位）仓储偏湿，转化快，需留意霉变" },
   { score: 60, label: "湿仓", desc: "（占位）湿仓，转化快，适合即饮" },
 ] as const;
+
+/**
+ * 档名的两个**分界点**（2026-10-24 站长定的口径）。
+ *
+ * 「标准干仓」是 50、「偏湿」是 55 —— 这两个数既是锚点，也是档名分段
+ * 的边界。「必须与锚点一致」这条由 `src/lib/cellar.test.ts` 钉住。
+ */
+export const STORAGE_DRY_SCORE = 50;
+export const STORAGE_WET_SCORE = 55;
 
 /** 仓储评分的取值范围（DB 里有同款 CHECK 约束）。 */
 export const STORAGE_SCORE_MIN = 45;
@@ -123,37 +132,28 @@ export function normalizeStorageScore(raw: unknown): number | null {
 }
 
 /**
- * 找最接近的锚点。
+ * 仓储评分的**档名**（标尺读数、列表徽章、详情页、导出都用它）。
  *
- * 整数分值下四个锚点的中点是 47.5 / 52.5 / 57.5，落在两个整数之间，
- * 所以**不会出现平局**，不需要额外的 tie-break 规则。
+ * 2026-10-24 站长定的口径 —— 锚点是四个**参考点**，档名是把数轴分段后
+ * 的说法：
  *
- * 非整数输入（真要有人传 47.5 进来）正好落在两个锚点的正中，此时取
- * **较低**的那个 —— 比较是严格小于且锚点按分数升序，先遇到的那个赢。
- */
-export function storageAnchorOf(score: number | null): StorageAnchor | null {
-  if (score === null) return null;
-  let best: StorageAnchor | null = null;
-  let bestDist = Infinity;
-  for (const a of STORAGE_ANCHORS) {
-    const d = Math.abs(a.score - score);
-    if (d < bestDist) {
-      bestDist = d;
-      best = a;
-    }
-  }
-  return best;
-}
-
-/**
- * 仓储评分的标签 —— 取**最近参考点**的名字。
+ *   45–49   标准偏干
+ *   50      标准干仓
+ *   51–54   标准偏湿
+ *   55      偏湿
+ *   56–60   湿仓
  *
- * 不是「分档」：评分是连续数轴，45 和 47 都落在「标准偏干」这一侧，
- * 但它们是不同的仓储状态。所以展示时必须**连数字一起给**（见
- * `storageScoreLabel`），只给标签会把两个不同的分数说成同一个。
+ * ⚠️ 档名**不是**最近锚点的名字：47 的最近锚点是 45（「偏干」），
+ * 但 47 落在「标准偏干」这一段。锚点名是**那个点**的名字，档名是
+ * **那一段**的名字 —— 两套说法，别混。
  */
 export function storageBandLabel(score: number | null): string {
-  return storageAnchorOf(score)?.label ?? "未记录";
+  if (score === null) return "未记录";
+  if (score < STORAGE_DRY_SCORE) return "标准偏干";
+  if (score === STORAGE_DRY_SCORE) return "标准干仓";
+  if (score < STORAGE_WET_SCORE) return "标准偏湿";
+  if (score === STORAGE_WET_SCORE) return "偏湿";
+  return "湿仓";
 }
 
 /**

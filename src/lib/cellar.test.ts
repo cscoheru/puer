@@ -15,7 +15,6 @@ import {
   nextTastingDefaults,
   overallScore,
   parseDims,
-  storageAnchorOf,
   storageBandLabel,
   storageScalePercent,
   storageScoreLabel,
@@ -31,6 +30,8 @@ import {
   cellarCsvCell,
   STORAGE_ANCHORS,
   STORAGE_DEFAULT_SCORE,
+  STORAGE_DRY_SCORE,
+  STORAGE_WET_SCORE,
   STORAGE_SCORE_MAX,
   STORAGE_SCORE_MIN,
   type ExportItem,
@@ -56,23 +57,35 @@ test("仓储评分拒绝越界、非整数与非数字", () => {
   assert.equal(normalizeStorageScore(""), null);
 });
 
-test("中间值归到最近的锚点（整数下无平局）", () => {
-  assert.equal(storageAnchorOf(45)?.score, 45);
-  assert.equal(storageAnchorOf(47)?.score, 45);
-  assert.equal(storageAnchorOf(48)?.score, 50);
-  assert.equal(storageAnchorOf(52)?.score, 50);
-  assert.equal(storageAnchorOf(53)?.score, 55);
-  assert.equal(storageAnchorOf(57)?.score, 55);
-  assert.equal(storageAnchorOf(58)?.score, 60);
-  assert.equal(storageAnchorOf(null), null);
-});
-
-test("储仓分档名", () => {
+test("储仓档名按站长定的分段（不是最近锚点的名字）", () => {
+  // 45–49 标准偏干 / 50 标准干仓 / 51–54 标准偏湿 / 55 偏湿 / 56–60 湿仓
   assert.equal(storageBandLabel(45), "标准偏干");
-  assert.equal(storageBandLabel(50), "标准仓");
-  assert.equal(storageBandLabel(55), "标准偏湿");
+  assert.equal(storageBandLabel(49), "标准偏干");
+  assert.equal(storageBandLabel(50), "标准干仓");
+  assert.equal(storageBandLabel(51), "标准偏湿");
+  assert.equal(storageBandLabel(54), "标准偏湿");
+  assert.equal(storageBandLabel(55), "偏湿");
+  assert.equal(storageBandLabel(56), "湿仓");
   assert.equal(storageBandLabel(60), "湿仓");
   assert.equal(storageBandLabel(null), "未记录");
+});
+
+test("档名的分界点就是那两个锚点（改了锚点要一起改）", () => {
+  assert.equal(
+    STORAGE_ANCHORS.find((a) => a.score === STORAGE_DRY_SCORE)?.label,
+    "标准干仓",
+  );
+  assert.equal(
+    STORAGE_ANCHORS.find((a) => a.score === STORAGE_WET_SCORE)?.label,
+    "偏湿",
+  );
+});
+
+test("锚点的名字：偏干 / 标准干仓 / 偏湿 / 湿仓", () => {
+  assert.deepEqual(
+    STORAGE_ANCHORS.map((a) => `${a.score} ${a.label}`),
+    ["45 偏干", "50 标准干仓", "55 偏湿", "60 湿仓"],
+  );
 });
 
 // ─── 仓储是一条数轴，不是四个档位 ─────────────────────────────────────────
@@ -129,15 +142,11 @@ test("标尺位置与规整用同一套口径：不合法分一律 null", () => 
   );
 });
 
-test("最近锚点正好在正中间时取较低的那个", () => {
-  assert.equal(storageAnchorOf(47.5)?.score, 45);
-});
-
-test("未记录时滑块停在标准仓（不是几何中点）", () => {
+test("未记录时滑块停在标准干仓（不是几何中点）", () => {
   assert.equal(
-    STORAGE_ANCHORS.find((a) => a.label === "标准仓")?.score,
+    STORAGE_ANCHORS.find((a) => a.label === "标准干仓")?.score,
     STORAGE_DEFAULT_SCORE,
-    "默认停靠点必须就是「标准仓」那个锚点",
+    "默认停靠点必须就是「标准干仓」那个锚点",
   );
   assert.notEqual(
     STORAGE_DEFAULT_SCORE,
@@ -547,7 +556,7 @@ test("表头与数据列一一对应（改表头不会错位）", () => {
   );
   assert.equal(map["条目ID"], "ci1");
   assert.equal(map["仓储评分"], 50);
-  assert.equal(map["仓储档"], "标准仓");
+  assert.equal(map["仓储档"], "标准干仓");
   assert.equal(map["仓储评分人"], "self");
   assert.equal(map["仓储期序号"], 1);
   assert.equal(map["仓储期数"], 1);
