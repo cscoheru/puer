@@ -47,6 +47,8 @@ interface TeaRow {
   isClassic: boolean;
   needsReview: boolean;
   refs: number;
+  /** 有行情快照 = 有权威参照（东和数据），不是空壳。 */
+  hasMarket: boolean;
 }
 
 /** 一条茶品被引用了多少次（品鉴笔记 + 帖子 + 茶仓条目）。 */
@@ -68,6 +70,7 @@ async function main() {
       year: true,
       isClassic: true,
       needsReview: true,
+      marketInfo: true,
       _count: { select: { tastingNotes: true, articles: true, cellarItems: true } },
     },
   });
@@ -80,6 +83,7 @@ async function main() {
     isClassic: t.isClassic,
     needsReview: t.needsReview,
     refs: refCount(t),
+    hasMarket: t.marketInfo != null,
   }));
 
   // ── ① 重复组：按归一化名分组 ──
@@ -107,14 +111,24 @@ async function main() {
     for (const t of sorted.slice(1)) {
       if (t.isClassic) continue; // 经典永远保留
       if (t.needsReview) continue; // 已经是待整理，不重复处理
+      if (t.hasMarket) continue; // 有东和参照，是权威那一层，不动
       dupIds.add(t.id);
     }
     void keeper;
   }
 
   // ── ② 无引用的空壳（非经典）──
+  //
+  // ⚠️ **有行情快照的茶品不算空壳** —— 它们有东和数据的权威参照
+  // （价格/形态/规格齐全），只是站里还没有品鉴笔记。2026-10-24 播种的
+  // 680 款就是这一类：把它们标成「待整理」等于把刚建好的茶品库整个藏起来。
   const shells = teas.filter(
-    (t) => !t.isClassic && t.refs === 0 && !t.needsReview && !dupIds.has(t.id),
+    (t) =>
+      !t.isClassic &&
+      t.refs === 0 &&
+      !t.hasMarket &&
+      !t.needsReview &&
+      !dupIds.has(t.id),
   );
 
   const targets = [
