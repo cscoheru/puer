@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
+
+import { cleanTeaName, sortTeasForMerge } from "@/lib/tea-name-clean";
 
 interface Tea {
   id: string;
@@ -14,6 +16,20 @@ interface Tea {
   needsReview: boolean;
   tastingNoteCount: number;
   _count?: { tastingNotes: number };
+}
+
+/** 回收站里的茶品。 */
+interface TrashTea {
+  id: string;
+  name: string;
+  displayName: string;
+  brand: string;
+  year: number;
+  deletedAt: string | null;
+  refs: number;
+  tastingNotes: number;
+  articles: number;
+  cellarItems: number;
 }
 
 function normalize(s: string) {
@@ -42,6 +58,20 @@ export default function AdminTeasPage() {
   // 勾选待合并的茶品 id + 保留主体 id
   const [selected, setSelected] = useState<string[]>([]);
   const [keepId, setKeepId] = useState<string>("");
+  // 回收站
+  const [trash, setTrash] = useState<TrashTea[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
+
+  const loadTrash = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/teas/trash");
+      if (!res.ok) return;
+      const data = await res.json();
+      setTrash(Array.isArray(data.teas) ? data.teas : []);
+    } catch {
+      setTrash([]);
+    }
+  }, []);
 
   useEffect(() => {
     fetch("/api/teas?limit=9999&includePending=1")
@@ -66,25 +96,47 @@ export default function AdminTeasPage() {
       .sort((a, b) => b.list.length - a.list.length || a.name.localeCompare(b.name, "zh"));
   }, [teas, onlyPending]);
 
+  /** 当前筛选下的全部茶品（「只看待整理」时只留待整理的）。 */
+  const allTeas = useMemo(
+    () => (onlyPending ? teas.filter((t) => t.needsReview) : teas),
+    [teas, onlyPending],
+  );
+
   const pendingCount = useMemo(
     () => teas.filter((t) => t.needsReview).length,
     [teas],
   );
 
-  const activeGroup = useMemo(
-    () => brandGroups.find((g) => g.name === brand) || null,
-    [brandGroups, brand],
-  );
+  /**
+   * 当前要操作的茶品集合。
+   *
+   * 品牌选「全部」时是**全库**（站长 2026-10-24 要求的：不用先选品牌就能
+   * 看到所有茶品并合并）。选具体品牌时是那个品牌。
+   */
+  const activeGroup = useMemo(() => {
+    if (brand === "") {
+      // 全部：按拼音排（名字多以年份开头 → 年份自然聚成一段，同年里
+      // 拼音序 → 相同/相近的名字挨着，便于合并）
+      return { name: "全部", list: sortTeasForMerge(allTeas) };
+    }
+    return brandGroups.find((g) => g.name === brand) || null;
+  }, [brandGroups, brand, allTeas]);
 
-  // 品牌内可见茶品（筛选词）
+  // 可见茶品（筛选词）；按拼音排序，便于把相同/相近的名字排在一起
   const visible = useMemo(() => {
     if (!activeGroup) return [];
-    if (!filter.trim()) return activeGroup.list;
+    const list = sortTeasForMerge(activeGroup.list);
+    if (!filter.trim()) return list;
     const q = filter.trim().toLowerCase();
-    return activeGroup.list.filter((t) => t.name.toLowerCase().includes(q) || String(t.year).includes(q));
+    return list.filter(
+      (t) =>
+        cleanTeaName(t.name).toLowerCase().includes(q) ||
+        String(t.year).includes(q),
+    );
   }, [activeGroup, filter]);
 
-  // 品牌内相似度提示（品牌内 n²，未知品牌 1257 款 ≈79 万次比较，可接受）
+  // 疑似重复：先列**完全同名**的（那些能一键合并），再列相似度达标的。
+  // 品牌内 n²，未知品牌 1257 款 ≈79 万次比较，可接受。
   const pairs = useMemo(() => {
     if (!activeGroup) return [];
     const list = activeGroup.list;
@@ -95,8 +147,133 @@ export default function AdminTeasPage() {
         if (score >= threshold) out.push([list[i], list[j], score]);
       }
     }
-    return out.sort((a, b) => b[2] - a[2]).slice(0, 50);
+    // 完全同名的排前面 —— 它们是可以直接合并的
+    out.sort((a, b) => {
+      const sameA = cleanTeaName(a[0].name) === cleanTeaName(a[1].name);
+      const sameB = cleanTeaName(b[0].name) === cleanTeaName(b[1].name);
+      if (sameA !== sameB) return sameA ? -1 : 1;
+      return b[2] - a[2];
+    });
+    return out.slice(0, 50);
   }, [activeGroup, threshold]);
+
+  /** 「完全同名」的两条 —— 可以一键合并（方向由服务器定：笔记少的并入多的）。 */
+  const sameNamePairs = useMemo(
+    () =>
+      pairs.filter(
+        ([a, b]) => cleanTeaName(a.name) === cleanTeaName(b.name),
+      ),
+    [pairs],
+  );
+
+  /** 移到回收站（软删除：行还在、笔记还在，误删了能捞回来）。 */
+  async function moveToTrash(teaId: string, name: string) {
+    if (!confirm(`把「${name}」移到回收站？\n它会从公开茶品库里消失（笔记还在，可以恢复）。`)) {
+      return;
+    }
+    setMessage("处理中…");
+    try {
+      const res = await fetch("/api/admin/teas/trash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teaId, action: "trash" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "操作失败");
+        return;
+      }
+      setTeas((prev) => prev.filter((t) => t.id !== teaId));
+      setSelected((prev) => prev.filter((id) => id !== teaId));
+      setMessage(`「${name}」已移到回收站`);
+      loadTrash();
+    } catch {
+      setMessage("操作失败");
+    }
+  }
+
+  /** 从回收站恢复。 */
+  async function restoreTea(teaId: string, name: string) {
+    setMessage("处理中…");
+    try {
+      const res = await fetch("/api/admin/teas/trash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teaId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "操作失败");
+        return;
+      }
+      setMessage(`「${name}」已恢复`);
+      loadTrash();
+    } catch {
+      setMessage("操作失败");
+    }
+  }
+
+  /** 彻底删除。 */
+  async function purgeTea(teaId: string, name: string) {
+    if (
+      !confirm(
+        `彻底删除「${name}」？\n` +
+          "**删掉就找不回来了。**\n" +
+          "（挂着笔记的茶品不会被允许删 —— 请先合并到别的茶品上。）",
+      )
+    ) {
+      return;
+    }
+    setMessage("处理中…");
+    try {
+      const res = await fetch("/api/admin/teas/trash", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teaId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "操作失败");
+        return;
+      }
+      setMessage(`「${name}」已彻底删除`);
+      loadTrash();
+    } catch {
+      setMessage("操作失败");
+    }
+  }
+
+  /**
+   * 一键合并**完全同名**的两款。
+   *
+   * 方向由服务器定（笔记少的并入多的）—— 客户端只负责说「这两条合并」。
+   */
+  async function mergeSameName(a: Tea, b: Tea) {
+    if (!confirm(`合并「${cleanTeaName(a.name)}」的两条？\n笔记少的那条会并入笔记多的。`)) {
+      return;
+    }
+    setMessage("合并中…");
+    try {
+      const res = await fetch("/api/admin/teas/merge-same-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idA: a.id, idB: b.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "合并失败");
+        return;
+      }
+      setMessage(
+        `已合并：保留「${data.keepName}」，「${data.removedName}」并入。`,
+      );
+      setTeas((prev) => prev.filter((t) => t.id !== data.removedId));
+      setSelected([]);
+      setKeepId("");
+    } catch {
+      setMessage("合并失败");
+    }
+  }
 
   /** 把茶品移进/移出「待整理」层。 */
   async function curate(teaId: string, needsReview: boolean) {
@@ -177,9 +354,10 @@ export default function AdminTeasPage() {
         <span className="text-stone-600">茶品合并</span>
       </nav>
 
-      <h1 className="text-2xl font-serif font-bold text-stone-800 mb-2">茶品合并（按品牌）</h1>
+      <h1 className="text-2xl font-serif font-bold text-stone-800 mb-2">茶品合并</h1>
       <p className="text-sm text-stone-500 mb-6">
-        选择品牌 → 勾选多款疑似重复 → 指定保留主体（⭐）→ 批量合并。共 {teas.length} 个茶品、{brandGroups.length} 个品牌。
+        选「全部」或某个品牌 → 勾选多款疑似重复 → 指定保留主体（⭐）→ 批量合并。
+        同名的两直接点「一键合并」（笔记少的并入多的）。共 {teas.length} 个茶品、{brandGroups.length} 个品牌。
         {pendingCount > 0 && (
           <span className="ml-2 text-amber-700">待整理 {pendingCount} 款（还没进公开库）</span>
         )}
@@ -199,7 +377,7 @@ export default function AdminTeasPage() {
               onChange={(e) => { setBrand(e.target.value); setSelected([]); setKeepId(""); setFilter(""); }}
               className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg bg-white focus:border-amber-500 outline-none"
             >
-              <option value="">选择品牌…</option>
+              <option value="">全部（{allTeas.length} 款）</option>
               {brandGroups.map((g) => (
                 <option key={g.name} value={g.name}>
                   {g.name}（{g.list.length} 款）
@@ -258,7 +436,9 @@ export default function AdminTeasPage() {
               {/* 品牌内茶品列表 */}
               <div className="bg-white border border-stone-200 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-sm font-medium text-stone-800">{brand} · {activeGroup.list.length} 款</h2>
+                  <h2 className="text-sm font-medium text-stone-800">
+                    {activeGroup.name} · {activeGroup.list.length} 款
+                  </h2>
                   <span className="text-[0.65rem] text-stone-400">☑ 待合并 · ◉ 保留主体</span>
                 </div>
                 <div className="max-h-[32rem] overflow-y-auto space-y-1">
@@ -291,7 +471,7 @@ export default function AdminTeasPage() {
                         />
                         <Link href={`/tea/${t.id}`} target="_blank" className="flex-1 min-w-0 text-xs text-stone-700 hover:text-amber-700 truncate">
                           {isKeep && <span className="mr-0.5">⭐</span>}
-                          {t.name}
+                          {cleanTeaName(t.name)}
                           {t.isClassic && <span className="ml-1 text-amber-700">🏵️</span>}
                           {t.needsReview && (
                             <span className="ml-1 text-[0.65rem] px-1 py-0.5 rounded bg-amber-100 text-amber-800">
@@ -302,6 +482,13 @@ export default function AdminTeasPage() {
                         <span className="text-[0.65rem] text-stone-400 shrink-0">
                           {t.year} · {t._count?.tastingNotes ?? t.tastingNoteCount} 篇
                         </span>
+                        <button
+                          onClick={() => moveToTrash(t.id, cleanTeaName(t.name))}
+                          className="px-1.5 py-0.5 text-[0.65rem] text-stone-400 hover:text-red-600 hover:bg-red-50 rounded transition shrink-0"
+                          title="移到回收站（软删除，可恢复）"
+                        >
+                          回收站
+                        </button>
                         {t.needsReview && (
                           <button
                             onClick={() => curate(t.id, false)}
@@ -336,7 +523,13 @@ export default function AdminTeasPage() {
                 </div>
                 <div className="max-h-[32rem] overflow-y-auto space-y-1.5">
                   {pairs.length === 0 && (
-                    <p className="text-xs text-stone-400 py-4 text-center">该品牌内未发现疑似重复</p>
+                    <p className="text-xs text-stone-400 py-4 text-center">未发现疑似重复</p>
+                  )}
+                  {sameNamePairs.length > 0 && (
+                    <p className="text-[0.65rem] text-amber-700 pb-1">
+                      其中 {sameNamePairs.length} 对**名称完全一样** —— 点「一键合并」即可
+                      （笔记少的并入多的，方向由服务器定）。
+                    </p>
                   )}
                   {pairs.map(([a, b, score], i) => (
                     <div key={i} className="flex items-center gap-2 border border-stone-100 rounded-lg px-2.5 py-1.5">
@@ -346,12 +539,22 @@ export default function AdminTeasPage() {
                           相似 {(score * 100).toFixed(0)}% · {a.year}/{b.year} · {(a._count?.tastingNotes ?? a.tastingNoteCount) + (b._count?.tastingNotes ?? b.tastingNoteCount)} 篇
                         </div>
                       </div>
-                      <button
-                        onClick={() => pickPair(a.id, b.id)}
-                        className="px-2 py-1 text-[0.65rem] border border-amber-300 text-amber-800 rounded hover:bg-amber-50 shrink-0"
-                      >
-                        勾选这对
-                      </button>
+                      {cleanTeaName(a.name) === cleanTeaName(b.name) ? (
+                        <button
+                          onClick={() => mergeSameName(a, b)}
+                          className="px-2 py-1 text-[0.65rem] bg-amber-800 text-white rounded hover:bg-amber-900 shrink-0"
+                          title="名称完全一样 —— 笔记少的那条直接并入笔记多的"
+                        >
+                          一键合并
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => pickPair(a.id, b.id)}
+                          className="px-2 py-1 text-[0.65rem] border border-amber-300 text-amber-800 rounded hover:bg-amber-50 shrink-0"
+                        >
+                          勾选这对
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -360,6 +563,74 @@ export default function AdminTeasPage() {
           ) : (
             <p className="text-stone-400 text-sm py-8 text-center">从上方选择一个品牌开始合并管理</p>
           )}
+
+          {/* 回收站 */}
+          <div className="mt-6 bg-white border border-stone-200 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-medium text-stone-800">
+                回收站（{trash.length}）
+              </h2>
+              <button
+                onClick={() => {
+                  const next = !showTrash;
+                  setShowTrash(next);
+                  if (next) loadTrash();
+                }}
+                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg text-stone-600 hover:border-stone-300 transition"
+              >
+                {showTrash ? "收起" : "展开"}
+              </button>
+            </div>
+            {showTrash && (
+              trash.length === 0 ? (
+                <p className="text-xs text-stone-400 py-3 text-center">
+                  回收站是空的
+                </p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto space-y-1">
+                  {trash.map((t) => (
+                    <div
+                      key={t.id}
+                      className="flex items-center gap-2 border border-stone-100 rounded-lg px-2.5 py-1.5"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-stone-700 truncate">
+                          {t.displayName}
+                        </div>
+                        <div className="text-[0.65rem] text-stone-400">
+                          {t.brand} {t.year} · 笔记 {t.tastingNotes} · 帖子{" "}
+                          {t.articles} · 茶仓 {t.cellarItems}
+                          {t.refs > 0 && (
+                            <span className="text-amber-700">
+                              　有内容，不能彻底删除
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => restoreTea(t.id, t.displayName)}
+                        className="px-2 py-1 text-[0.65rem] border border-stone-200 text-stone-600 rounded hover:bg-stone-50 shrink-0"
+                      >
+                        恢复
+                      </button>
+                      <button
+                        onClick={() => purgeTea(t.id, t.displayName)}
+                        disabled={t.refs > 0}
+                        className="px-2 py-1 text-[0.65rem] border border-red-200 text-red-600 rounded hover:bg-red-50 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={
+                          t.refs > 0
+                            ? "还挂着内容 —— 先合并到别的茶品上"
+                            : "彻底删除（找不回来了）"
+                        }
+                      >
+                        彻底删除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
         </>
       )}
     </div>
