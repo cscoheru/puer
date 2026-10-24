@@ -48,6 +48,8 @@ interface ResetRequest {
   summary: { match: number; close: number; mismatch: number; unknown: number; total: number };
   /** 提交申请时的 IP。 */
   requestIp: string | null;
+  /** 申请 IP 反查出来的省份（查不到就是 null）。 */
+  requestRegion: string | null;
   createdAt: string;
   user: {
     id: string;
@@ -114,8 +116,8 @@ export default function AdminUsersPage() {
   // 密码重置
   const [resetRequests, setResetRequests] = useState<ResetRequest[]>([]);
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
-  /** 批准后拿到的一次性重置码（明文只在这里出现一次）。 */
-  const [resetCode, setResetCode] = useState<string | null>(null);
+  /** 批准/发起之后 —— 弹窗切到「已完成」态。 */
+  const [resetDone, setResetDone] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
   const limit = 20;
 
@@ -256,12 +258,14 @@ export default function AdminUsersPage() {
   /** 打开重置弹窗。requestId 有值 = 处理一条申请，否则 = 直接重置该用户。 */
   const openReset = (t: ResetTarget) => {
     setResetTarget(t);
-    setResetCode(null);
+    setResetDone(false);
   };
 
   /**
-   * 批准一条申请 / 直接给某人发起重置 —— 两种都是**发一个重置码**，
-   * 密码由本人自己设。管理员从头到尾不碰别人的密码。
+   * 批准一条申请 / 直接给某人发起重置。
+   *
+   * 管理员**从头到尾不碰别人的密码**：批准 = 启用**用户申请时自设**的新密码；
+   * 直接发起 = 给这个账号开一条「管理员作保」的重置，让用户自己在登录页设。
    */
   const handleResetPassword = async () => {
     if (!resetTarget) return;
@@ -280,11 +284,11 @@ export default function AdminUsersPage() {
         setMessage(data.error || "操作失败");
         return;
       }
-      setResetCode(data.code ?? null);
+      setResetDone(true);
       setMessage(
         resetTarget.requestId
-          ? `已批准「${resetTarget.username}」的申请。`
-          : `已给「${resetTarget.username}」发起密码重置。`,
+          ? `已批准「${resetTarget.username}」的申请 —— 他申请时设的新密码已生效。`
+          : `已给「${resetTarget.username}」发起密码重置 —— 他到登录页的「忘记密码」自己设新密码即可。`,
       );
       fetchResetRequests();
     } catch {
@@ -430,43 +434,45 @@ export default function AdminUsersPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-sm font-semibold text-stone-800 mb-1">
-              {resetCode ? "重置码" : `给「${resetTarget.username}」发起密码重置`}
+              {resetDone
+                ? "已完成"
+                : resetTarget.requestId
+                  ? `批准「${resetTarget.username}」的重置申请`
+                  : `给「${resetTarget.username}」发起密码重置`}
             </h3>
-            {resetCode ? (
-              <>
-                <p className="text-xs text-stone-500 mb-2">
-                  这是**一次性**重置码，已经同时发到对方的站内通知里。
-                  对方到登录页的「忘记密码 → 我有重置码」用它自己设新密码。
-                </p>
-                <div className="px-3 py-2 border border-amber-300 bg-amber-50 rounded-lg font-mono text-sm tracking-wider break-all select-all">
-                  {resetCode}
-                </div>
-                <p className="text-[0.7rem] text-stone-400 mt-1.5">
-                  站外转达也用它。用一次就作废。
-                </p>
-              </>
+            {resetDone ? (
+              <p className="text-xs text-stone-500">
+                {resetTarget.requestId
+                  ? "他申请时设的新密码已经生效，直接用它登录即可。"
+                  : "已通知本人：到登录页点「忘记密码」，填账号就能自己设新密码。"}
+              </p>
             ) : (
               <p className="text-xs text-stone-500 mb-3">
                 {resetTarget.uid != null && `UID #${resetTarget.uid} · `}
-                管理员不碰别人的密码 —— 这里生成一个一次性重置码发给对方，
-                由他自己设置新密码。
+                {resetTarget.requestId
+                  ? "批准 = 确认这条申请确实是本人提的，然后启用他在申请时自己设好的新密码。你看不到也不需要知道那个密码。"
+                  : "管理员不碰别人的密码 —— 这里给他开一条重置，他到登录页的「忘记密码」自己设新密码。"}
               </p>
             )}
             <div className="flex gap-2 justify-end mt-4">
               <button
-                onClick={() => { setResetTarget(null); setResetCode(null); }}
+                onClick={() => { setResetTarget(null); setResetDone(false); }}
                 disabled={resetBusy}
                 className="px-3 py-1.5 text-sm text-stone-500 hover:text-stone-700"
               >
-                {resetCode ? "知道了" : "取消"}
+                {resetDone ? "知道了" : "取消"}
               </button>
-              {!resetCode && (
+              {!resetDone && (
                 <button
                   onClick={handleResetPassword}
                   disabled={resetBusy}
                   className="px-4 py-1.5 text-sm bg-amber-800 text-white rounded-lg hover:bg-amber-900 disabled:opacity-50"
                 >
-                  {resetBusy ? "处理中..." : resetTarget?.requestId ? "批准并生成重置码" : "生成重置码"}
+                  {resetBusy
+                    ? "处理中..."
+                    : resetTarget?.requestId
+                      ? "批准并启用新密码"
+                      : "发起重置"}
                 </button>
               )}
             </div>
@@ -533,7 +539,8 @@ export default function AdminUsersPage() {
             密码重置申请（{resetRequests.length}）
           </h2>
           <p className="text-xs text-stone-500 mb-3">
-            站内没有邮件通道，用户提交申请后需要你重置密码并另行告知本人。
+            站内没有邮件通道，所以用户申请时**自己定好了新密码**（只存哈希，你看不到）。
+            你核对身份通过 → 点「批准」启用那个密码，用户直接用它登录，不用你另行告知。
           </p>
           <div className="space-y-2">
             {resetRequests.map((r) => (
@@ -579,6 +586,15 @@ export default function AdminUsersPage() {
                   <p className="text-[0.65rem] text-stone-400 mt-0.5">
                     申请于 {r.createdAt.slice(0, 16).replace("T", " ")}
                   </p>
+                  {/* IP 是最硬的证据：注册时在哪儿、现在在哪儿。
+                      注册地那一列（registrationRegion）从来没被写过，
+                      这里的省份是拿注册 IP 反查出来的（查不到就留空）。 */}
+                  <p className="text-[0.65rem] text-stone-400 mt-0.5">
+                    注册 IP：{r.user.registrationIp ?? "无记录"}
+                    {r.user.registrationRegion && ` · 📍 ${r.user.registrationRegion}`}
+                    {"　"}申请 IP：{r.requestIp ?? "无记录"}
+                    {r.requestRegion && ` · 📍 ${r.requestRegion}`}
+                  </p>
                 </div>
                 <button
                   onClick={() =>
@@ -590,8 +606,9 @@ export default function AdminUsersPage() {
                     })
                   }
                   className="px-3 py-1.5 text-xs bg-amber-800 text-white rounded-lg hover:bg-amber-900 transition"
+                  title="批准 = 确认这条申请确实是本人提的，然后启用他申请时自设的新密码"
                 >
-                  批准并生成重置码
+                  批准并启用新密码
                 </button>
                 <button
                   onClick={() => handleReject(r.id)}

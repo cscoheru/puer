@@ -23,10 +23,8 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 忘记密码：站内没有邮件通道，所以是「提交申请 → 管理员在后台重置」。
+  // 忘记密码：站内没有邮件通道，所以是「提交申请 → 管理员核对 → 用户自设密码」。
   const [forgot, setForgot] = useState(false);
-  /** "apply" = 提交申请；"code" = 我有重置码，自己设新密码 */
-  const [forgotMode, setForgotMode] = useState<"apply" | "code">("apply");
   const [forgotNote, setForgotNote] = useState("");
   const [forgotRegistration, setForgotRegistration] = useState("");
   const [forgotLastLogin, setForgotLastLogin] = useState("");
@@ -37,15 +35,42 @@ export default function LoginPage() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
   const [forgotBusy, setForgotBusy] = useState(false);
-  // 「我有重置码」
-  const [resetCode, setResetCode] = useState("");
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetPassword2, setResetPassword2] = useState("");
+  // 申请状态：none（没申请过）/ pending（等待核对）/ approved（已通过）/ rejected（被驳回）
+  const [forgotState, setForgotState] = useState<"none" | "pending" | "approved" | "rejected">("none");
+  // 用户**当场定好的新密码** —— 站长核对通过后它就生效
+  const [newPassword, setNewPassword] = useState("");
+  const [newPassword2, setNewPassword2] = useState("");
+
+  /**
+   * 查这个账号有没有申请过重置、走到哪一步了。
+   *
+   * 账号不存在 / 从没申请过 → 服务端一律回 `none`，所以这里**不会**
+   * 泄露「这个账号存不存在」。
+   */
+  const probeResetState = async (acc: string) => {
+    const a = acc.trim();
+    if (!a) return;
+    try {
+      const res = await fetch(`/api/auth/forgot-password?account=${encodeURIComponent(a)}`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.state) setForgotState(data.state);
+    } catch {
+      // 查不到状态不影响提交 —— 提交时服务端会按真实状态处理
+    }
+  };
 
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!account.trim() || !forgotRegistration.trim() || !forgotLastLogin.trim()) {
-      setForgotMsg("请填写账号与两个核验问题的答案");
+    if (!account.trim()) {
+      setForgotMsg("请填写账号");
+      return;
+    }
+    if (newPassword !== newPassword2) {
+      setForgotMsg("两次输入的密码不一样");
+      return;
+    }
+    if (newPassword.length < 8 || !/[a-zA-Z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      setForgotMsg("密码至少 8 位，且要同时有字母和数字");
       return;
     }
     setForgotBusy(true);
@@ -64,6 +89,7 @@ export default function LoginPage() {
           upvotes: forgotUpvotes.trim() || undefined,
           email: forgotEmail.trim() || undefined,
           note: forgotNote.trim() || undefined,
+          password: newPassword,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -72,42 +98,17 @@ export default function LoginPage() {
         return;
       }
       setForgotMsg(data.message || "已收到你的密码重置申请，站长会尽快处理。");
+      if (data.state) setForgotState(data.state === "used" ? "approved" : data.state);
+      if (data.reset) {
+        // 密码已经改好了 —— 让他直接回登录页用新密码登录
+        setNewPassword("");
+        setNewPassword2("");
+      }
       setForgotNote("");
       setForgotRegistration("");
       setForgotLastLogin("");
     } catch {
       setForgotMsg("提交失败，请稍后再试");
-    } finally {
-      setForgotBusy(false);
-    }
-  };
-
-  /** 凭重置码自己设新密码 —— 审批通过后，码在站内通知里。 */
-  const handleResetWithCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (resetPassword !== resetPassword2) {
-      setForgotMsg("两次输入的密码不一样");
-      return;
-    }
-    setForgotBusy(true);
-    setForgotMsg("");
-    try {
-      const res = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: resetCode.trim(), password: resetPassword }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setForgotMsg(data.error || "重置失败");
-        return;
-      }
-      setForgotMsg("密码已重置，现在可以用新密码登录了。");
-      setResetCode("");
-      setResetPassword("");
-      setResetPassword2("");
-    } catch {
-      setForgotMsg("重置失败，请稍后再试");
     } finally {
       setForgotBusy(false);
     }
@@ -147,16 +148,35 @@ export default function LoginPage() {
         </div>
 
         {forgot ? (
-          forgotMode === "apply" ? (
           <form onSubmit={handleForgot} className="space-y-5">
             <div>
               <h2 className="text-sm font-medium text-stone-700">忘记密码</h2>
               <p className="text-xs text-stone-500 mt-1 leading-relaxed">
-                填账号，再回答几个关于你自己账号的问题。站长拿记录核对后会给你一个
-                <strong className="text-stone-700">重置码</strong>，你用它在下面自己设新密码
-                —— 不用等站长把密码送到你手上。
+                填账号，回答几个关于你自己账号的问题，再
+                <strong className="text-stone-700">当场定一个新密码</strong>。
+                站长核对通过后，你设的密码就生效 —— 直接用它登录，
+                不用等谁把密码送到你手上。
               </p>
             </div>
+
+            {/* 申请状态：查状态不会泄露账号存不存在（服务端对不存在的
+                账号也回 none），只告诉你这个账号的重置走到哪一步了。 */}
+            {forgotState === "approved" && (
+              <div className="p-3 text-sm text-green-800 bg-green-50 rounded-lg border border-green-200">
+                ✅ 你的申请已经通过了 —— 填下面的新密码就能改好。
+                如果忘了当时设的密码，就把下面两个时间题按申请时填的内容再答一遍。
+              </div>
+            )}
+            {forgotState === "pending" && (
+              <div className="p-3 text-sm text-amber-800 bg-amber-50 rounded-lg border border-amber-200">
+                ⏳ 你的申请正在等站长核对。核对通过后，你申请时设的新密码就会生效。
+              </div>
+            )}
+            {forgotState === "rejected" && (
+              <div className="p-3 text-sm text-red-700 bg-red-50 rounded-lg border border-red-200">
+                上次的申请没有通过 —— 可以重新填一份提交。
+              </div>
+            )}
 
             {forgotMsg && (
               <div className="p-3 text-sm text-amber-800 bg-amber-50 rounded-lg border border-amber-200">
@@ -170,17 +190,46 @@ export default function LoginPage() {
                 type="text"
                 value={account}
                 onChange={(e) => setAccount(e.target.value)}
+                onBlur={() => probeResetState(account)}
                 className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
                 placeholder="UID、用户名或邮箱"
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                新密码（现在就定好，核对通过后即可用）
+              </label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
+                placeholder="至少8位，含字母和数字"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                再输一次
+              </label>
+              <input
+                type="password"
+                value={newPassword2}
+                onChange={(e) => setNewPassword2(e.target.value)}
+                autoComplete="new-password"
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
+              />
+            </div>
+
             {/* 核验题：输入框**不给提示** —— 格式不统一不是用户的错，
-                填成什么样都行，站长拿记录判断是否接近。 */}
+                填成什么样都行，站长拿记录判断是否接近。
+                前两题（时间）也是「改已批准的密码」时的身份凭证。 */}
             {[
               { label: "你大概是哪年哪月注册的？", value: forgotRegistration, set: setForgotRegistration },
               { label: "你最后一次登录大概是哪年哪月？", value: forgotLastLogin, set: setForgotLastLogin },
-              { label: "你注册时填的省份 / 地区是？", value: forgotRegion, set: setForgotRegion },
+              { label: "你注册时所在的省份 / 地区是？", value: forgotRegion, set: setForgotRegion },
               { label: "你大概发过多少篇文章？", value: forgotArticles, set: setForgotArticles },
               { label: "你大概发过多少条评论？", value: forgotComments, set: setForgotComments },
               { label: "你大概收到过多少个赞？", value: forgotUpvotes, set: setForgotUpvotes },
@@ -230,88 +279,11 @@ export default function LoginPage() {
               disabled={forgotBusy}
               className="w-full py-2.5 bg-amber-800 hover:bg-amber-900 text-white rounded-lg font-medium transition disabled:opacity-50"
             >
-              {forgotBusy ? "提交中..." : "提交重置申请"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setForgotMode("code"); setForgotMsg(""); }}
-              className="w-full text-sm text-stone-500 hover:text-stone-700 transition"
-            >
-              我已拿到重置码，直接设新密码 →
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setForgot(false); setForgotMsg(""); setError(""); }}
-              className="w-full text-sm text-stone-500 hover:text-stone-700 transition"
-            >
-              返回登录
-            </button>
-          </form>
-          ) : (
-          <form onSubmit={handleResetWithCode} className="space-y-5">
-            <div>
-              <h2 className="text-sm font-medium text-stone-700">设置新密码</h2>
-              <p className="text-xs text-stone-500 mt-1 leading-relaxed">
-                重置码在站内的通知里。它只能用一次，用完即作废。
-              </p>
-            </div>
-
-            {forgotMsg && (
-              <div className="p-3 text-sm text-amber-800 bg-amber-50 rounded-lg border border-amber-200">
-                {forgotMsg}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">重置码</label>
-              <input
-                type="text"
-                value={resetCode}
-                onChange={(e) => setResetCode(e.target.value)}
-                autoComplete="one-time-code"
-                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition font-mono tracking-wider"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">新密码</label>
-              <input
-                type="password"
-                value={resetPassword}
-                onChange={(e) => setResetPassword(e.target.value)}
-                autoComplete="new-password"
-                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
-                placeholder="至少8位，含字母和数字"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">再输一次</label>
-              <input
-                type="password"
-                value={resetPassword2}
-                onChange={(e) => setResetPassword2(e.target.value)}
-                autoComplete="new-password"
-                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={forgotBusy || resetPassword.length < 8}
-              className="w-full py-2.5 bg-amber-800 hover:bg-amber-900 text-white rounded-lg font-medium transition disabled:opacity-50"
-            >
-              {forgotBusy ? "设置中..." : "设置新密码"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setForgotMode("apply"); setForgotMsg(""); }}
-              className="w-full text-sm text-stone-500 hover:text-stone-700 transition"
-            >
-              ← 我要提交申请
+              {forgotBusy
+                ? "提交中..."
+                : forgotState === "approved"
+                  ? "设置新密码"
+                  : "提交重置申请"}
             </button>
 
             <button
@@ -322,7 +294,6 @@ export default function LoginPage() {
               返回登录
             </button>
           </form>
-          )
         ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (

@@ -1,5 +1,5 @@
 /**
- * 密码找回：**核验题**、答案比对、以及重置码。
+ * 密码找回：**核验题**、答案比对、以及「申请时自设新密码」这条流程。
  *
  * ## 为什么是问答，不是邮箱
  *
@@ -7,6 +7,24 @@
  * 从 uid 就能猜出来，当密钥等于没有。所以「把重置链接发到邮箱」这条路
  * 现在走不通。**槽位留着**：将来支持真实邮箱注册了，同一个流程里加上
  * 邮箱校验即可（`forgotPasswordSchema` 已有 `email` 字段）。
+ *
+ * ## 为什么没有「重置码」
+ *
+ * 2026-10-24 站长：「重置码没有意义吧」—— 确实没有：
+ *
+ *   1. 重置码发给**申请者本人**（站内通知就挂在他自己账号下）。谁申请，
+ *      谁就能读到那个码 → 它挡不住「冒名申请」这件事。
+ *   2. 它挡住的是「只知道用户名的人」—— 但站内没邮件通道，码只能躺在
+ *      通知列表里，本人反而常常找不到（站长实测：刷新登录页根本看不到
+ *      站内通知）。**保护了不该保护的，挡住了真正要用的。**
+ *
+ * 现在的流程：**申请时就让用户把新密码定好**（只存哈希，管理员也看不到
+ * 明文），站长核对身份通过后，这个哈希直接生效 —— 用户拿自己刚设的密码
+ * 登录即可，不需要任何「码」或「链接」。
+ *
+ * 兜底（申请时定的密码自己也忘了）：登录页的「忘记密码」可以**重设**
+ * 密码，但要**再答一遍两个身份问题**（注册时间、最后登录时间），且要与
+ * 申请时填的一致 —— 这才是真正能证明「我是本人」的东西。
  *
  * ## 每一道题要满足三条
  *
@@ -39,7 +57,7 @@ export const MAX_PASSWORD_LENGTH = 100;
 export const RESET_QUESTIONS = [
   { key: "registration", label: "你大概是哪年哪月注册的？" },
   { key: "lastLogin", label: "你最后一次登录大概是哪年哪月？" },
-  { key: "region", label: "你注册时填的省份 / 地区是？" },
+  { key: "region", label: "你注册时所在的省份 / 地区是？" },
   { key: "articles", label: "你大概发过多少篇文章？" },
   { key: "comments", label: "你大概发过多少条评论？" },
   { key: "upvotes", label: "你大概收到过多少个赞？" },
@@ -47,11 +65,24 @@ export const RESET_QUESTIONS = [
 
 export type ResetQuestionKey = (typeof RESET_QUESTIONS)[number]["key"];
 
+/**
+ * 「已批准的申请」要解锁时，用户**必须再答一遍**的题。
+ *
+ * 为什么只挑这两题：它们是「只有账号本人才知道大概、站点又有真值」的
+ * 那一类。数量类的题（发了几篇、几个赞）用户根本记不准，重新答一遍
+ * 只会徒增失败率；地区题由 IP 反查（见 src/lib/ip-region.ts），用户答
+ * 「广东」还是「广东省」都可能，不适合当钥匙。
+ */
+export const RESET_IDENTITY_KEYS = ["registration", "lastLogin"] as const;
+
 /** 「忘记密码」申请的入参。核验答案里的**时间两题必填** —— 它们是这套流程的身份依据。 */
 export const forgotPasswordSchema = z.object({
   account: z.string().min(1, "请填写账号").max(100),
-  registration: z.string().min(1, "请填写注册时间").max(60),
-  lastLogin: z.string().min(1, "请填写最后登录时间").max(60),
+  // 两个时间题在**提交申请**时必填（服务端会检查），但在 schema 里是选填 ——
+  // 因为「管理员作保的重置」那条路不需要用户回答任何问题，账号 + 新密码
+  // 就够了。
+  registration: z.string().max(60).optional(),
+  lastLogin: z.string().max(60).optional(),
   region: z.string().max(60).optional(),
   articles: z.string().max(60).optional(),
   comments: z.string().max(60).optional(),
@@ -59,24 +90,36 @@ export const forgotPasswordSchema = z.object({
   /** 注册邮箱 —— 现在只是参考（注册邮箱是自动生成的），将来做真邮箱注册时它是校验项。 */
   email: z.string().max(200, "邮箱太长").optional(),
   note: z.string().max(200, "说明最多 200 字").optional(),
+  /**
+   * 用户**当场定好的新密码**。
+   *
+   * 这是整套流程的关键：站内没有邮件通道，任何「码 / 链接」都得靠用户
+   * 去通知列表里翻（常常翻不到，见文件头的说明）。让用户在申请时就把
+   * 新密码定好，站长批准后这个密码直接生效 —— 用户拿自己刚设的密码登录，
+   * 什么都不用等、什么都不用找。
+   *
+   * 库里只存哈希，管理员也看不到明文。
+   */
+  password: passwordSchema,
 });
 
-/** 「用重置码设置新密码」的入参。密码规则与注册同一份。 */
-export const resetPasswordSchema = z.object({
-  code: z.string().min(4, "请填写重置码").max(40),
-  password: passwordSchema,
+/** 「查申请状态」的入参。 */
+export const resetStatusSchema = z.object({
+  account: z.string().min(1, "请填写账号").max(100),
 });
 
 /** 申请单的状态。 */
 export const RESET_STATUS = {
   /** 待管理员核对 */
   pending: "pending",
-  /** 已批准 —— 用户可以凭重置码自己设新密码 */
+  /** 已批准 —— 用户可以用申请时定好的密码登录，或在登录页重设 */
   approved: "approved",
   /** 被驳回 */
   rejected: "rejected",
-  /** 重置码已用过 */
+  /** 密码已经重置过 */
   used: "used",
+  /** 被新的一条申请顶掉了（同一用户只认最新的一条） */
+  superseded: "superseded",
 } as const;
 export type ResetStatus = (typeof RESET_STATUS)[keyof typeof RESET_STATUS];
 
@@ -296,63 +339,66 @@ export function summarizeChecks(checks: AnswerCheck[]): {
   return s;
 }
 
-// ─── 重置码 ───────────────────────────────────────────────────────────────
+// ─── 身份钥匙：重新设密码时，拿来证明「是本人」 ──────────────────────────
 
-/** 随机临时密码（管理员直接替某人重置时用）。 */
-export function generateTempPassword(length = 10): string {
-  const alphabet =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  // 拒绝采样：≥ limit 的值会被 % 映射成偏低的下标，产生取模偏差。
-  // ⚠️ 上界必须与随机数的取值范围一致 —— 用 Uint8 才是 0–255。
-  const limit = 256 - (256 % alphabet.length);
-  const out: string[] = [];
-  const buf = new Uint8Array(length * 2);
-  while (out.length < length) {
-    crypto.getRandomValues(buf);
-    for (const v of buf) {
-      if (out.length >= length) break;
-      if (v < limit) out.push(alphabet[v % alphabet.length]);
-    }
+/**
+ * 把一条自由格式的回答**归一**成一个可比较的字符串。
+ *
+ * 用户填「2026年5月」「2026-05」「2026.5」都算同一件事 —— 格式不统一
+ * 不是用户的错（站长原话：「用户填什么格式无所谓」）。归一之后，
+ * 「申请时填的」和「这次填的」才能比。
+ *
+ * 解析不出来（用户写了「记不清了」）就**按原样**比较 —— 这种情况下
+ * 只有两次写得一模一样才算通过。
+ */
+export function canonicalAnswer(
+  key: string,
+  raw: string | null | undefined,
+): string | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  if (key === "registration" || key === "lastLogin") {
+    const ym = parseYearMonth(s);
+    if (!ym) return s.toLowerCase();
+    return ym.month === null ? String(ym.year) : `${ym.year}-${ym.month}`;
   }
-  return out.join("");
-}
-
-/** 重置码的字符集 —— 去掉容易看混的 0/O、1/l/I。 */
-const RESET_CODE_ALPHABET =
-  "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-
-/** 生成一个重置码（批准通过时给本人）。 */
-export function generateResetCode(length = 12): string {
-  const limit = 256 - (256 % RESET_CODE_ALPHABET.length);
-  const out: string[] = [];
-  const buf = new Uint8Array(length * 2);
-  while (out.length < length) {
-    crypto.getRandomValues(buf);
-    for (const v of buf) {
-      if (out.length >= length) break;
-      if (v < limit) out.push(RESET_CODE_ALPHABET[v % RESET_CODE_ALPHABET.length]);
-    }
+  if (key === "articles" || key === "comments" || key === "upvotes") {
+    const n = parseCount(s);
+    return n === null ? s.toLowerCase() : String(n);
   }
-  return out.join("");
+  return s.replace(/\s/g, "").toLowerCase();
 }
 
 /**
- * 重置码的哈希。
+ * 「申请时填的答案」与「这次重新填的答案」是否一致 —— 一致才放行重设密码。
  *
- * 用 sha256 而不是 bcrypt：重置码是**高熵随机串**（不是人选的密码），
- * 没有字典攻击面，快哈希正合适（bcrypt 反而会拖慢每次校验）。
+ * 比的是 `RESET_IDENTITY_KEYS` 那两题（注册时间、最后登录时间）。缺任何
+ * 一题都算不通过 —— 宁可让用户重填，也不能让「只答一题」蒙混过去。
  */
-export async function hashResetCode(code: string): Promise<string> {
-  const bytes = new TextEncoder().encode(code.trim().toUpperCase());
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+export function answersMatchIdentity(
+  stored: Record<string, string | null | undefined> | null | undefined,
+  submitted: Record<string, string | null | undefined> | null | undefined,
+): boolean {
+  for (const key of RESET_IDENTITY_KEYS) {
+    const a = canonicalAnswer(key, stored?.[key]);
+    const b = canonicalAnswer(key, submitted?.[key]);
+    if (!a || !b) return false;
+    if (a !== b) return false;
+  }
+  return true;
 }
 
-/** 校验一个重置码（比对哈希）。 */
-export async function verifyResetCode(
-  code: string,
-  storedHash: string | null,
-): Promise<boolean> {
-  if (!storedHash) return false;
-  return (await hashResetCode(code)) === storedHash;
+/**
+ * 这条申请是不是「管理员作保」的（管理员直接给某人发起的重置）。
+ *
+ * 管理员作保的申请**没有答案可比** —— 身份由管理员担保，用户只需凭账号
+ * 就能设新密码。用户自己提交的申请则必须重答两个身份问题。
+ */
+export function isAdminBackedRequest(
+  answers: Record<string, string | null | undefined> | null | undefined,
+): boolean {
+  if (!answers) return true;
+  const keys = Object.keys(answers);
+  if (keys.length === 0) return true;
+  return RESET_IDENTITY_KEYS.every((k) => !answers[k]);
 }

@@ -2,26 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/admin-auth";
 import { invalidateAuthCache } from "@/lib/auth";
-import {
-  generateResetCode,
-  hashResetCode,
-  MAX_RESET_REJECTS,
-  RESET_STATUS,
-} from "@/lib/password-reset";
+import { MAX_RESET_REJECTS, RESET_STATUS } from "@/lib/password-reset";
 
 export const dynamic = "force-dynamic";
 
 /**
  * PUT /api/admin/password-resets/[id] —— 处理一条密码重置申请。
  *
- * 做三件事（一个事务里）：
- *   1. 换掉密码哈希，并记下 `passwordChangedAt`
- *      （旧会话靠它作废 —— JWT 是无状态的，不记这个时间就换不掉旧会话）
- *   2. 申请标记为 done，记下是谁处理的
- *   3. 给用户发一条站内通知
+ * ## 批准 = 「核对通过，启用用户自己定好的新密码」
  *
- * 新密码由**管理员设置**（或点「随机生成」）：站内没有邮件通道，
- * 没法把「重置链接」发给用户 —— 管理员把新密码通过站外渠道给用户。
+ * 站内没有邮件通道，密码**不能靠管理员转达**（站长原话：「如果用户不
+ * 认识站长，站长如何将新密码告知用户？」）。所以新密码是**用户在申请时
+ * 当场定好的**（只存哈希，管理员也看不到明文），管理员点「批准」只是
+ * 确认「这个申请确实是本人提的」，然后把这个哈希写进用户表。
+ *
+ * 管理员从头到尾不碰别人的密码，也不需要给用户发任何「码」或「链接」。
+ *
+ * ## 拒绝 = 核对下来不是本人
+ *
+ * 连续两次被拒 → 账号挂起（不能再登录）。这是在挡「一直申请、一直骚扰」
+ * 和「反复试探」。
  */
 export async function PUT(
   req: NextRequest,
@@ -105,23 +105,26 @@ export async function PUT(
       { status: 400 },
     );
   }
+  if (!request.passwordHash) {
+    // 用户申请时没定新密码（老数据或管理员代发的申请）—— 没有可启用的密码。
+    return NextResponse.json(
+      { error: "这条申请没有用户自设的新密码，无法批准" },
+      { status: 400 },
+    );
+  }
 
-  // 批准 = 管理员核对通过 → **生成一个重置码**给本人。
-  // 密码由**用户自己**设（凭重置码），管理员从头到尾不碰别人的密码。
-  const code = generateResetCode();
-  const passwordHash = await hashResetCode(code);
+  // 批准 = 管理员核对通过 → 启用**用户申请时自设**的新密码。
   const now = new Date();
 
   await prisma.$transaction([
     prisma.user.update({
       where: { id: request.userId },
-      data: { passwordHash, passwordChangedAt: now },
+      data: { passwordHash: request.passwordHash, passwordChangedAt: now },
     }),
     prisma.passwordResetRequest.update({
       where: { id: request.id },
       data: {
         status: RESET_STATUS.approved,
-        passwordHash,
         handledBy: session?.user?.name ?? session?.user?.email ?? null,
         handledAt: now,
       },
@@ -130,7 +133,9 @@ export async function PUT(
       data: {
         userId: request.userId,
         type: "system",
-        content: `你的密码重置申请已通过。重置码：${code}。到登录页的「忘记密码」里用它设置新密码。如果不是本人操作，请立即联系站长。`,
+        content:
+          "你的密码重置申请已通过。现在可以用你申请时设置的新密码登录。" +
+          "如果不是你本人操作，请立即联系站长。",
         link: null,
       },
     }),
@@ -139,6 +144,5 @@ export async function PUT(
   // 立刻作废旧会话（否则 30 秒的 auth 缓存窗口内，旧 token 仍然有效）
   invalidateAuthCache(request.userId);
 
-  // 重置码明文只在响应里给管理员一次（方便站外转达），站内通知里也有一份。
-  return NextResponse.json({ success: true, code });
+  return NextResponse.json({ success: true });
 }

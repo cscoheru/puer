@@ -3,18 +3,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  answersMatchIdentity,
+  canonicalAnswer,
   compareAnswers,
   forgotPasswordSchema,
-  generateResetCode,
-  generateTempPassword,
-  hashResetCode,
+  isAdminBackedRequest,
   parseCount,
   parseYearMonth,
+  RESET_IDENTITY_KEYS,
   RESET_QUESTIONS,
-  resetPasswordSchema,
+  resetStatusSchema,
   sessionInvalidated,
   summarizeChecks,
-  verifyResetCode,
 } from "./password-reset.ts";
 
 // ─── 核验题 ───────────────────────────────────────────────────────────────
@@ -42,22 +42,39 @@ test("核验题覆盖注册时间、最后登录、地区与三个数量", () =>
   }
 });
 
-test("忘记密码申请：账号与两个时间必填，其余选填", () => {
+test("忘记密码申请：账号 + 新密码必填，两个时间题由服务端在提交申请时把关", () => {
   const base = {
     account: "1001",
     registration: "2026年5月",
     lastLogin: "2026年10月",
+    password: "abcd1234",
   };
   assert.equal(forgotPasswordSchema.safeParse(base).success, true);
   assert.equal(
-    forgotPasswordSchema.safeParse({ account: "1001", registration: "2026年5月" })
-      .success,
+    forgotPasswordSchema.safeParse({ ...base, password: undefined }).success,
     false,
+    "新密码必须定",
+  );
+  assert.equal(
+    forgotPasswordSchema.safeParse({ ...base, account: "" }).success,
+    false,
+    "账号必填",
   );
   assert.equal(
     forgotPasswordSchema.safeParse({ ...base, articles: "大概三十篇" }).success,
     true,
   );
+  // 管理员作保的那条路不需要回答问题 —— 所以 schema 里时间题是选填
+  assert.equal(
+    forgotPasswordSchema.safeParse({ account: "1001", password: "abcd1234" })
+      .success,
+    true,
+  );
+});
+
+test("查申请状态：只要账号", () => {
+  assert.equal(resetStatusSchema.safeParse({ account: "1001" }).success, true);
+  assert.equal(resetStatusSchema.safeParse({ account: "" }).success, false);
 });
 
 // ─── 解析用户的自由回答 ───────────────────────────────────────────────────
@@ -165,31 +182,76 @@ test("汇总：几题吻合几题对不上", () => {
   assert.equal(s.mismatch, 0);
 });
 
-// ─── 重置码与临时密码 ─────────────────────────────────────────────────────
+// ─── 身份钥匙（替代原来的「重置码」）────────────────────────────────────
 
-test("重置码够长、字符集不含易混的 0/O/1/l/I", () => {
-  const code = generateResetCode();
-  assert.equal(code.length, 12);
-  for (const ch of ["0", "O", "1", "l", "I"]) {
-    assert.ok(!code.includes(ch), `重置码不该出现易混字符 ${ch}`);
-  }
+test("归一后，「2026年5月」「2026-05」「2026.5」是同一件事", () => {
+  assert.equal(canonicalAnswer("registration", "2026年5月"), "2026-5");
+  assert.equal(canonicalAnswer("registration", "2026-05"), "2026-5");
+  assert.equal(canonicalAnswer("registration", "2026.5"), "2026-5");
+  assert.equal(canonicalAnswer("registration", "2026年"), "2026");
+  assert.equal(canonicalAnswer("articles", "大概30篇"), "30");
+  assert.equal(canonicalAnswer("articles", "30"), "30");
+  // 中文数字抠不出数字 → 按原文比（两次写一样才算通过）
+  assert.equal(canonicalAnswer("articles", "大概三十篇"), "大概三十篇");
+  assert.equal(canonicalAnswer("region", " 广东 "), "广东");
 });
 
-test("重置码的哈希可校验，且大小写/空格不敏感", async () => {
-  const code = generateResetCode();
-  const hash = await hashResetCode(code);
-  assert.equal(await verifyResetCode(code, hash), true);
-  assert.equal(await verifyResetCode(` ${code.toLowerCase()} `, hash), true);
-  assert.equal(await verifyResetCode(code + "x", hash), false);
-  assert.equal(await verifyResetCode(code, null), false);
+test("空答案归一成 null（缺一题就不放行）", () => {
+  assert.equal(canonicalAnswer("registration", ""), null);
+  assert.equal(canonicalAnswer("registration", "   "), null);
+  assert.equal(canonicalAnswer("registration", undefined), null);
 });
 
-test("临时密码长度对、字符集不含易混的 0/O/1/l/I", () => {
-  const p = generateTempPassword();
-  assert.equal(p.length, 10);
-  for (const ch of ["0", "O", "1", "l", "I"]) {
-    assert.ok(!p.includes(ch), `临时密码不该出现易混字符 ${ch}`);
-  }
+test("身份钥匙：两题都对得上才放行", () => {
+  assert.deepEqual(
+    [...RESET_IDENTITY_KEYS],
+    ["registration", "lastLogin"],
+    "身份钥匙就是那两个时间题",
+  );
+  const stored = { registration: "2026年5月", lastLogin: "2026年10月" };
+  assert.equal(
+    answersMatchIdentity(stored, { registration: "2026-05", lastLogin: "2026.10" }),
+    true,
+    "写法不同但内容一样 → 放行",
+  );
+  assert.equal(
+    answersMatchIdentity(stored, { registration: "2026年5月", lastLogin: "2026年9月" }),
+    false,
+    "月份对不上 → 不放行",
+  );
+  assert.equal(
+    answersMatchIdentity(stored, { registration: "2026年5月" }),
+    false,
+    "少答一题 → 不放行",
+  );
+  assert.equal(
+    answersMatchIdentity(stored, { registration: "2026年5月", lastLogin: "" }),
+    false,
+    "空答案 → 不放行",
+  );
+  assert.equal(
+    answersMatchIdentity(
+      { registration: "记不清了", lastLogin: "记不清了" },
+      { registration: "记不清了", lastLogin: "记不清了" },
+    ),
+    true,
+    "两次都写「记不清了」→ 原文一致，放行（站长那关才是真门槛）",
+  );
+});
+
+test("管理员作保的申请没有答案可比 → 不需要用户回答问题", () => {
+  assert.equal(isAdminBackedRequest(null), true);
+  assert.equal(isAdminBackedRequest({}), true);
+  assert.equal(
+    isAdminBackedRequest({ region: "广东", articles: "10" }),
+    true,
+    "没有两个时间题 = 管理员发起的",
+  );
+  assert.equal(
+    isAdminBackedRequest({ registration: "2026年5月", lastLogin: "2026年10月" }),
+    false,
+    "有用户自己填的时间题 = 用户发起的，要重答",
+  );
 });
 
 // ─── 改密后旧会话要作废 ───────────────────────────────────────────────────
@@ -214,22 +276,24 @@ test("改密前签发的会话要作废，改密后的照常用", () => {
 
 // ─── 密码规则：自助重置与注册同一份 ───────────────────────────────────────
 
-test("用重置码设新密码：密码规则与注册一致（≥8 位、含字母、含数字）", () => {
+test("设新密码：密码规则与注册一致（≥8 位、含字母、含数字）", () => {
+  const base = {
+    account: "1001",
+    registration: "2026年5月",
+    lastLogin: "2026年10月",
+  };
   assert.equal(
-    resetPasswordSchema.safeParse({ code: "ABCD1234", password: "abcdefgh" })
-      .success,
+    forgotPasswordSchema.safeParse({ ...base, password: "abcdefgh" }).success,
     false,
     "没有数字",
   );
   assert.equal(
-    resetPasswordSchema.safeParse({ code: "ABCD1234", password: "abcdef1" })
-      .success,
+    forgotPasswordSchema.safeParse({ ...base, password: "abcdef1" }).success,
     false,
     "不足 8 位",
   );
   assert.equal(
-    resetPasswordSchema.safeParse({ code: "ABCD1234", password: "abcdefg1" })
-      .success,
+    forgotPasswordSchema.safeParse({ ...base, password: "abcdefg1" }).success,
     true,
     "8 位 + 字母 + 数字",
   );
@@ -263,16 +327,21 @@ test("忘记密码接口限速了（防刷申请、刷站内通知）", () => {
   assert.match(code, /checkRateLimit/);
 });
 
-test("申请单上**不存密码**（密码由本人通过重置码自己设）", () => {
+test("申请单上只存密码的**哈希**，明文不进库", () => {
   const code = stripComments(FORGOT_SRC);
+  assert.match(
+    code,
+    /bcrypt\.hash\(password/,
+    "申请时要先把用户自设的密码哈希再存",
+  );
   assert.ok(
-    !/passwordHash/.test(code),
-    "申请阶段不该写密码 —— 站点还没核对过身份",
+    !/passwordHash:\s*password\b/.test(code),
+    "存进申请单的必须是哈希，不能是明文",
   );
 });
 
 /**
- * 批准 → 生成重置码；驳回 → 计数；连续两次驳回 → 挂起账号。
+ * 批准 → 启用用户申请时自设的密码；驳回 → 计数；连续两次驳回 → 挂起账号。
  */
 const HANDLE_SRC = readFileSync(
   new URL(
@@ -282,13 +351,20 @@ const HANDLE_SRC = readFileSync(
   "utf8",
 );
 
-test("批准申请时生成一次性重置码（管理员不碰别人的密码）", () => {
+test("批准 = 启用用户自设的密码（管理员不碰别人的密码，也没有重置码）", () => {
   const code = stripComments(HANDLE_SRC);
-  assert.match(code, /generateResetCode/);
-  assert.match(code, /hashResetCode/);
+  assert.match(
+    code,
+    /passwordHash:\s*request\.passwordHash/,
+    "批准时把申请单里那个哈希写进用户表",
+  );
   assert.ok(
     !/bcrypt\.hash/.test(code),
-    "管理员这一侧不该出现密码哈希 —— 密码由本人设",
+    "管理员这一侧不该自己算密码 —— 密码是用户自己设的",
+  );
+  assert.ok(
+    !/generateResetCode|hashResetCode|resetCode/.test(code),
+    "不该再有「重置码」这套东西 —— 站内没有邮件通道，码只会卡在通知列表里",
   );
 });
 
@@ -298,21 +374,23 @@ test("连续驳回两次 → 账号挂起", () => {
   assert.match(code, /banStatus:\s*"banned"/);
 });
 
-/**
- * 用户凭重置码自己设新密码 —— 重置码一次性。
- */
-const RESET_PW_SRC = readFileSync(
-  new URL("../app/api/auth/reset-password/route.ts", import.meta.url),
-  "utf8",
-);
-
-test("重置码只能用一次（用掉即作废）", () => {
-  const code = stripComments(RESET_PW_SRC);
-  assert.match(code, /verifyResetCode/);
+test("重置后申请单作废（used），改完密码立刻作废旧会话", () => {
+  const code = stripComments(FORGOT_SRC);
   assert.match(code, /status:\s*RESET_STATUS\.used/);
+  assert.match(code, /invalidateAuthCache/);
 });
 
-test("改完密码立刻作废旧会话", () => {
-  const code = stripComments(RESET_PW_SRC);
-  assert.match(code, /invalidateAuthCache/);
+test("后台看得到注册 IP 反查出来的省份", () => {
+  const src = readFileSync(
+    new URL("../app/api/admin/password-resets/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(src, /resolveIpRegion/);
+  assert.match(src, /registrationIp/);
+  assert.match(src, /requestIp/);
+});
+
+test("状态查询限速了（防枚举账号）", () => {
+  const code = stripComments(FORGOT_SRC);
+  assert.match(code, /LIMIT_RESET_STATUS/);
 });
