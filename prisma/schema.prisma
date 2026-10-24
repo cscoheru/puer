@@ -18,6 +18,11 @@ model User {
   email              String    @unique
   emailVerified      DateTime?
   passwordHash       String?
+  /// 最后一次**成功登录**的时刻。
+  ///
+  /// 除了「最近一次活动」外，它还是密码找回的身份核验题之一 ——
+  /// 「你上次登录是什么时候」是只有账号本人才知道、而站点也有记录的事实。
+  lastLoginAt        DateTime?
   /// 密码最后修改时刻 —— 用来作废改密**之前**签发的会话（JWT 是无状态的，
   /// 不记这个时间就没法让旧会话失效）。见 src/lib/auth.ts 的 jwt 回调。
   passwordChangedAt  DateTime?
@@ -641,6 +646,22 @@ model PasswordResetRequest {
 
   /// 用户填的说明（联系方式、发生了什么）
   note String? @db.VarChar(200)
+
+  /// 用户在申请时填的**核验答案**（注册时间、最后登录时间…）。
+  /// 站长拿它和数据库里的真值对照 —— 见 src/lib/password-reset.ts 的 RESET_QUESTIONS。
+  answers Json?
+
+  /// 提交申请时的 IP —— 站长拿它和账号的注册 IP 对照（同一网络环境更可能是本人）。
+  requestIp String? @db.VarChar(45)
+
+  /// 用户在申请时**自设的新密码**的哈希。
+  ///
+  /// 为什么要有它：站内没有邮件通道，管理员**没法把新密码告诉一个不认识
+  /// 自己的用户**。所以让用户在申请时就把新密码定好 —— 这里只存哈希
+  /// （管理员也看不到明文），管理员点「批准」就把这个哈希写进用户表。
+  ///
+  /// 空 = 用户没自设，管理员得自己指定一个（适合站长能联系上本人的场景）。
+  passwordHash String?
 
   /// 管理员重置密码时记一笔 —— 事后能查「是谁改的」
   handledBy String? @db.VarChar(64)

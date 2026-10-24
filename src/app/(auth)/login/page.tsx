@@ -26,13 +26,17 @@ export default function LoginPage() {
   // 忘记密码：站内没有邮件通道，所以是「提交申请 → 管理员在后台重置」。
   const [forgot, setForgot] = useState(false);
   const [forgotNote, setForgotNote] = useState("");
+  const [forgotPassword, setForgotPassword] = useState("");
+  const [forgotRegistration, setForgotRegistration] = useState("");
+  const [forgotLastLogin, setForgotLastLogin] = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
   const [forgotBusy, setForgotBusy] = useState(false);
 
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!account.trim()) {
-      setForgotMsg("请先填写你的账号");
+    if (!account.trim() || !forgotRegistration.trim() || !forgotLastLogin.trim()) {
+      setForgotMsg("请填写账号与两个核验问题的答案");
       return;
     }
     setForgotBusy(true);
@@ -41,7 +45,14 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account: account.trim(), note: forgotNote.trim() || undefined }),
+        body: JSON.stringify({
+          account: account.trim(),
+          registration: forgotRegistration.trim(),
+          lastLogin: forgotLastLogin.trim(),
+          email: forgotEmail.trim() || undefined,
+          note: forgotNote.trim() || undefined,
+          newPassword: forgotPassword || undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -50,6 +61,9 @@ export default function LoginPage() {
       }
       setForgotMsg(data.message || "已收到你的密码重置申请，站长会尽快处理。");
       setForgotNote("");
+      setForgotPassword("");
+      setForgotRegistration("");
+      setForgotLastLogin("");
     } catch {
       setForgotMsg("提交失败，请稍后再试");
     } finally {
@@ -95,8 +109,9 @@ export default function LoginPage() {
             <div>
               <h2 className="text-sm font-medium text-stone-700">忘记密码</h2>
               <p className="text-xs text-stone-500 mt-1 leading-relaxed">
-                填写你的账号提交申请，站长会帮你重置密码并另行告知。
-                申请结果会通过站内通知告诉你。
+                填账号，再回答两个关于你自己账号的问题。
+                站长拿记录核对后就会批准 —— 你可以**自己定一个新密码**，
+                不需要等站长把密码告诉你。申请结果会通过站内通知告诉你。
               </p>
             </div>
 
@@ -115,6 +130,66 @@ export default function LoginPage() {
                 className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
                 placeholder="UID、用户名或邮箱"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                你大概是哪年哪月注册的？
+              </label>
+              <input
+                type="text"
+                value={forgotRegistration}
+                onChange={(e) => setForgotRegistration(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
+                placeholder="如 2026年5月"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                你最后一次登录大概是哪年哪月？
+              </label>
+              <input
+                type="text"
+                value={forgotLastLogin}
+                onChange={(e) => setForgotLastLogin(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
+                placeholder="如 2026年10月"
+              />
+              <p className="text-[0.7rem] text-stone-400 mt-1">
+                记个大概就行，站长会跟记录核对
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                注册邮箱（填过的话）
+              </label>
+              <input
+                type="email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                autoComplete="email"
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
+                placeholder="选填"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                新密码（至少 6 位）
+              </label>
+              <input
+                type="password"
+                value={forgotPassword}
+                onChange={(e) => setForgotPassword(e.target.value)}
+                autoComplete="new-password"
+                className="w-full px-4 py-2.5 rounded-lg border border-stone-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition"
+                placeholder="留空则由站长代设"
+              />
+              <p className="text-[0.7rem] text-stone-400 mt-1">
+                只存哈希，站长也看不到明文。批准前不会生效。
+              </p>
             </div>
 
             <div>

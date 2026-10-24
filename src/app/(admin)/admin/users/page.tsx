@@ -31,8 +31,33 @@ interface User {
 interface ResetRequest {
   id: string;
   note: string | null;
+  /** 用户在申请时自设了新密码 → 批准即生效，管理员不用再设。 */
+  selfPassword: boolean;
+  /** 用户填的核验答案。 */
+  answers: Record<string, string | null>;
+  /** 提交申请时的 IP。 */
+  requestIp: string | null;
   createdAt: string;
-  user: { id: string; uid: number | null; username: string; email: string };
+  user: {
+    id: string;
+    uid: number | null;
+    username: string;
+    email: string;
+    /** 站点知道的真值 —— 供站长与用户填的答案对照。 */
+    registeredAt: string;
+    lastLoginAt: string | null;
+    registrationIp: string | null;
+    registrationRegion: string | null;
+    articles: number;
+    comments: number;
+  };
+}
+
+/** 把库里的时间戳写成「2026年5月18日」—— 站长一眼能跟用户填的「2026年5月」对上。 */
+function fmtDay(iso: string | null | undefined): string {
+  if (!iso) return "无记录";
+  const d = new Date(iso);
+  return `${d.getUTCFullYear()}年${d.getUTCMonth() + 1}月${d.getUTCDate()}日`;
 }
 
 /** 正在重置密码的对象：直接重置某个用户，或处理一条申请。 */
@@ -41,6 +66,8 @@ interface ResetTarget {
   username: string;
   uid: number | null;
   requestId?: string;
+  /** 申请单里已带用户自设的密码 → 批准即生效，不用再填。 */
+  selfPassword?: boolean;
 }
 
 const LEVEL_COLORS = [
@@ -214,7 +241,11 @@ export default function AdminUsersPage() {
   };
 
   const handleResetPassword = async () => {
-    if (!resetTarget || resetPassword.length < 6) return;
+    if (!resetTarget) return;
+    // 自设密码的申请：不需要（也不能）再传密码 —— 批准即用用户自己那个
+    if (!resetTarget.selfPassword && resetPassword.length < MIN_PASSWORD_LENGTH) {
+      return;
+    }
     setResetBusy(true);
     try {
       const url = resetTarget.requestId
@@ -223,7 +254,9 @@ export default function AdminUsersPage() {
       const res = await fetch(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: resetPassword }),
+        body: JSON.stringify(
+          resetTarget.selfPassword ? {} : { password: resetPassword },
+        ),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -231,7 +264,9 @@ export default function AdminUsersPage() {
         return;
       }
       setMessage(
-        `已重置「${resetTarget.username}」的密码，请把新密码告知本人。`,
+        resetTarget.selfPassword
+          ? `已批准「${resetTarget.username}」的密码重置，他可以用自己设的密码登录了。`
+          : `已重置「${resetTarget.username}」的密码，请把新密码告知本人。`,
       );
       setResetTarget(null);
       setResetPassword("");
@@ -240,6 +275,30 @@ export default function AdminUsersPage() {
       setMessage("重置失败");
     } finally {
       setResetBusy(false);
+    }
+  };
+
+  /** 拒绝一条申请（核对下来不是本人）。 */
+  const handleReject = async (id: string) => {
+    if (!confirm("拒绝这条密码重置申请？\n对方会收到一条「未通过」的通知。")) {
+      return;
+    }
+    setMessage("处理中…");
+    try {
+      const res = await fetch(`/api/admin/password-resets/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "操作失败");
+        return;
+      }
+      setMessage("已拒绝这条申请。");
+      fetchResetRequests();
+    } catch {
+      setMessage("操作失败");
     }
   };
 
@@ -353,24 +412,28 @@ export default function AdminUsersPage() {
             </h3>
             <p className="text-xs text-stone-500 mb-3">
               {resetTarget.uid != null && `UID #${resetTarget.uid} · `}
-              新密码至少 6 位。站内没有邮件通道，请把新密码另行告知本人。
+              {resetTarget.selfPassword
+                ? "用户在申请时已自设新密码，批准后立即生效（你看不到明文，也不需要告诉本人）。"
+                : "新密码至少 6 位。站内没有邮件通道，请把新密码另行告知本人。"}
             </p>
-            <div className="space-y-3">
-              <input
-                type="text"
-                value={resetPassword}
-                onChange={(e) => setResetPassword(e.target.value)}
-                placeholder="新密码"
-                autoComplete="off"
-                className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-300 font-mono"
-              />
-              <button
-                onClick={() => setResetPassword(generateTempPassword())}
-                className="px-3 py-1.5 text-xs border border-stone-200 rounded-lg hover:bg-stone-50 transition"
-              >
-                随机生成
-              </button>
-            </div>
+            {!resetTarget.selfPassword && (
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="新密码"
+                  autoComplete="off"
+                  className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-300 font-mono"
+                />
+                <button
+                  onClick={() => setResetPassword(generateTempPassword())}
+                  className="px-3 py-1.5 text-xs border border-stone-200 rounded-lg hover:bg-stone-50 transition"
+                >
+                  随机生成
+                </button>
+              </div>
+            )}
             <div className="flex gap-2 justify-end mt-4">
               <button
                 onClick={() => setResetTarget(null)}
@@ -381,10 +444,14 @@ export default function AdminUsersPage() {
               </button>
               <button
                 onClick={handleResetPassword}
-                disabled={resetBusy || resetPassword.length < MIN_PASSWORD_LENGTH}
+                disabled={
+                  resetBusy ||
+                  (!resetTarget?.selfPassword &&
+                    resetPassword.length < MIN_PASSWORD_LENGTH)
+                }
                 className="px-4 py-1.5 text-sm bg-amber-800 text-white rounded-lg hover:bg-amber-900 disabled:opacity-50"
               >
-                {resetBusy ? "重置中..." : "确认重置"}
+                {resetBusy ? "处理中..." : resetTarget?.selfPassword ? "批准并生效" : "确认重置"}
               </button>
             </div>
           </div>
@@ -468,6 +535,44 @@ export default function AdminUsersPage() {
                   {r.note && (
                     <p className="text-xs text-stone-500 mt-0.5">说明：{r.note}</p>
                   )}
+                  {/* 用户填的 vs 站点知道的 —— 站长据此客观判断是不是本人 */}
+                  <div className="mt-1.5 grid sm:grid-cols-2 gap-1 text-[0.7rem]">
+                    <p className="text-stone-600">
+                      <span className="text-stone-400">用户填：</span>
+                      注册「{r.answers?.registration || "—"}」
+                      <span className="mx-1">·</span>
+                      最后登录「{r.answers?.lastLogin || "—"}」
+                      {r.answers?.email ? (
+                        <>
+                          <span className="mx-1">·</span>邮箱「{r.answers.email}」
+                        </>
+                      ) : null}
+                    </p>
+                    <p className="text-stone-500">
+                      <span className="text-stone-400">系统记录：</span>
+                      注册于 {fmtDay(r.user.registeredAt)}
+                      <span className="mx-1">·</span>
+                      最后登录 {fmtDay(r.user.lastLoginAt)}
+                      {r.user.registrationRegion ? (
+                        <>
+                          <span className="mx-1">·</span>
+                          注册地 {r.user.registrationRegion}
+                        </>
+                      ) : null}
+                      {r.requestIp ? (
+                        <>
+                          <span className="mx-1">·</span>申请人 {r.requestIp}
+                        </>
+                      ) : null}
+                      <span className="mx-1">·</span>
+                      {r.user.articles} 帖 / {r.user.comments} 评论
+                    </p>
+                  </div>
+                  {r.selfPassword && (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      用户已自设新密码 —— 批准后即可用该密码登录
+                    </p>
+                  )}
                   <p className="text-[0.65rem] text-stone-400 mt-0.5">
                     申请于 {r.createdAt.slice(0, 16).replace("T", " ")}
                   </p>
@@ -479,11 +584,19 @@ export default function AdminUsersPage() {
                       username: r.user.username,
                       uid: r.user.uid,
                       requestId: r.id,
+                      selfPassword: r.selfPassword,
                     })
                   }
                   className="px-3 py-1.5 text-xs bg-amber-800 text-white rounded-lg hover:bg-amber-900 transition"
                 >
-                  重置密码
+                  {r.selfPassword ? "批准并生效" : "重置密码"}
+                </button>
+                <button
+                  onClick={() => handleReject(r.id)}
+                  className="px-3 py-1.5 text-xs text-stone-500 hover:bg-stone-100 rounded transition"
+                  title="核对下来不是本人 → 撤掉这条申请"
+                >
+                  拒绝
                 </button>
               </div>
             ))}

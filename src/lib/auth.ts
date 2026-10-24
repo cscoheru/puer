@@ -80,6 +80,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         );
         if (!valid) return null;
 
+        // 记一次成功登录 —— 密码找回的核验题之一（「你上次登录是什么时候」
+        // 是只有本人知道、而站点也有记录的事实）。写失败不该挡住登录。
+        await prisma.user
+          .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+          .catch(() => {});
+
         return {
           id: user.id,
           email: user.email,

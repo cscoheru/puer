@@ -28,17 +28,47 @@ export async function PUT(
   const { id } = await params;
 
   const body = await req.json().catch(() => ({}));
-  const parsed = resetPasswordSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "密码不合法" },
-      { status: 400 },
-    );
+  // 拒绝：核对下来不是本人 → 把申请撤掉，别留在队列里刷屏。
+  if (body.action === "reject") {
+    const { error: rejectError } = await requirePermission("admin:users");
+    if (rejectError) return rejectError;
+    const { id: rejectId } = await params;
+    const rejected = await prisma.passwordResetRequest.findUnique({
+      where: { id: rejectId },
+      select: { id: true, userId: true, status: true },
+    });
+    if (!rejected) {
+      return NextResponse.json({ error: "申请不存在" }, { status: 404 });
+    }
+    if (rejected.status !== RESET_STATUS.pending) {
+      return NextResponse.json(
+        { error: "这条申请已经处理过了" },
+        { status: 400 },
+      );
+    }
+    await prisma.passwordResetRequest.update({
+      where: { id: rejected.id },
+      data: {
+        status: RESET_STATUS.cancelled,
+        handledBy: session?.user?.name ?? session?.user?.email ?? null,
+        handledAt: new Date(),
+      },
+    });
+    await prisma.notification.create({
+      data: {
+        userId: rejected.userId,
+        type: "system",
+        content:
+          "我们没有通过你的密码重置申请。如果不是本人操作，请忽略这条。",
+        link: null,
+      },
+    });
+    return NextResponse.json({ success: true, rejected: true });
   }
 
   const request = await prisma.passwordResetRequest.findUnique({
     where: { id },
-    select: { id: true, userId: true, status: true },
+    select: { id: true, userId: true, status: true, passwordHash: true },
   });
   if (!request) {
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
@@ -50,7 +80,19 @@ export async function PUT(
     );
   }
 
-  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+  // 用户在申请时**自设了**新密码 → 直接用他的（管理员看不到明文，也不用
+  // 把它告诉用户 —— 用户自己知道）。没自设 → 管理员必须指定一个。
+  let passwordHash = request.passwordHash;
+  if (!passwordHash) {
+    const parsed = resetPasswordSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "密码不合法" },
+        { status: 400 },
+      );
+    }
+    passwordHash = await bcrypt.hash(parsed.data.password, 12);
+  }
   const now = new Date();
 
   await prisma.$transaction([

@@ -14,10 +14,69 @@ export const MIN_PASSWORD_LENGTH = 6;
 /** 密码最长几位（bcrypt 只取前 72 字节，但这里给个明确上限更好读）。 */
 export const MAX_PASSWORD_LENGTH = 100;
 
-/** 「忘记密码」申请的入参。 */
+/**
+ * 密码找回的**核验题**。
+ *
+ * ## 为什么是问答，不是邮箱
+ *
+ * 站内目前**没有真实邮箱** —— 注册时邮箱是自动生成的 `uidN@puer.local`，
+ * 从 uid 就能猜出来，当密钥等于没有。所以「把重置链接发到邮箱」这条路
+ * 现在走不通。**槽位留着**：将来支持真实邮箱注册了，同一个流程里加上
+ * 邮箱校验即可（`forgotPasswordSchema` 已经有 `email` 字段）。
+ *
+ * ## 每一道题要满足三条
+ *
+ *   1. **只有账号本人答得出来** —— 陌生人查不到
+ *   2. **站点自己也有记录** —— 站长能客观核对，不用凭感觉
+ *   3. **用户答得出来** —— 是他自己经历过的事，不是要他去翻记录
+ *
+ * 「注册时间」「最后登录时间」正好三条都占：公开页面上查不到（只有账号
+ * 主人自己记得大概），而数据库里有精确值，站长一比就知道真假。
+ * 「最早发过的那篇帖子标题」虽然公开，但要求精确标题 —— 作为第三道题
+ * 增加核实成本，不作为唯一依据。
+ */
+export const RESET_QUESTIONS = [
+  {
+    key: "registration",
+    label: "你大概是哪年哪月注册的？",
+    hint: "记个大概就行，站长会跟记录核对",
+    placeholder: "如 2026年5月",
+  },
+  {
+    key: "lastLogin",
+    label: "你最后一次登录大概是哪年哪月？",
+    hint: "记个大概就行，站长会跟记录核对",
+    placeholder: "如 2026年10月",
+  },
+] as const;
+
+export type ResetQuestionKey = (typeof RESET_QUESTIONS)[number]["key"];
+
+/**
+ * 「忘记密码」申请的入参。
+ *
+ * `registration` / `lastLogin` 是**核验答案**（用户凭记忆填，站长拿
+ * 数据库核对）—— 必填，因为它们就是这套流程的身份依据。
+ *
+ * `email` 目前只是**参考**（注册邮箱是自动生成的，证明不了什么）；
+ * 将来支持真实邮箱注册后，它就是一道真正的校验题。
+ *
+ * `newPassword` 是**用户自设的新密码** —— 站内没有邮件通道，管理员没法把
+ * 新密码告诉一个不认识自己的用户，所以让用户在申请时就把密码定好。
+ * 服务端只存它的哈希（管理员也看不到明文），管理员点「批准」才生效。
+ * 留空 = 由管理员代设（适合站长能联系上本人的场景）。
+ */
 export const forgotPasswordSchema = z.object({
   account: z.string().min(1, "请填写账号").max(100),
+  registration: z.string().min(1, "请填写注册时间").max(40),
+  lastLogin: z.string().min(1, "请填写最后登录时间").max(40),
+  email: z.string().max(200, "邮箱太长").optional(),
   note: z.string().max(200, "说明最多 200 字").optional(),
+  newPassword: z
+    .string()
+    .min(MIN_PASSWORD_LENGTH, `密码至少 ${MIN_PASSWORD_LENGTH} 位`)
+    .max(MAX_PASSWORD_LENGTH, "密码太长")
+    .optional(),
 });
 
 /** 后台设置新密码的入参。 */
