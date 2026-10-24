@@ -412,6 +412,12 @@ export interface AddStorageEpochInput {
  * **注意**：这里不检查 userId 就直接写会出事，所以先确认条目归属。
  *
  * 评分来源恒为「自评」—— 换仓只服务本人，没有代录那条路。
+ *
+ * 评分**不在这里规整**：HTTP 路由上的 zod 已经挡住了越界值，DB 的 CHECK
+ * 约束是第二道。中间再插一道「越界就当成没评分」会把**非法值静默降级** ——
+ * 将来若有后台脚本从这里写库，它会拿到一条「看起来写成功了、其实分数丢了」
+ * 的记录，而且 DB 的 CHECK 永远不会被触发，约束坏了也没人知道。
+ * 要挡就在入口挡（zod），要么报错，不要静默吞掉。
  */
 export async function addStorageEpoch(
   userId: string,

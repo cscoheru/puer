@@ -12,11 +12,17 @@ import {
   parseDims,
   storageAnchorOf,
   storageBandLabel,
+  storageScalePercent,
+  storageScoreLabel,
   suggestRemindMonths,
   cellarExportCsv,
   cellarExportJson,
   cellarExportRows,
   cellarCsvCell,
+  STORAGE_ANCHORS,
+  STORAGE_DEFAULT_SCORE,
+  STORAGE_SCORE_MAX,
+  STORAGE_SCORE_MIN,
   type ExportItem,
 } from "./cellar.ts";
 
@@ -57,6 +63,89 @@ test("储仓分档名", () => {
   assert.equal(storageBandLabel(55), "标准偏湿");
   assert.equal(storageBandLabel(60), "湿仓");
   assert.equal(storageBandLabel(null), "未记录");
+});
+
+// ─── 仓储是一条数轴，不是四个档位 ─────────────────────────────────────────
+
+test("中间值是合法评分（45/50/55/60 只是参考点，不是四个取值）", () => {
+  assert.equal(normalizeStorageScore(47), 47);
+  assert.equal(normalizeStorageScore(52), 52);
+  assert.equal(normalizeStorageScore(58), 58);
+});
+
+test("标尺位置：最小值在最左、最大值在最右", () => {
+  assert.equal(storageScalePercent(STORAGE_SCORE_MIN), 0);
+  assert.equal(storageScalePercent(STORAGE_SCORE_MAX), 1);
+  assert.equal(storageScalePercent(null), null, "未记录不是「值在端点」");
+});
+
+test("标尺位置线性：把 [最小值, 最大值] 映射到 0–1", () => {
+  assert.ok(Math.abs(storageScalePercent(50)! - 1 / 3) < 1e-9);
+  assert.ok(Math.abs(storageScalePercent(55)! - 2 / 3) < 1e-9);
+  assert.ok(Math.abs(storageScalePercent(47)! - 2 / 15) < 1e-9);
+});
+
+test("四个锚点在数轴上等距（刻度标签才排得均匀）", () => {
+  const gaps = STORAGE_ANCHORS.slice(1).map(
+    (a, i) => a.score - STORAGE_ANCHORS[i].score,
+  );
+  assert.deepEqual(gaps, [5, 5, 5]);
+});
+
+test("每个锚点都算得出标尺位置（否则滑块的刻度会少一格）", () => {
+  for (const a of STORAGE_ANCHORS) {
+    assert.notEqual(
+      storageScalePercent(a.score),
+      null,
+      `锚点 ${a.score} 算不出位置，刻度会整条消失`,
+    );
+  }
+});
+
+test("标尺位置与规整用同一套口径：不合法分一律 null", () => {
+  // 「什么算合法仓储分」只有一份定义（normalizeStorageScore）。
+  // 标尺函数若宽松一点，就等于悄悄开了第二套标准。
+  for (const raw of [44, 61, 47.5, NaN, Infinity, -Infinity]) {
+    assert.equal(
+      storageScalePercent(raw),
+      null,
+      `${raw} 不是合法分，标尺位置也该是 null`,
+    );
+  }
+  assert.equal(storageScalePercent(null), null);
+  assert.equal(
+    storageScalePercent(undefined as unknown as number),
+    null,
+  );
+});
+
+test("最近锚点正好在正中间时取较低的那个", () => {
+  assert.equal(storageAnchorOf(47.5)?.score, 45);
+});
+
+test("未记录时滑块停在标准仓（不是几何中点）", () => {
+  assert.equal(
+    STORAGE_ANCHORS.find((a) => a.label === "标准仓")?.score,
+    STORAGE_DEFAULT_SCORE,
+    "默认停靠点必须就是「标准仓」那个锚点",
+  );
+  assert.notEqual(
+    STORAGE_DEFAULT_SCORE,
+    (STORAGE_SCORE_MIN + STORAGE_SCORE_MAX) / 2,
+    "几何中点落在「标准偏湿」那边，暗示得比实际更湿",
+  );
+  assert.ok(
+    STORAGE_DEFAULT_SCORE >= STORAGE_SCORE_MIN &&
+      STORAGE_DEFAULT_SCORE <= STORAGE_SCORE_MAX,
+    "停靠点必须落在数轴内",
+  );
+});
+
+test("评分展示必须带数字（45 和 47 不能显示成同一个东西）", () => {
+  assert.notEqual(storageScoreLabel(45), storageScoreLabel(47));
+  assert.match(storageScoreLabel(47), /47/);
+  assert.match(storageScoreLabel(47), /标准偏干/);
+  assert.equal(storageScoreLabel(null), "未记录");
 });
 
 // ─── 四维 ─────────────────────────────────────────────────────────────────

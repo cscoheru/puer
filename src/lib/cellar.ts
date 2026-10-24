@@ -51,6 +51,13 @@ export type AssessedBy = "self" | "editor";
  * 范围 45–60，采用「标准偏干」概念而不是港式四分法（站长判断前者更适合
  * 90 年代前的老茶）。评分由**人**给，不由 LLM 从笔记推断。
  *
+ * ## 这四个数是数轴上的参考点，不是四个取值
+ *
+ * 45–60 之间**任意整数**都合法（47、52、58 都行）。锚点只是四个方便的
+ * 参照位置，标尺上的位置换算用 `storageScalePercent`。
+ * 2026-10-24 站长明确纠正过这一点：「实际是一个数轴，左边最低 45，最右边
+ * 60，中间任何一个状态都可以」—— 早先的四个按钮把它做成了四档，那是错的。
+ *
  * ⚠️ `desc` 是**占位文案** —— PRD §6 写明锚点描述由站长提供，CC 先放占位
  * 并在 PR 中标出。改这里之前先问站长。
  */
@@ -72,6 +79,20 @@ export const STORAGE_SCORE_MIN = 45;
 export const STORAGE_SCORE_MAX = 60;
 
 /**
+ * 未记录时滑块的停靠位置。
+ *
+ * 50 = 标准仓 —— 四个锚点里唯一「不干不湿」的那个，是用户什么都不改时
+ * 最中性的读数。
+ *
+ * ⚠️ 它**不是** (最小值 + 最大值) / 2 —— 那是几何中点，落在「标准偏湿」
+ * 那一侧，暗示得比实际更湿。50 是**有语义的选择**，不是算出来的。
+ *
+ * 「必须等于标准仓锚点」这条由 `src/lib/cellar.test.ts` 钉住 ——
+ * 锚点集合一改，这个常量会静默变成另一个意思。
+ */
+export const STORAGE_DEFAULT_SCORE = 50;
+
+/**
  * 规整储仓评分。越界或非整数一律返回 null —— 宁空勿猜。
  *
  * 中间值（47、48、52…）是**允许的**：PRD 只给了四个锚点，但允许选中间值。
@@ -89,6 +110,9 @@ export function normalizeStorageScore(raw: unknown): number | null {
  *
  * 整数分值下四个锚点的中点是 47.5 / 52.5 / 57.5，落在两个整数之间，
  * 所以**不会出现平局**，不需要额外的 tie-break 规则。
+ *
+ * 非整数输入（真要有人传 47.5 进来）正好落在两个锚点的正中，此时取
+ * **较低**的那个 —— 比较是严格小于且锚点按分数升序，先遇到的那个赢。
  */
 export function storageAnchorOf(score: number | null): StorageAnchor | null {
   if (score === null) return null;
@@ -104,9 +128,51 @@ export function storageAnchorOf(score: number | null): StorageAnchor | null {
   return best;
 }
 
-/** 储仓分档名（Phase 3 社区带按最近锚点分四组）。 */
+/**
+ * 仓储评分的标签 —— 取**最近参考点**的名字。
+ *
+ * 不是「分档」：评分是连续数轴，45 和 47 都落在「标准偏干」这一侧，
+ * 但它们是不同的仓储状态。所以展示时必须**连数字一起给**（见
+ * `storageScoreLabel`），只给标签会把两个不同的分数说成同一个。
+ */
 export function storageBandLabel(score: number | null): string {
   return storageAnchorOf(score)?.label ?? "未记录";
+}
+
+/**
+ * 仓储评分在数轴上的位置（0–1）。
+ *
+ * **最小值在最左（最干），最大值在最右（最湿）**，中间任意值连续分布 ——
+ * 这正是 2026-10-24 站长纠正的那件事：45/50/55/60 是数轴上的四个参考点，
+ * 不是四个档位。UI 画刻度、画填充条都用这一个换算，别各处自己写
+ * `(score - 45) / 15` —— 那正是「四档」写法的来源。
+ *
+ * **「什么算合法仓储分」只有一份口径**：`normalizeStorageScore`。
+ * 本函数直接复用它，所以越界、非整数、NaN 一律返回 null ——
+ * 「画图坐标宽松一点」不是另一套标准，只会让两处口径悄悄分叉。
+ *
+ * ⚠️ 它因此**不是**一个宽松的绘图坐标：非法分的刻度会整个消失，而不是
+ * 被挤到端点。锚点恒为合法值（`src/lib/cellar.test.ts` 有断言），真出现
+ * 不合法分说明数据出问题了，不该被悄悄画成「在左边」。
+ */
+export function storageScalePercent(score: number | null): number | null {
+  const n = normalizeStorageScore(score);
+  if (n === null) return null;
+  return (n - STORAGE_SCORE_MIN) / (STORAGE_SCORE_MAX - STORAGE_SCORE_MIN);
+}
+
+/**
+ * 仓储评分的展示串 —— 「47 · 标准偏干」。
+ *
+ * **必须带数字**：只显示标签会把 45 和 47 变成同一个东西，而它们是不同的
+ * 仓储状态（连续数轴，见 `STORAGE_ANCHORS` 的说明）。
+ *
+ * 展示格式只有这一份 —— 列表徽章、详情页当前仓储、换仓历史、滑块读数
+ * 全部调它。分叉出去的每一处都是「改了一处忘了另一处」的种子。
+ */
+export function storageScoreLabel(score: number | null): string {
+  if (score === null) return "未记录";
+  return `${score} · ${storageBandLabel(score)}`;
 }
 
 // ─── 四维评分（PRD §6）────────────────────────────────────────────────────

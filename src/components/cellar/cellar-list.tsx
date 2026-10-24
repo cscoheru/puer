@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import TeaPicker from "@/components/cellar/tea-picker";
 import type { TeaOption } from "@/components/cellar/use-tea-search";
-import { storageBandLabel } from "@/lib/cellar";
+import { storageScoreLabel } from "@/lib/cellar";
 import { listPaginationView } from "@/lib/pagination-limits";
-import StorageAnchorPicker from "@/components/cellar/storage-anchor-picker";
+import StorageSlider from "@/components/cellar/storage-slider";
 
 /**
  * 我的茶仓 —— 条目列表 + 添加茶。
@@ -206,7 +206,8 @@ export default function CellarList() {
                   </div>
                   {it.storageScore != null && (
                     <span className="shrink-0 text-[0.65rem] px-2 py-1 rounded border border-stone-200 bg-stone-50 text-stone-600">
-                      {storageBandLabel(it.storageScore)}
+                      {/* 评分是连续数轴，只显示档名会把 45 和 47 混成同一个标签 */}
+                      {storageScoreLabel(it.storageScore)}
                     </span>
                   )}
                 </div>
@@ -315,7 +316,12 @@ function AddTeaDialog({
         }
         body.teaId = tea.id;
       }
-      if (storageScore != null) {
+      // 三项任意一项填了就要落库。
+      // 以前只看 storageScore：用户填了城市/容器却没点滑块（换成滑块前是
+      // 四个按钮，更容易一个都不点），那两项就无声无息地丢了 —— 表单还
+      // 显示着「仓储登记（可跳过，之后再补）」，用户根本不知道自己填的东西
+      // 没了。评分可以是空，城市和容器不能。
+      if (storageScore != null || city.trim() || container.trim()) {
         body.storage = {
           storageScore,
           city: city.trim() || null,
@@ -448,7 +454,7 @@ function AddTeaDialog({
           <p className="text-xs text-stone-500 mb-2">
             仓储登记（可跳过，之后再补）
           </p>
-          <StorageAnchorPicker
+          <StorageSlider
             value={storageScore}
             onChange={setStorageScore}
             className="mb-2"

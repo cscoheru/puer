@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import EditorLineView from "@/components/tea/editor-line";
 import QuickTastingForm from "@/components/cellar/quick-tasting-form";
-import { overallScore, storageBandLabel } from "@/lib/cellar";
+import { overallScore, storageScoreLabel } from "@/lib/cellar";
 import { DELTA_LABELS, STAGE_LABELS } from "@/lib/tasting-extract/vocab";
-import StorageAnchorPicker from "@/components/cellar/storage-anchor-picker";
+import StorageSlider from "@/components/cellar/storage-slider";
 import type { EditorLine } from "@/lib/editor-line";
 
 /**
@@ -185,15 +185,16 @@ export default function CellarDetail({
                   {currentEpoch.storageScore != null ? (
                     <>
                       <span className="font-medium text-stone-800">
-                        {currentEpoch.storageScore}{" "}
-                        {storageBandLabel(currentEpoch.storageScore)}
+                        {storageScoreLabel(currentEpoch.storageScore)}
                       </span>
                       <span className="text-xs text-stone-400 ml-1.5">
                         （{currentEpoch.assessedBy === "editor" ? "站长评" : "自评"}）
                       </span>
                     </>
                   ) : (
-                    <span className="text-stone-400">仓储未评分</span>
+                    <span className="text-stone-400">
+                      仓储{storageScoreLabel(null)}
+                    </span>
                   )}
                 </p>
                 <p className="text-xs text-stone-400">
@@ -213,9 +214,7 @@ export default function CellarDetail({
                         .map((e) => (
                           <li key={e.id}>
                             {e.startsAt.slice(0, 10)} ·{" "}
-                            {e.storageScore != null
-                              ? `${e.storageScore} ${storageBandLabel(e.storageScore)}`
-                              : "未评分"}
+                            {storageScoreLabel(e.storageScore)}
                             {e.city ? ` · ${e.city}` : ""}
                             {e.container ? ` · ${e.container}` : ""}
                           </li>
@@ -232,6 +231,8 @@ export default function CellarDetail({
               <StorageForm
                 itemId={item.id}
                 currentScore={currentEpoch?.storageScore ?? null}
+                currentCity={currentEpoch?.city ?? null}
+                currentContainer={currentEpoch?.container ?? null}
                 onSaved={(msg) => {
                   setMessage(msg);
                   setShowStorage(false);
@@ -419,15 +420,32 @@ function TastingItem({ t }: { t: TastingRow }) {
 function StorageForm({
   itemId,
   currentScore,
+  currentCity,
+  currentContainer,
   onSaved,
 }: {
   itemId: string;
   currentScore: number | null;
+  currentCity: string | null;
+  currentContainer: string | null;
   onSaved: (message: string) => void;
 }) {
-  const [score, setScore] = useState<number | null>(null);
-  const [city, setCity] = useState("");
-  const [container, setContainer] = useState("");
+  /**
+   * 三项都**默认沿用当前仓储期**（没有则为空）。
+   *
+   * 跟快速品鉴的「可选项默认沿用上次」是同一个惯例（`nextTastingDefaults`）：
+   * 换仓多半还是那个仓储条件，先把它摆出来让用户改，而不是让他从零再填一遍。
+   *
+   * ⚠️ 分数沿用了、城市和容器也必须一起沿用 —— 只沿用一半更糟：
+   * 用户看到分数已经填好了，改一下就保存，于是**城市和容器被清空**，
+   * 新仓储期看起来像是这条茶没在任何地方放过。
+   *
+   * 空的时候滑块会停在「标准仓」这个中性位置，读数写「未记录」——
+   * 控件指着的数与「有没有记过」永远一致，不会出现「文字说没记、轨道却指着 50」。
+   */
+  const [score, setScore] = useState<number | null>(currentScore);
+  const [city, setCity] = useState(currentCity ?? "");
+  const [container, setContainer] = useState(currentContainer ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -462,7 +480,7 @@ function StorageForm({
       <p className="text-xs text-stone-500 mb-2">
         {currentScore != null ? "换仓（新增一段仓储期，旧的保留）" : "登记仓储"}
       </p>
-      <StorageAnchorPicker value={score} onChange={setScore} className="mb-2" />
+      <StorageSlider value={score} onChange={setScore} className="mb-2" />
       <div className="grid grid-cols-2 gap-3">
         <input
           value={city}

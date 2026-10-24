@@ -179,3 +179,52 @@
     }
   }
 }
+
+/* ── 仓储评分标尺（茶仓）───────────────────────────────────────────────────
+ *
+ * 原生 range 的 accent-color 会把「已填充的轨道」和「拇指」涂成同一个颜色，
+ * 滑块就只剩一条没有刻度的色条，看不出精确位置在哪。所以轨道与填充由组件
+ * 用两层 div 自绘，这里只负责把**拇指**重新画出来 —— 保留原生滑块的键盘、
+ * 触摸与读屏行为，只换皮。
+ *
+ * 拇指 20px，在 6px 高的轨道上居中需要 margin-top: -7px；
+ * 输入框上下各 13px 内边距（32 - 13*2 = 6 = 轨道高）让拇指落在输入框正中。
+ * 三者是一组，改一个要三个一起改。
+ */
+.cellar-storage-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+.cellar-storage-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+.cellar-storage-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--cellar-thumb, #b45309);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  cursor: pointer;
+}
+.cellar-storage-slider::-moz-range-track {
+  height: 6px;
+  background: transparent;
+}
+.cellar-storage-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--cellar-thumb, #b45309);
+  cursor: pointer;
+}
+.cellar-storage-slider:focus-visible {
+  outline: 2px solid #b45309;
+  outline-offset: 2px;
+}

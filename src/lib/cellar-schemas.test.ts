@@ -23,6 +23,20 @@ test("仓储评分接受 45–60 的整数，拒绝越界", () => {
   assert.equal(storageSchema.safeParse({ storageScore: 47.5 }).success, false);
 });
 
+test("仓储评分接受中间值（45/50/55/60 是参考点，不是四个取值）", () => {
+  // 服务端本来就允许 45–60 的任意整数（DB 的 CHECK 约束同理），
+  // 之前只有 UI 把它压成了四个按钮。这条断言钉住「中间值合法」，
+  // 免得将来有人把它「修回」枚举。
+  for (const score of [47, 52, 58]) {
+    assert.equal(storageSchema.safeParse({ storageScore: score }).success, true);
+    assert.equal(
+      addStorageEpochSchema.safeParse({ storageScore: score }).success,
+      true,
+      `换仓接口也要接受 ${score}`,
+    );
+  }
+});
+
 test("仓储三项都可跳过", () => {
   assert.equal(storageSchema.safeParse({}).success, true);
 });
