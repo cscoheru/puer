@@ -41,6 +41,116 @@ test("仓储三项都可跳过", () => {
   assert.equal(storageSchema.safeParse({}).success, true);
 });
 
+// ─── 品鉴：按维度归类的描述词 + 视频 ──────────────────────────────────────
+
+test("dimTags 接受四个维度各自的词数组", () => {
+  const r = addTastingSchema.safeParse({
+    stage: "peak",
+    dimTags: { aroma: ["蜜香"], flavor: ["甜", "厚"] },
+  });
+  assert.equal(r.success, true);
+});
+
+test("dimTags 拒绝未知维度（拼错的键不能静默吞掉）", () => {
+  const r = addTastingSchema.safeParse({
+    stage: "peak",
+    dimTags: { water_path: ["细"] },
+  });
+  assert.equal(r.success, false, "water_path 不是维度名");
+});
+
+test("dimTags 拒绝空数组以外的怪东西", () => {
+  assert.equal(
+    addTastingSchema.safeParse({ stage: "peak", dimTags: { aroma: [] } }).success,
+    true,
+    "空数组合法（等于没选）",
+  );
+  assert.equal(
+    addTastingSchema.safeParse({ stage: "peak", dimTags: { aroma: "蜜香" } }).success,
+    false,
+    "值必须是数组",
+  );
+  assert.equal(
+    addTastingSchema.safeParse({ stage: "peak", dimTags: { aroma: ["x".repeat(41)] } }).success,
+    false,
+    "词太长",
+  );
+});
+
+test("外站地址一律拒（哪怕路径是 /uploads/ —— 域名不对就是外站）", () => {
+  // 之前只查协议与路径前缀、不查域名，https://evil.com/uploads/x.mp4
+  // 会被放行 —— 而这些地址是直接渲染成 <img src> / <video src> 的。
+  for (const bad of [
+    "https://evil.com/uploads/x.mp4",
+    "https://evil.com/uploads/x.jpg",
+    "//evil.com/uploads/x.jpg",
+    "http://puer.im/uploads/x.jpg",
+  ]) {
+    assert.equal(
+      addTastingSchema.safeParse({ stage: "peak", images: [bad] }).success,
+      false,
+      `图片应拒 ${bad}`,
+    );
+    assert.equal(
+      addTastingSchema.safeParse({ stage: "peak", videos: [bad] }).success,
+      false,
+      `视频应拒 ${bad}`,
+    );
+  }
+  // 本站绝对地址与站内相对路径都收
+  assert.equal(
+    addTastingSchema.safeParse({
+      stage: "peak",
+      images: ["https://puer.im/uploads/tea/a.jpg"],
+    }).success,
+    true,
+  );
+});
+
+test("每个维度最多 20 个词（客户端必须先夹住，否则整条记录 400）", () => {
+  assert.equal(
+    addTastingSchema.safeParse({
+      stage: "peak",
+      dimTags: { flavor: Array.from({ length: 20 }, (_, i) => `味${i}`) },
+    }).success,
+    true,
+  );
+  assert.equal(
+    addTastingSchema.safeParse({
+      stage: "peak",
+      dimTags: { flavor: Array.from({ length: 21 }, (_, i) => `味${i}`) },
+    }).success,
+    false,
+  );
+});
+
+test("图片与视频都只收站内上传的地址", () => {
+  const ok = addTastingSchema.safeParse({
+    stage: "peak",
+    images: ["/uploads/tea/a.jpg"],
+    videos: ["/uploads/tea/a.mp4"],
+  });
+  assert.equal(ok.success, true);
+
+  const external = addTastingSchema.safeParse({
+    stage: "peak",
+    images: ["https://evil.example/x.jpg"],
+  });
+  assert.equal(external.success, false, "外部图片地址要拒");
+
+  const externalVideo = addTastingSchema.safeParse({
+    stage: "peak",
+    videos: ["https://evil.example/x.mp4"],
+  });
+  assert.equal(externalVideo.success, false, "外部视频地址要拒");
+
+  const notUploads = addTastingSchema.safeParse({
+    stage: "peak",
+    videos: ["/api/evil"],
+  });
+  assert.equal(notUploads.success, false, "非 uploads 路径要拒");
+});
+
 // ─── 四维 ─────────────────────────────────────────────────────────────────
 
 test("四维接受 1–10 的整数", () => {
@@ -131,8 +241,13 @@ test("品鉴：描述词有数量与长度上限", () => {
     addTastingSchema.safeParse({ descriptors: ["蜜香", "水路细"] }).success,
     true,
   );
+  // 上限 100：四个维度各 20 个词再加通用词，摊平后 20 装不下
   assert.equal(
-    addTastingSchema.safeParse({ descriptors: Array(21).fill("蜜香") }).success,
+    addTastingSchema.safeParse({ descriptors: Array(100).fill("蜜香") }).success,
+    true,
+  );
+  assert.equal(
+    addTastingSchema.safeParse({ descriptors: Array(101).fill("蜜香") }).success,
     false,
   );
   assert.equal(

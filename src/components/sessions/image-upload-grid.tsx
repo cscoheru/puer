@@ -6,11 +6,31 @@ interface Props {
   value: string[];
   onChange: (urls: string[]) => void;
   maxImages?: number;
+  /**
+   * 上传分类（决定落在 uploads/ 的哪个子目录）。
+   *
+   * 默认 "session" —— 社区那条线。茶仓用 "tea"。
+   */
+  category?: "session" | "tea" | "inventory" | "avatar";
+  /**
+   * 第一张是不是「封面」。
+   *
+   * 社区的合集有封面概念；**茶仓的品鉴记录没有** —— 那只是一条记录里的
+   * 一张图，不该被标成封面（标了会让人以为其它图是附图）。
+   */
+  showCoverBadge?: boolean;
 }
 
-export default function ImageUploadGrid({ value, onChange, maxImages = 9 }: Props) {
+export default function ImageUploadGrid({
+  value,
+  onChange,
+  maxImages = 9,
+  category = "session",
+  showCoverBadge = true,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -19,20 +39,28 @@ export default function ImageUploadGrid({ value, onChange, maxImages = 9 }: Prop
     if (batch.length === 0) return;
 
     setUploading(true);
-    const urls = await Promise.all(
-      batch.map(async (file) => {
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("category", "session");
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
-        if (!res.ok) throw new Error("上传失败");
-        const { url } = await res.json();
-        return url as string;
-      })
-    );
-    onChange([...value, ...urls]);
-    setUploading(false);
-    if (inputRef.current) inputRef.current.value = "";
+    setError("");
+    try {
+      const urls = await Promise.all(
+        batch.map(async (file) => {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("category", category);
+          const res = await fetch("/api/upload", { method: "POST", body: fd });
+          if (!res.ok) throw new Error("上传失败");
+          const { url } = await res.json();
+          return url as string;
+        })
+      );
+      onChange([...value, ...urls]);
+    } catch {
+      // 一定要在这里兜住：Promise.all 一旦 reject，下面的 setUploading(false)
+      // 就跑不到了 —— 加号会永远转圈，用户既看不到错误也传不了第二张。
+      setError("上传失败，请重试");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
   };
 
   const remove = (index: number) => onChange(value.filter((_, i) => i !== index));
@@ -51,7 +79,7 @@ export default function ImageUploadGrid({ value, onChange, maxImages = 9 }: Prop
         {value.map((url, i) => (
           <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-amber-200 bg-amber-50 group">
             <img src={url} alt="" className="w-full h-full object-cover" />
-            {i === 0 && (
+            {showCoverBadge && i === 0 && (
               <span className="absolute top-1 left-1 text-[0.625rem] bg-amber-600 text-white px-1.5 py-0.5 rounded font-medium">
                 封面
               </span>
@@ -59,7 +87,8 @@ export default function ImageUploadGrid({ value, onChange, maxImages = 9 }: Prop
             <button
               type="button"
               onClick={() => remove(i)}
-              className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-[0.625rem] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 flex items-center justify-center"
+              aria-label="移除这张"
+              className="absolute top-1 right-1 w-7 h-7 bg-red-500 text-white rounded-full text-xs opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-red-600 flex items-center justify-center"
             >
               ✕
             </button>
@@ -100,7 +129,10 @@ export default function ImageUploadGrid({ value, onChange, maxImages = 9 }: Prop
         className="hidden"
         onChange={handleSelect}
       />
-      <p className="text-xs text-stone-400 mt-1.5">第一张为封面，最多 {maxImages} 张</p>
+      <p className="text-xs text-stone-400 mt-1.5">
+        {showCoverBadge ? `第一张为封面，最多 ${maxImages} 张` : `最多 ${maxImages} 张`}
+      </p>
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
     </div>
   );
 }

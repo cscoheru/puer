@@ -4,8 +4,13 @@ import assert from "node:assert/strict";
 import { parseCsv } from "./tasting-corrections.ts";
 import {
   CELLAR_EXPORT_CSV_HEADER,
+  CELLAR_MAX_DESCRIPTORS,
+  CELLAR_MAX_DIM_TAGS,
   DIM_KEYS,
   filterVocab,
+  groupVocabByDim,
+  latestTastingByCreatedAt,
+  buildTastingTags,
   normalizeStorageScore,
   nextTastingDefaults,
   overallScore,
@@ -15,6 +20,11 @@ import {
   storageScalePercent,
   storageScoreLabel,
   suggestRemindMonths,
+  nextTastingAllowedAt,
+  tastingWaitRemainingMs,
+  toggleDimTag,
+  formatWaitRemaining,
+  formatWaitMessage,
   cellarExportCsv,
   cellarExportJson,
   cellarExportRows,
@@ -225,6 +235,168 @@ test("提醒间隔按最近一次结果给建议", () => {
   assert.equal(suggestRemindMonths("better", 1), 1, "下限是 1 个月");
 });
 
+// ─── 品鉴间隔（两次至少隔 24 小时）──────────────────────────────────────
+
+test("没有上一次品鉴 → 随时可以记第一条", () => {
+  const now = new Date("2026-10-24T00:00:00.000Z");
+  assert.equal(tastingWaitRemainingMs(null, now), null);
+  assert.equal(tastingWaitRemainingMs(undefined, now), null);
+  assert.equal(nextTastingAllowedAt(null), null);
+});
+
+test("差一分钟就得等一分钟（23:59 不放行）", () => {
+  const now = new Date("2026-10-24T00:00:00.000Z");
+  const last = new Date(now.getTime() - (23 * 3_600_000 + 59 * 60_000));
+  const remain = tastingWaitRemainingMs(last, now);
+  assert.equal(remain, 60_000, "还差 1 分钟");
+  assert.equal(formatWaitRemaining(remain!), "不到 1 分钟");
+});
+
+test("满 24 小时才放行", () => {
+  const now = new Date("2026-10-24T00:00:00.000Z");
+  const justUnder = new Date(now.getTime() - (24 * 3_600_000 - 1000));
+  assert.notEqual(
+    tastingWaitRemainingMs(justUnder, now),
+    null,
+    "还差 1 秒也不能记",
+  );
+  const exactly = new Date(now.getTime() - 24 * 3_600_000);
+  assert.equal(tastingWaitRemainingMs(exactly, now), null, "满 24 小时放行");
+  const later = new Date(now.getTime() - 25 * 3_600_000);
+  assert.equal(tastingWaitRemainingMs(later, now), null);
+});
+
+test("间隔按服务端 createdAt 算，客户端伪造的 tastedAt 绕不过", () => {
+  // 判定只看「上一条记录的 createdAt」——那是数据库写的，客户端碰不到。
+  // 客户端能伪造的只有 tastedAt（它甚至不参与判定）。
+  const now = new Date("2026-10-24T00:00:00.000Z");
+  const createdAnHourAgo = new Date(now.getTime() - 3_600_000);
+  assert.equal(
+    tastingWaitRemainingMs(createdAnHourAgo, now),
+    23 * 3_600_000,
+    "哪怕客户端声称这是一年前喝的，间隔仍按 createdAt 算",
+  );
+});
+
+test("等待时长的提示是人话", () => {
+  assert.equal(formatWaitRemaining(0), "现在就可以记");
+  assert.equal(formatWaitRemaining(-1), "现在就可以记");
+  assert.equal(formatWaitRemaining(30 * 60_000), "还需 30 分钟");
+  assert.equal(formatWaitRemaining(3_600_000), "还需 1 小时");
+  assert.equal(formatWaitRemaining(12 * 3_600_000), "还需 12 小时");
+  assert.equal(formatWaitRemaining(23 * 3_600_000 + 59 * 60_000), "还需 24 小时");
+});
+
+test("间隔提示的整句话只有一份（24 这个数字来自常量，不各写一遍）", () => {
+  const msg = formatWaitMessage(12 * 3_600_000);
+  assert.match(msg, /24 小时/);
+  assert.match(msg, /还需 12 小时/);
+});
+
+// ─── 上限与组装（客户端必须先夹住，否则整条记录被 400 打回）─────────────
+
+test("一维的词被夹到服务端上限（不然 400 会把整条记录打回）", () => {
+  // 词库实际规模：flavor 71、aroma 54、waterPath 37 —— 用户在「更多词」
+  // 里很容易就选过 20 个。
+  const flavor = Array.from({ length: 71 }, (_, i) => `味${i}`);
+  const out = buildTastingTags({ flavor }, []);
+  assert.equal(out.dimTags.flavor?.length, CELLAR_MAX_DIM_TAGS);
+  assert.equal(out.dimTags.flavor?.length, 20);
+});
+
+test("摊平后的 descriptors 不超过服务端上限", () => {
+  const perDim = Object.fromEntries(
+    DIM_KEYS.map((k) => [
+      k,
+      Array.from({ length: 40 }, (_, i) => `${k}${i}`),
+    ]),
+  );
+  const out = buildTastingTags(perDim, []);
+  // 四个维度各 20 = 80，摊平后仍然是 80（没超上限）
+  assert.ok(out.descriptors.length <= CELLAR_MAX_DESCRIPTORS);
+  assert.equal(out.descriptors.length, 80);
+  // 加上通用词也超不了上限
+  const withFree = buildTastingTags(perDim, Array.from({ length: 40 }, (_, i) => `通${i}`));
+  assert.ok(withFree.descriptors.length <= CELLAR_MAX_DESCRIPTORS);
+});
+
+test("同一个词出现在两个维度里：dimTags 各留各的，descriptors 只留一份", () => {
+  const out = buildTastingTags({ aroma: ["甜"], flavor: ["甜"] }, ["甜"]);
+  assert.deepEqual(out.dimTags, { aroma: ["甜"], flavor: ["甜"] });
+  assert.deepEqual(out.descriptors, ["甜"]);
+});
+
+test("空的维度不出现在 dimTags 里（等于没选）", () => {
+  const out = buildTastingTags({ aroma: [], flavor: ["厚"] }, []);
+  assert.deepEqual(out.dimTags, { flavor: ["厚"] });
+  assert.equal("aroma" in out.dimTags, false);
+});
+
+test("取消最后一个词时这一维整个消失", () => {
+  const s1 = toggleDimTag({ aroma: ["蜜香"] }, "aroma", "蜜香");
+  assert.deepEqual(s1, {});
+  assert.equal("aroma" in s1, false);
+});
+
+test("再点一次同一个词是取消，不是重复添加", () => {
+  let s = toggleDimTag({}, "aroma", "蜜香");
+  s = toggleDimTag(s, "aroma", "蜜香");
+  assert.deepEqual(s, {});
+});
+
+test("同一个词可以在两个维度里各自选中", () => {
+  let s = toggleDimTag({}, "aroma", "甜");
+  s = toggleDimTag(s, "flavor", "甜");
+  assert.deepEqual(s, { aroma: ["甜"], flavor: ["甜"] });
+});
+
+// ─── 「上一次」取哪一条 ───────────────────────────────────────────────────
+
+test("间隔基准取「创建时刻」最新的一条，不是「品鉴时刻」最新的一条", () => {
+  const rows = [
+    {
+      id: "a",
+      tastedAt: "2026-10-24T00:00:00.000Z",
+      createdAt: "2026-10-23T00:00:00.000Z",
+    },
+    {
+      id: "b",
+      tastedAt: "2026-10-01T00:00:00.000Z",
+      createdAt: "2026-10-24T00:00:00.000Z",
+    },
+  ];
+  // b 的 tastedAt 更早（客户端可以伪造），但 createdAt 更晚 —— 基准必须是 b。
+  assert.equal(latestTastingByCreatedAt(rows)?.id, "b");
+});
+
+test("没有品鉴记录 → null（随时可以记第一条）", () => {
+  assert.equal(latestTastingByCreatedAt([]), null);
+});
+
+test("createdAt 坏掉的记录不参与「取最新」（别拿坏时间当基准）", () => {
+  const rows = [
+    { id: "a", createdAt: "不是日期" },
+    { id: "b", createdAt: "2026-10-24T00:00:00.000Z" },
+  ];
+  assert.equal(latestTastingByCreatedAt(rows)?.id, "b");
+});
+
+// ─── 词库按维度分组 ───────────────────────────────────────────────────────
+
+test("词库按维度分组：any 与无维度的词归到通用词", () => {
+  const { byDim, free } = groupVocabByDim([
+    { tag: "蜜香", dim: "aroma" },
+    { tag: "甜", dim: "flavor" },
+    { tag: "通用", dim: "any" },
+    { tag: "无维", dim: null },
+    { tag: "坏维度", dim: "water_path" },
+  ]);
+  assert.deepEqual(byDim.aroma, ["蜜香"]);
+  assert.deepEqual(byDim.flavor, ["甜"]);
+  assert.deepEqual(free, ["通用", "无维"]);
+  assert.equal(byDim.waterPath, undefined, "未知维度不能出现");
+});
+
 // ─── 描述词库筛选 ─────────────────────────────────────────────────────────
 
 test("描述词按生熟筛选，any 对两者都适用", () => {
@@ -302,10 +474,12 @@ const sampleItems: ExportItem[] = [
         deltaVsPrev: null,
         dims: { aroma: 7, flavor: 8, waterPath: 6, bodyFeel: 7 },
         descriptors: ["蜜香", "水路细"],
+        dimTags: { aroma: ["蜜香"], waterPath: ["水路细"] },
         grams: 7.5,
         vessel: "盖碗",
         note: "第一泡有点紧",
         images: ["https://example.test/a.jpg"],
+        videos: [],
         visibility: "private",
         elapsedSeconds: 22,
       },

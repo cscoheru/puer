@@ -25,7 +25,18 @@ import { z } from "zod";
 // 阶段/对照的取值**只有一份** —— 在 F1 的词表里（src/lib/tasting-extract/vocab.ts），
 // DB 的 CHECK 约束是它的第三份镜像，改一处要三处一起改。
 import { DELTAS, STAGES } from "./tasting-extract/vocab.ts";
-import { STORAGE_SCORE_MAX, STORAGE_SCORE_MIN } from "./cellar.ts";
+import {
+  CELLAR_MAX_DESCRIPTORS,
+  CELLAR_MAX_DIM_TAGS,
+  CELLAR_MAX_ELAPSED_SECONDS,
+  CELLAR_MAX_IMAGES,
+  CELLAR_MAX_VIDEOS,
+  DIM_MAX,
+  DIM_MIN,
+  STORAGE_SCORE_MAX,
+  STORAGE_SCORE_MIN,
+  type DimKey,
+} from "./cellar.ts";
 
 /** 仓储评分：45–60 的整数（锚点 45/50/55/60，允许中间值）。 */
 export const storageScoreSchema = z
@@ -35,6 +46,20 @@ export const storageScoreSchema = z
   .max(STORAGE_SCORE_MAX, `仓储评分不能高于 ${STORAGE_SCORE_MAX}`);
 
 /**
+ * 四维评分的形状。
+ *
+ * `satisfies Record<DimKey, ...>` 是**编译期**的守卫：往 DIM_KEYS 加了
+ * 新维度而忘了往这里补一条，tsc 立刻报错 —— 不用等到运行时才发现
+ * 「前端能选、后端读不到」。
+ */
+const dimsShape = {
+  aroma: z.number().int().min(DIM_MIN).max(DIM_MAX).optional(),
+  flavor: z.number().int().min(DIM_MIN).max(DIM_MAX).optional(),
+  waterPath: z.number().int().min(DIM_MIN).max(DIM_MAX).optional(),
+  bodyFeel: z.number().int().min(DIM_MIN).max(DIM_MAX).optional(),
+} satisfies Record<DimKey, z.ZodOptional<z.ZodNumber>>;
+
+/**
  * 四维评分：每维 1–10 的整数。
  *
  * `z.strictObject` 拒绝未知键 —— 拼错的键（`water_path`）如果被静默
@@ -42,13 +67,61 @@ export const storageScoreSchema = z
  * （但综合分只在四维齐全时给，见 cellar.ts 的 overallScore）。
  */
 export const dimsSchema = z
-  .strictObject({
-    aroma: z.number().int().min(1).max(10).optional(),
-    flavor: z.number().int().min(1).max(10).optional(),
-    waterPath: z.number().int().min(1).max(10).optional(),
-    bodyFeel: z.number().int().min(1).max(10).optional(),
-  })
+  .strictObject(dimsShape)
   .refine((d) => Object.keys(d).length > 0, { message: "四维评分不能是空对象" });
+
+/**
+ * 站内上传地址 —— 图片与视频**同一套**规则。
+ *
+ * 上传通道落地的是**站内相对路径**（`/uploads/tea/xxx.jpg`），所以这里
+ * 只收站内路径；为了兼容历史上可能存过的绝对地址，也收「域名确实是
+ * puer.im 的绝对地址」。
+ *
+ * ⚠️ 之前这条**只查协议与路径前缀、不查域名** ——
+ * `https://evil.com/uploads/x.mp4` 的路径也是 `/uploads/…`，会被放行。
+ * 而这些地址会直接渲染成 `<img src>` / `<video src>`，等于让用户往自己
+ * 的记录里塞一个指向别人家的地址（访客的 IP 与 UA 会被送出去）。
+ */
+const SITE_HOSTS = new Set(["puer.im", "www.puer.im"]);
+
+const siteUploadUrl = z
+  .string()
+  .max(500)
+  .refine(
+    (v) => {
+      // 站内相对路径。`//evil.com/...` 是协议相对地址，浏览器会当成外站
+      // —— 所以开头必须是**单个**斜杠。
+      if (v.startsWith("/")) {
+        return !v.startsWith("//") && v.startsWith("/uploads/");
+      }
+      try {
+        const u = new URL(v);
+        return (
+          u.protocol === "https:" &&
+          SITE_HOSTS.has(u.hostname) &&
+          u.pathname.startsWith("/uploads/")
+        );
+      } catch {
+        return false;
+      }
+    },
+    { message: "必须是站内上传的地址" },
+  );
+
+/**
+ * 按维度归类的描述词：每个维度挂自己的关键词。
+ *
+ * `z.strictObject` 拒绝未知维度 —— 拼错的键（`water_path`）如果被静默
+ * 忽略，用户会以为自己给「水路」选了词。
+ */
+const dimTagList = z.array(z.string().min(1).max(40)).max(CELLAR_MAX_DIM_TAGS);
+const dimTagsShape = {
+  aroma: dimTagList.optional(),
+  flavor: dimTagList.optional(),
+  waterPath: dimTagList.optional(),
+  bodyFeel: dimTagList.optional(),
+} satisfies Record<DimKey, z.ZodOptional<z.ZodArray<z.ZodString>>>;
+export const dimTagsSchema = z.strictObject(dimTagsShape);
 
 /** 仓储登记（三项都可跳过）。 */
 export const storageSchema = z.strictObject({
@@ -113,40 +186,27 @@ export const addTastingSchema = z.strictObject({
   stage: z.enum(STAGES).nullable().optional(),
   deltaVsPrev: z.enum(DELTAS).nullable().optional(),
   dims: dimsSchema.nullable().optional(),
-  descriptors: z.array(z.string().min(1).max(40)).max(20).optional(),
+  // 描述词：四维各挂各的词，加上通用词，摊平后写在这里（导出格式依赖它）。
+  // 上限从 20 提到 100 —— 四个维度各 20 个词再加通用词，20 根本装不下。
+  descriptors: z.array(z.string().min(1).max(40)).max(CELLAR_MAX_DESCRIPTORS).optional(),
+  // 按维度归类的描述词（与 descriptors 并存：descriptors 是扁平数组，
+  // dimTags 保留「这个词属于哪一维」）。
+  dimTags: dimTagsSchema.optional(),
   grams: z.number().min(1).max(100).nullable().optional(),
   vessel: z.string().max(40).nullable().optional(),
   note: z.string().max(5000).nullable().optional(),
   // 图片只收站内上传的地址：/api/upload 落地的是公开 URL（UUID 不可猜但
   // 无访问控制），所以「私有的品鉴图片」这件事目前站里做不到。限制成
   // 站内域名至少不会让人往记录里塞任意的第三方地址。
-  // ⚠️ 隐私政策里关于图片的措辞要与此处一致（见 privacy/page.tsx）。
-  images: z
-    .array(
-      z
-        .string()
-        .max(500)
-        .refine(
-          (v) => {
-            try {
-              const u = new URL(v, "https://puer.im");
-              return (
-                u.protocol === "https:" || u.protocol === "http:"
-              ) && u.pathname.startsWith("/uploads/");
-            } catch {
-              return false;
-            }
-          },
-          { message: "图片必须是站内上传的地址" },
-        ),
-    )
-    .max(9)
-    .optional(),
+  // ⚠️ 隐私政策里关于图片与视频的措辞要与此处一致（见 privacy/page.tsx）。
+  images: z.array(siteUploadUrl).max(CELLAR_MAX_IMAGES).optional(),
+  // 视频与图片同一套规则（同一个上传通道、同样的公开 URL 性质）。
+  videos: z.array(siteUploadUrl).max(CELLAR_MAX_VIDEOS).optional(),
   // ⚠️ 刻意**不**接受 "shared"：社区带的同意只有一个开关 ——
   // 账号级的 share_aggregate / share_consented_at（见隐私政策 §7）。
   // 记录级的 visibility 是第二条同意通道，将来照它实现就会绕过账号级
   // 同意，把单条记录发出去。列在 DB 里留着给 Phase 3 按账号级同意来判定。
-  elapsedSeconds: z.number().int().min(0).max(86400).nullable().optional(),
+  elapsedSeconds: z.number().int().min(0).max(CELLAR_MAX_ELAPSED_SECONDS).nullable().optional(),
 });
 
 /** 提交自建茶品申请（不一定要同时进茶仓）。 */

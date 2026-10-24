@@ -22,6 +22,14 @@
 
 import path from "path";
 
+import {
+  IMAGE_MIMES as IMAGE_MIME_LIST,
+  VIDEO_MIMES as VIDEO_MIME_LIST,
+  UPLOAD_CATEGORIES as UPLOAD_CATEGORY_LIST,
+  UPLOAD_SUBDIRS,
+  type UploadCategory,
+} from "./upload-types.ts";
+
 export type FileKind = "image" | "video";
 
 export type UploadErrorCode =
@@ -106,8 +114,10 @@ export function buildContainedPath(root: string, ...segments: string[]): string 
 }
 
 // ── File type ────────────────────────────────────────────────────────────
-const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/heic", "image/heif"]);
-const VIDEO_MIMES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+// 白名单在 upload-types.ts —— 客户端组件（图片网格、品鉴表单、评论区）
+// 也要用同一份，改一处就够。
+const IMAGE_MIMES = new Set<string>(IMAGE_MIME_LIST);
+const VIDEO_MIMES = new Set<string>(VIDEO_MIME_LIST);
 
 // Fixed MIME → extension map. The extension is never taken from the client.
 const MIME_EXT: Record<string, string> = {
@@ -142,24 +152,20 @@ export function deriveExtension(mime: string): string {
 
 // ── Category → destination subdirectory ──────────────────────────────────
 // subDir is ALWAYS one of these fixed strings, never raw input.
-const VALID_CATEGORIES = new Set(["", "session", "avatar", "inventory", "tea"]);
+// 白名单同样来自 upload-types.ts —— 与客户端那份是同一份。
+const VALID_CATEGORIES = new Set<string>(UPLOAD_CATEGORY_LIST);
 
-export function parseCategory(raw: unknown): "" | "session" | "avatar" | "inventory" | "tea" {
+export function parseCategory(raw: unknown): UploadCategory {
   if (raw === undefined || raw === null || raw === "") return "";
   if (typeof raw !== "string" || !VALID_CATEGORIES.has(raw)) {
     throw new UploadPolicyError("bad_category", "invalid category");
   }
-  return raw as "" | "session" | "avatar" | "inventory" | "tea";
+  return raw as UploadCategory;
 }
 
-export function categoryToSubdir(category: "" | "session" | "avatar" | "inventory" | "tea", kind: FileKind): string {
-  switch (category) {
-    case "session": return "sessions";
-    case "avatar": return "avatars";
-    case "inventory": return "inventory";
-    case "tea": return "tea";
-    default: return kind === "video" ? "videos" : "forum";
-  }
+export function categoryToSubdir(category: UploadCategory, kind: FileKind): string {
+  if (category) return UPLOAD_SUBDIRS[category as Exclude<UploadCategory, "">];
+  return kind === "video" ? "videos" : "forum";
 }
 
 // ── Numeric bounds ────────────────────────────────────────────────────────

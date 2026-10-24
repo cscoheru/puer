@@ -89,3 +89,68 @@ test("迁移给 users 加列前设了锁超时（否则会排在长事务后面�
   assert.ok(alterAt !== -1, "迁移里应该给 users 加列");
   assert.ok(lockAt < alterAt, "lock_timeout 要在 ALTER 之前");
 });
+
+// ─── 品鉴媒体迁移（dimTags / videos）─────────────────────────────────────
+
+const MEDIA_SQL = readFileSync(
+  new URL(
+    "../../prisma/migrations/20261024_cellar_tasting_media/migration.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
+test("品鉴媒体迁移加的是 dimTags 与 videos 两列", () => {
+  assert.match(MEDIA_SQL, /ADD COLUMN IF NOT EXISTS "dimTags" JSONB/);
+  assert.match(MEDIA_SQL, /ADD COLUMN IF NOT EXISTS "videos" JSONB/);
+});
+
+test("品鉴媒体迁移是幂等的（重跑不会失败）", () => {
+  // 只数**真正执行的语句**（行首的 ALTER TABLE），注释里提到的不算。
+  const statements = MEDIA_SQL.match(/^ALTER TABLE .*$/gm) ?? [];
+  assert.equal(statements.length, 2, "两列");
+  for (const s of statements) {
+    assert.match(s, /ADD COLUMN IF NOT EXISTS/, `裸的 ADD COLUMN 重跑会报错：${s}`);
+  }
+});
+
+test("品鉴媒体迁移给 dimTags 与 videos 都加了 CHECK 约束", () => {
+  // 「两层都挡住才算数」：zod 挡一层，DB 再挡一层。
+  assert.match(
+    MEDIA_SQL,
+    /ADD CONSTRAINT "cellar_tastings_dimTags_check"/,
+    "dimTags 要有 CHECK 约束",
+  );
+  assert.match(
+    MEDIA_SQL,
+    /ADD CONSTRAINT "cellar_tastings_videos_check"/,
+    "videos 要有 CHECK 约束",
+  );
+  // 加约束的地方都要用 pg_constraint 包一层，否则重跑会失败
+  const adds =
+    MEDIA_SQL.match(/ADD CONSTRAINT "[a-zA-Z_]+"/g) ?? [];
+  const guards = MEDIA_SQL.match(/IF NOT EXISTS \(SELECT 1 FROM pg_constraint/g) ?? [];
+  assert.equal(
+    guards.length,
+    adds.length,
+    "每个 ADD CONSTRAINT 都要有对应的 pg_constraint 守卫",
+  );
+});
+
+test("品鉴媒体迁移给「按 userId 找 createdAt 最新一条」加了索引", () => {
+  // 24 小时间隔闸门每次都要这个查询 —— 没有索引就是全表扫。
+  assert.match(
+    MEDIA_SQL,
+    /CREATE INDEX IF NOT EXISTS "cellar_tastings_userId_createdAt_idx"/,
+  );
+});
+
+test("品鉴媒体迁移设了锁超时（ALTER 会排在长事务后面）", () => {
+  assert.match(MEDIA_SQL, /SET lock_timeout = '3s';/);
+  const lockAt = MEDIA_SQL.indexOf("SET lock_timeout");
+  // 第一条**可执行**的 ALTER（注释里也提到 ALTER TABLE，不能拿它比）。
+  const alterAt = MEDIA_SQL.search(/^ALTER TABLE /m);
+  assert.ok(lockAt !== -1, "迁移里应该设了 lock_timeout");
+  assert.ok(alterAt !== -1, "迁移里应该有 ALTER");
+  assert.ok(lockAt < alterAt, "lock_timeout 要在 ALTER 之前");
+});

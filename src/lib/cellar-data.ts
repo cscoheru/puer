@@ -20,6 +20,8 @@ import {
   type ExportItem,
   type ExportStorage,
   type ExportTasting,
+  DIM_KEYS,
+  tastingWaitRemainingMs,
 } from "@/lib/cellar.ts";
 import type { Delta, Stage } from "@/lib/tasting-extract/vocab.ts";
 
@@ -33,11 +35,27 @@ function asDims(v: unknown): CellarDims | null {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const src = v as Record<string, unknown>;
   const out: CellarDims = {};
-  for (const key of ["aroma", "flavor", "waterPath", "bodyFeel"] as const) {
+  for (const key of DIM_KEYS) {
     const n = src[key];
     if (typeof n === "number" && Number.isInteger(n)) out[key] = n;
   }
   return Object.keys(out).length ? out : null;
+}
+
+/**
+ * 按维度归类的描述词 —— 只认四个维度，值必须是字符串数组。
+ *
+ * 未知维度直接丢掉（拼错的键不能悄悄出现在界面上）；空数组也丢掉。
+ */
+function asDimTags(v: unknown): Record<string, string[]> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const src = v as Record<string, unknown>;
+  const out: Record<string, string[]> = {};
+  for (const key of DIM_KEYS) {
+    const arr = asStringArray(src[key]);
+    if (arr.length) out[key] = arr;
+  }
+  return out;
 }
 
 // ─── 列表 ─────────────────────────────────────────────────────────────────
@@ -198,13 +216,25 @@ export interface CellarItemDetail {
     deltaVsPrev: string | null;
     dims: CellarDims | null;
     descriptors: string[];
+    /** 按维度归类的描述词。 */
+    dimTags: Record<string, string[]>;
     grams: number | null;
     vessel: string | null;
     note: string | null;
     images: string[];
+    videos: string[];
     visibility: string;
     elapsedSeconds: number | null;
+    /** 服务端写入的时刻 —— 24 小时间隔按它算，不用客户端给的 tastedAt。 */
+    createdAt: string;
   }[];
+  /**
+   * 间隔闸门的基准（同一条茶下最近一条记录的**创建时刻**）。
+   *
+   * 与服务端 `addTastingGuarded` 的口径一致 —— 否则客户端与服务端
+   * 对「上一次」的理解不一样，用户会看到「可以记」却收到 409。
+   */
+  latestTastingCreatedAt: string | null;
 }
 
 const DETAIL_SELECT = {
@@ -240,12 +270,15 @@ const DETAIL_SELECT = {
       deltaVsPrev: true,
       dims: true,
       descriptors: true,
+      dimTags: true,
       grams: true,
       vessel: true,
       note: true,
       images: true,
+      videos: true,
       visibility: true,
       elapsedSeconds: true,
+      createdAt: true,
     },
   },
 };
@@ -260,10 +293,30 @@ export async function getCellarItem(
     select: DETAIL_SELECT,
   });
   if (!r) return null;
+
+  /**
+   * 间隔闸门的基准：**同一条茶**下最近的一条记录。
+   *
+   * 与 `addTastingGuarded` 的口径必须一致 —— 服务端按「用户+茶」算，
+   * 客户端也必须按同一个口径算，否则同一条茶在茶仓里有两条时，
+   * 客户端会显示「可以记」，点下去却收到 409。
+   *
+   * （自建茶品没有 teaId，粒度退回条目。）
+   */
+  const latestTasting = await prisma.cellarTasting.findFirst({
+    where: {
+      userId,
+      cellarItem: r.teaId ? { teaId: r.teaId } : { id: r.id },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+
   return {
     id: r.id,
     name: r.name,
     teaId: r.teaId,
+    latestTastingCreatedAt: latestTasting?.createdAt.toISOString() ?? null,
     tea: r.tea,
     teaRequestId: r.teaRequestId,
     acquiredAt: r.acquiredAt?.toISOString() ?? null,
@@ -288,12 +341,15 @@ export async function getCellarItem(
       deltaVsPrev: t.deltaVsPrev,
       dims: asDims(t.dims),
       descriptors: asStringArray(t.descriptors),
+      dimTags: asDimTags(t.dimTags),
       grams: t.grams,
       vessel: t.vessel,
       note: t.note,
       images: asStringArray(t.images),
+      videos: asStringArray(t.videos),
       visibility: t.visibility,
       elapsedSeconds: t.elapsedSeconds,
+      createdAt: t.createdAt.toISOString(),
     })),
   };
 }
@@ -451,44 +507,118 @@ export interface AddTastingInput {
   deltaVsPrev?: Delta | null;
   dims?: CellarDims | null;
   descriptors?: string[];
+  /** 按维度归类的描述词。 */
+  dimTags?: Record<string, string[]>;
   grams?: number | null;
   vessel?: string | null;
   note?: string | null;
   images?: string[];
+  videos?: string[];
   elapsedSeconds?: number | null;
 }
 
-/** 记一条品鉴。条目不存在或不属于该用户时返回 null。 */
-export async function addTasting(
+/**
+ * 记一条品鉴 —— **带 24 小时间隔闸门**。
+ *
+ * ## 闸门的粒度是「同一条茶」，不是「这个条目」
+ *
+ * 站长要的是「同一条茶的两次品鉴至少隔一天」（2026-10-24 确认的口径）。
+ * 按条目算是不够的：用户可以把同一款茶在茶仓里加两条（两个条目），
+ * 那样每个条目各有一只钟，同一款茶照样能一天内记两次。
+ * 所以基准取的是「**同一条茶**下所有条目里最近的那条记录」；
+ * 自建茶品没有 teaId，就以条目为单位。
+ *
+ * ## 为什么检查与写入必须在同一个事务里
+ *
+ * 「查最近一条 → 判断够不够 24 小时 → 写入」这三步如果不在一个事务里，
+ * 两个**并发**的请求会同时读到「没有上一条」，然后各写一条 —— 24 小时的
+ * 规则就被绕过了。按钮禁用挡得住手快，挡不住两个标签页、也挡不住网络重试。
+ *
+ * 所以这里先拿一把 **advisory lock**（按 userId+茶 派生），同一把锁上
+ * 同一时刻只有一个请求能在检查+写入。锁在事务结束时自动释放。
+ *
+ * 用 advisory lock 而不是锁 tea 行：锁 tea 行会把**别的用户**对同一款茶
+ * 的记录也串起来（一款经典茶每天可能有几十条记录），锁键带 userId 就只
+ * 串自己。
+ */
+export async function addTastingGuarded(
   userId: string,
   itemId: string,
   input: AddTastingInput,
-): Promise<string | null> {
-  const owned = await prisma.cellarItem.findFirst({
-    where: { id: itemId, userId },
-    select: { id: true },
-  });
-  if (!owned) return null;
+  now: Date = new Date(),
+): Promise<
+  | { ok: true; id: string }
+  | { ok: false; reason: "wait"; waitMs: number }
+  | { ok: false; reason: "not_found" }
+> {
+  return prisma.$transaction(
+    async (tx) => {
+      const item = await tx.cellarItem.findFirst({
+        where: { id: itemId, userId },
+        select: { id: true, teaId: true },
+      });
+      if (!item) {
+        return { ok: false, reason: "not_found" } as const;
+      }
 
-  const tasting = await prisma.cellarTasting.create({
-    data: {
-      cellarItemId: itemId,
-      userId,
-      tastedAt: input.tastedAt ?? new Date(),
-      stage: input.stage ?? null,
-      deltaVsPrev: input.deltaVsPrev ?? null,
-      dims: input.dims ?? undefined,
-      descriptors: input.descriptors ?? undefined,
-      grams: input.grams ?? null,
-      vessel: input.vessel ?? null,
-      note: input.note ?? null,
-      images: input.images ?? undefined,
-      // visibility 不由 API 决定 —— 恒为 private（DB 列的默认值）。
-      elapsedSeconds: input.elapsedSeconds ?? null,
+      // 锁键：自建茶没有 teaId，用条目 id 代替（粒度退回条目）。
+      const scope = item.teaId ?? item.id;
+      await tx.$queryRaw<{ ok: number }[]>`
+        SELECT 1 AS ok
+        FROM (SELECT pg_advisory_xact_lock(hashtext(${`${userId}:${scope}`})::bigint) AS v) l
+      `;
+
+      // 「上一次」按**创建时刻**取，不按客户端给的 tastedAt。
+      const last = await tx.cellarTasting.findFirst({
+        where: {
+          userId,
+          cellarItem: item.teaId
+            ? { teaId: item.teaId }
+            : { id: itemId },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      const waitMs = tastingWaitRemainingMs(last?.createdAt ?? null, now);
+      if (waitMs !== null) {
+        return { ok: false, reason: "wait", waitMs } as const;
+      }
+
+      const tasting = await tx.cellarTasting.create({
+        data: {
+          cellarItemId: itemId,
+          userId,
+          tastedAt: input.tastedAt ?? new Date(),
+          stage: input.stage ?? null,
+          deltaVsPrev: input.deltaVsPrev ?? null,
+          dims: input.dims ?? undefined,
+          descriptors: input.descriptors ?? undefined,
+          dimTags: input.dimTags ?? undefined,
+          grams: input.grams ?? null,
+          vessel: input.vessel ?? null,
+          note: input.note ?? null,
+          images: input.images ?? undefined,
+          videos: input.videos ?? undefined,
+          // visibility 不由 API 决定 —— 恒为 private（DB 列的默认值）。
+          elapsedSeconds: input.elapsedSeconds ?? null,
+        },
+        select: { id: true },
+      });
+      return { ok: true, id: tasting.id } as const;
     },
-    select: { id: true },
-  });
-  return tasting.id;
+    // 锁等太久（比如另一个请求卡在事务里）就别等了 —— 10 秒还拿不到，
+    // 说明有别的问题，让它报错比让用户干等强。
+    //
+    // maxWait：等**连接**的时间。一批并发请求会把连接池排满，
+    // 默认 2 秒太短 —— 排不上就报 P2024，用户看到的是「保存失败」。
+    //
+    // ⚠️ isolationLevel 必须钉成 READ COMMITTED：闸门的正确性**依赖**
+    // 「每条语句取新快照」—— 拿到锁之后的那次 findFirst 才能看见另一个
+    // 事务刚提交的那条记录。换成 REPEATABLE READ / SERIALIZABLE 的话，
+    // 快照在第一条语句就定死了，后面的检查看不见别人的写入，
+    // 24 小时的规则会**静默失效**。改这里之前先读这一段。
+    { timeout: 10_000, maxWait: 5_000, isolationLevel: "ReadCommitted" },
+  );
 }
 
 /**
@@ -517,12 +647,15 @@ export async function listItemTastings(
       deltaVsPrev: true,
       dims: true,
       descriptors: true,
+      dimTags: true,
       grams: true,
       vessel: true,
       note: true,
       images: true,
+      videos: true,
       visibility: true,
       elapsedSeconds: true,
+      createdAt: true,
     },
   });
 
@@ -533,12 +666,15 @@ export async function listItemTastings(
     deltaVsPrev: t.deltaVsPrev,
     dims: asDims(t.dims),
     descriptors: asStringArray(t.descriptors),
+    dimTags: asDimTags(t.dimTags),
     grams: t.grams,
     vessel: t.vessel,
     note: t.note,
     images: asStringArray(t.images),
+    videos: asStringArray(t.videos),
     visibility: t.visibility,
     elapsedSeconds: t.elapsedSeconds,
+    createdAt: t.createdAt.toISOString(),
   }));
 }
 
@@ -570,10 +706,12 @@ export async function exportCellarData(userId: string): Promise<ExportItem[]> {
       deltaVsPrev: t.deltaVsPrev,
       dims: asDims(t.dims),
       descriptors: asStringArray(t.descriptors),
+      dimTags: asDimTags(t.dimTags),
       grams: t.grams,
       vessel: t.vessel,
       note: t.note,
       images: asStringArray(t.images),
+      videos: asStringArray(t.videos),
       visibility: t.visibility,
       elapsedSeconds: t.elapsedSeconds,
     }));

@@ -1089,10 +1089,15 @@ model CellarTasting {
   /// 四维：{aroma, flavor, waterPath, bodyFeel}，每维 1–10 整数
   dims       Json?
   descriptors Json? // 描述词数组
+  /// 按维度归类的描述词：{aroma: [...], flavor: [...], waterPath: [...], bodyFeel: [...]}
+  /// 与 descriptors 并存 —— descriptors 是扁平数组（导出格式用），
+  /// dimTags 保留「这个词属于哪一维」，前端才能按维度分组显示。
+  dimTags    Json?
   grams      Float?  // 投茶量（克）
   vessel     String? @db.VarChar(40)
   note       String? @db.Text
   images     Json? // 图片 URL 数组
+  videos     Json? // 视频 URL 数组
   /// 默认私有。Phase 3 的社区带只取 shareAggregate=true 的用户，
   /// 且不聚合未标 shared 的单条记录。
   visibility String  @default("private") @db.VarChar(20)
@@ -1104,6 +1109,9 @@ model CellarTasting {
 
   @@index([cellarItemId, tastedAt])
   @@index([userId, tastedAt])
+  /// 24 小时间隔闸门每次都要「按 userId 找 createdAt 最新的一条」——
+  /// 没有这个索引就得全表扫。
+  @@index([userId, createdAt])
   @@map("cellar_tastings")
 }
 

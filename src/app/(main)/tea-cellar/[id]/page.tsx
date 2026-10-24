@@ -57,6 +57,7 @@ export default async function CellarItemPage({
         remindEveryMonths: item.remindEveryMonths,
         epochs: item.epochs,
         tastings: item.tastings,
+        latestTastingCreatedAt: item.latestTastingCreatedAt,
       }}
       editorLine={editorLine}
     />

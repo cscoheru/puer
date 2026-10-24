@@ -92,6 +92,23 @@ export const STORAGE_SCORE_MAX = 60;
  */
 export const STORAGE_DEFAULT_SCORE = 50;
 
+// ─── 品鉴记录的共享上限 ───────────────────────────────────────────────────
+//
+// 这些数字**只有一份**：zod 的 schema 与客户端表单都用它们。
+// 之前两边各写一遍，改上限时两边会分叉 —— 客户端以为能传 20 张，
+// 服务端打回 400，用户填的阶段、备注一起丢。
+
+/** 一条品鉴记录最多几张图片。 */
+export const CELLAR_MAX_IMAGES = 9;
+/** 一条品鉴记录最多几段视频。 */
+export const CELLAR_MAX_VIDEOS = 3;
+/** 每个维度最多几个关键词。 */
+export const CELLAR_MAX_DIM_TAGS = 20;
+/** 摊平后的描述词总数上限（四个维度 + 通用词）。 */
+export const CELLAR_MAX_DESCRIPTORS = 100;
+/** 快速品鉴耗时上限（秒）。 */
+export const CELLAR_MAX_ELAPSED_SECONDS = 86400;
+
 /**
  * 规整储仓评分。越界或非整数一律返回 null —— 宁空勿猜。
  *
@@ -297,6 +314,149 @@ export function nextTastingDefaults(
   };
 }
 
+// ─── 品鉴间隔（PRD §6「两次品鉴至少隔一天」）────────────────────────────────
+
+/** 两次品鉴记录之间至少间隔的小时数。 */
+export const TASTING_MIN_INTERVAL_HOURS = 24;
+
+/** 两次品鉴记录之间至少间隔的毫秒数。 */
+export const TASTING_MIN_INTERVAL_MS =
+  TASTING_MIN_INTERVAL_HOURS * 60 * 60 * 1000;
+
+/**
+ * 上一次品鉴之后，最早可以再记一条的时刻。
+ *
+ * 没有上一次 → null（随时可以记第一条）。
+ *
+ * ⚠️ 这个「上一次」必须取**服务端写入的 createdAt**，不能用客户端传来的
+ * tastedAt —— tastedAt 是客户端给的，伪造一个一年前的时间就能绕过间隔。
+ */
+export function nextTastingAllowedAt(
+  lastCreatedAt: Date | string | null | undefined,
+): Date | null {
+  if (lastCreatedAt === null || lastCreatedAt === undefined) return null;
+  const t =
+    lastCreatedAt instanceof Date ? lastCreatedAt : new Date(lastCreatedAt);
+  if (Number.isNaN(t.getTime())) return null;
+  return new Date(t.getTime() + TASTING_MIN_INTERVAL_MS);
+}
+
+/**
+ * 距「可以再记」还差多少毫秒。
+ *
+ * 已经能记了（或者从来没记过）→ null。
+ */
+export function tastingWaitRemainingMs(
+  lastCreatedAt: Date | string | null | undefined,
+  now: Date = new Date(),
+): number | null {
+  const allowedAt = nextTastingAllowedAt(lastCreatedAt);
+  if (!allowedAt) return null;
+  const remain = allowedAt.getTime() - now.getTime();
+  return remain > 0 ? remain : null;
+}
+
+/** 「还需 12 小时」/「还需 25 分钟」—— 给人看的提示。 */
+export function formatWaitRemaining(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "现在就可以记";
+  // 满一小时才用小时计（向上取整，早一分钟也不让人以为能记了）；
+  // 不足一小时就用分钟 —— 否则「还差 30 分钟」会被说成「还需 1 小时」。
+  if (ms >= 3_600_000) return `还需 ${Math.ceil(ms / 3_600_000)} 小时`;
+  const minutes = Math.ceil(ms / 60_000);
+  return minutes <= 1 ? "不到 1 分钟" : `还需 ${minutes} 分钟`;
+}
+
+/**
+ * 间隔提示的**整句话** —— 服务端与客户端共用一份。
+ *
+ * 「24 小时」这个数字来自 `TASTING_MIN_INTERVAL_HOURS`，不再各写一遍：
+ * 改成 12 或 48 小时时，两边的提示会一起变。
+ */
+export function formatWaitMessage(ms: number): string {
+  return `上一条品鉴记录创建满 ${TASTING_MIN_INTERVAL_HOURS} 小时才能再记一条（${formatWaitRemaining(ms)}）`;
+}
+
+/**
+ * 按**创建时刻**取最近的一条品鉴记录。
+ *
+ * ## 为什么按创建时刻而不是品鉴时刻
+ *
+ * `tastedAt` 是客户端给的，伪造一个一年前的时间就能把它顶到时间轴的
+ * 任何位置。`createdAt` 是数据库写的，客户端碰不到。
+ *
+ * 服务端那道闸门（`addTastingGuarded`）用的是 `orderBy createdAt desc`，
+ * 这里就是同一把尺子在客户端的对应物 —— 一条规则一个地方，别各写一遍。
+ *
+ * @param tastings 至少要有 `createdAt` 字段
+ */
+export function latestTastingByCreatedAt<
+  T extends { createdAt: string },
+>(tastings: T[]): T | null {
+  let best: T | null = null;
+  let bestMs = -Infinity;
+  for (const t of tastings) {
+    const ms = new Date(t.createdAt).getTime();
+    // createdAt 缺失/坏掉时跳过 —— 拿一个坏时间当基准会让倒计时失准。
+    if (!Number.isFinite(ms)) continue;
+    if (ms > bestMs) {
+      bestMs = ms;
+      best = t;
+    }
+  }
+  return best;
+}
+
+/**
+ * 选中/取消一个维度关键词后的**下一份** dimTags。
+ *
+ * 取消掉最后一个词时，这一维整个从 map 里消失 —— 空数组留着的话，
+ * 读端会以为「这一维选过词但没选出来」。
+ */
+export function toggleDimTag(
+  prev: Record<string, string[]>,
+  dim: string,
+  tag: string,
+): Record<string, string[]> {
+  const cur = prev[dim] ?? [];
+  const next = cur.includes(tag)
+    ? cur.filter((t) => t !== tag)
+    : [...cur, tag];
+  const out = { ...prev };
+  if (next.length) out[dim] = next;
+  else delete out[dim];
+  return out;
+}
+
+/**
+ * 把「按维度选的词」与「通用词」组装成提交用的两份数据。
+ *
+ * ## 为什么要在客户端夹住上限
+ *
+ * 服务端 zod 限死了「每维 20 个词、摊平后 100 个」，而词库里光是「滋味」
+ * 就有七十多个 —— 用户在「更多词」里全勾上，一点就到 21 个。
+ * 服务端会 400 打回**整条请求**：四维分数、长文字、已经传完的图片视频
+ * 一起丢。所以上限必须在客户端先夹住。
+ *
+ * 上限的常量与服务端共用一份（`CELLAR_MAX_DIM_TAGS` /
+ * `CELLAR_MAX_DESCRIPTORS`），两边不会漂。
+ */
+export function buildTastingTags(
+  dimTags: Record<string, string[]>,
+  free: string[],
+): { dimTags: Record<string, string[]>; descriptors: string[] } {
+  const capped: Record<string, string[]> = {};
+  for (const key of DIM_KEYS) {
+    const arr = (dimTags[key] ?? []).slice(0, CELLAR_MAX_DIM_TAGS);
+    if (arr.length) capped[key] = arr;
+  }
+  // 摊平：四个维度 + 通用词，去重。两个维度选了同一个词，摊平后只留一份。
+  const flat = [
+    ...Object.values(capped).flat(),
+    ...free.slice(0, CELLAR_MAX_DIM_TAGS),
+  ].filter((t, i, arr) => arr.indexOf(t) === i);
+  return { dimTags: capped, descriptors: flat.slice(0, CELLAR_MAX_DESCRIPTORS) };
+}
+
 // ─── 复饮提醒间隔（PRD §6 F4）────────────────────────────────────────────
 
 /** 默认提醒间隔（月）。 */
@@ -365,6 +525,36 @@ export function filterVocab(
   return scored.map((x) => x.e);
 }
 
+/**
+ * 词库按维度分组 —— 品鉴表单的「每个维度一摞词」用它。
+ *
+ * ## 规则
+ *
+ *   - `dim` 是四个维度之一 → 归到那一维
+ *   - `dim` 是 `any` 或空 → **通用词**（不属于任何一维）
+ *   - `dim` 是别的值 → 丢掉（词库里的维度名坏了，别让它出现在界面上）
+ *
+ * 这条规则以前写在品鉴详情页的 useEffect 里 —— 既测不到，也对词库接口的
+ * 其它消费者不可见。放在这儿，组件只管调。
+ */
+export function groupVocabByDim(
+  entries: { tag: string; dim?: string | null }[],
+): { byDim: Partial<Record<DimKey, string[]>>; free: string[] } {
+  const byDim: Partial<Record<DimKey, string[]>> = {};
+  const free: string[] = [];
+  for (const e of entries) {
+    if (!e.tag) continue;
+    if (!e.dim || e.dim === "any") {
+      free.push(e.tag);
+      continue;
+    }
+    if (!(DIM_KEYS as readonly string[]).includes(e.dim)) continue;
+    const key = e.dim as DimKey;
+    (byDim[key] ??= []).push(e.tag);
+  }
+  return { byDim, free };
+}
+
 // ─── 导出（PRD §6「可导出 JSON / CSV」）───────────────────────────────────
 
 export interface ExportStorage {
@@ -382,11 +572,15 @@ export interface ExportTasting {
   stage: string | null;
   deltaVsPrev: string | null;
   dims: CellarDims | null;
+  /** 摊平的描述词（所有维度 + 通用词）。 */
   descriptors: string[];
+  /** 按维度归类的描述词 —— 「这个词属于哪一维」在这里。 */
+  dimTags: Record<string, string[]>;
   grams: number | null;
   vessel: string | null;
   note: string | null;
   images: string[];
+  videos: string[];
   visibility: string;
   elapsedSeconds: number | null;
 }
@@ -449,10 +643,12 @@ export const CELLAR_EXPORT_TASTING_HEADER = [
   "体感",
   "综合",
   "描述词",
+  "维度词",
   "投茶量",
   "器具",
   "品鉴备注",
   "图片",
+  "视频",
   "可见性",
   "耗时秒",
 ] as const;
@@ -461,6 +657,18 @@ export const CELLAR_EXPORT_CSV_HEADER = [
   ...CELLAR_EXPORT_BASE_HEADER,
   ...CELLAR_EXPORT_TASTING_HEADER,
 ];
+
+/**
+ * 维度词在导出里的写法 —— 「香气:蜜香/花香; 滋味:甜」。
+ *
+ * 摊平后的 `描述词` 列看不出「哪个词属于哪一维」，这一列补上那层信息。
+ */
+export function formatDimTags(dimTags: Record<string, string[]> | undefined): string {
+  if (!dimTags) return "";
+  return DIM_KEYS.filter((k) => dimTags[k]?.length)
+    .map((k) => `${DIM_LABELS[k]}:${dimTags[k].join("/")}`)
+    .join("; ");
+}
 
 /**
  * CSV 单元格的值 —— 加一道**公式注入**的防护。
@@ -540,10 +748,12 @@ export function cellarExportRows(
           t.dims?.bodyFeel ?? "",
           overallScore(t.dims) ?? "",
           t.descriptors.join(","),
+          formatDimTags(t.dimTags),
           t.grams ?? "",
           t.vessel ?? "",
           t.note ?? "",
           t.images.join(","),
+          t.videos.join(","),
           t.visibility,
           t.elapsedSeconds ?? "",
         ]);

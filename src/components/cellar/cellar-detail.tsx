@@ -5,7 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import EditorLineView from "@/components/tea/editor-line";
 import QuickTastingForm from "@/components/cellar/quick-tasting-form";
-import { overallScore, storageScoreLabel } from "@/lib/cellar";
+import {
+  DIM_KEYS,
+  DIM_LABELS,
+  groupVocabByDim,
+  latestTastingByCreatedAt,
+  nextTastingDefaults,
+  overallScore,
+  storageScoreLabel,
+  type DimKey,
+} from "@/lib/cellar";
 import { DELTA_LABELS, STAGE_LABELS } from "@/lib/tasting-extract/vocab";
 import StorageSlider from "@/components/cellar/storage-slider";
 import type { EditorLine } from "@/lib/editor-line";
@@ -31,11 +40,17 @@ interface TastingRow {
   deltaVsPrev: string | null;
   dims: Record<string, number> | null;
   descriptors: string[];
+  /** 按维度归类的描述词。 */
+  dimTags: Record<string, string[]>;
   grams: number | null;
   vessel: string | null;
   note: string | null;
+  images: string[];
+  videos: string[];
   visibility: string;
   elapsedSeconds: number | null;
+  /** 服务端写入的时刻 —— 24 小时间隔按它算。 */
+  createdAt: string;
 }
 
 interface EpochRow {
@@ -58,6 +73,8 @@ interface ItemData {
   remindEveryMonths: number;
   epochs: EpochRow[];
   tastings: TastingRow[];
+  /** 间隔闸门的基准（服务端按「同一条茶」算好直接给）。 */
+  latestTastingCreatedAt: string | null;
 }
 
 export default function CellarDetail({
@@ -69,7 +86,9 @@ export default function CellarDetail({
 }) {
   const router = useRouter();
   const [item, setItem] = useState(initialItem);
-  const [vocab, setVocab] = useState<string[]>([]);
+  // 词库按维度分组：每个维度一摞自己的词，外加一摞不属于任何维度的通用词。
+  const [vocabByDim, setVocabByDim] = useState<Partial<Record<DimKey, string[]>>>({});
+  const [freeVocab, setFreeVocab] = useState<string[]>([]);
   const [showStorage, setShowStorage] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [message, setMessage] = useState("");
@@ -89,15 +108,26 @@ export default function CellarDetail({
   // load() 只在写操作之后调用（记完品鉴、换完仓）。
 
   // 描述词库：按这款茶的生熟取；取不到就空着（点选是可选功能）。
+  // 按维度分组 —— 香气那一摞只给香气用，滋味那一摞只给滋味用。
   useEffect(() => {
     const cat = item.tea?.type === "ripe" ? "ripe" : "raw";
     fetch(`/api/cellar/vocab?category=${cat}`)
       .then((r) => (r.ok ? r.json() : { entries: [] }))
       .then((d) => {
-        const entries = Array.isArray(d.entries) ? d.entries : [];
-        setVocab(entries.map((e: { tag: string }) => e.tag));
+        const entries: { tag: string; dim?: string | null }[] = Array.isArray(
+          d.entries,
+        )
+          ? d.entries
+          : [];
+        // 分组规则在 src/lib/cellar.ts 的 groupVocabByDim（纯函数，有单测）。
+        const { byDim, free } = groupVocabByDim(entries);
+        setVocabByDim(byDim);
+        setFreeVocab(free);
       })
-      .catch(() => setVocab([]));
+      .catch(() => {
+        setVocabByDim({});
+        setFreeVocab([]);
+      });
   }, [item.tea?.type]);
 
   // 删条目：不可撤销，且会连带删掉全部品鉴记录 —— 所以要确认两次。
@@ -118,7 +148,17 @@ export default function CellarDetail({
     router.push("/tea-cellar");
   };
 
-  const last = item.tastings[item.tastings.length - 1] ?? null;
+  /**
+   * 「上一次品鉴」= **创建时刻**最新的一条。
+   *
+   * 间隔闸门、沿用上次的默认值、「上次写的」提示 —— 三处都指这一条。
+   *
+   * 为什么按 createdAt 而不是 tastedAt：tastedAt 是客户端给的，填成
+   * 上周就能把它顶到时间轴的任何位置。createdAt 是数据库写的，客户端
+   * 碰不到。服务端那道闸门（`addTastingGuarded`）用的也是 createdAt ——
+   * 同一把尺子。
+   */
+  const last = latestTastingByCreatedAt(item.tastings);
   const currentEpoch = item.epochs[item.epochs.length - 1] ?? null;
 
   return (
@@ -157,13 +197,13 @@ export default function CellarDetail({
           <QuickTastingForm
             itemId={item.id}
             defaults={{
-              grams: last?.grams ?? null,
-              vessel: last?.vessel ?? null,
-              descriptors: last?.descriptors ?? [],
+              ...nextTastingDefaults(last),
               hasPrevious: item.tastings.length > 0,
               previousDescriptors: last?.descriptors ?? [],
+              lastCreatedAt: item.latestTastingCreatedAt ?? null,
             }}
-            vocab={vocab}
+            vocabByDim={vocabByDim}
+            freeVocab={freeVocab}
             onSaved={load}
           />
 
@@ -357,6 +397,12 @@ function TastingItem({ t }: { t: TastingRow }) {
   const delta = t.deltaVsPrev
     ? DELTA_LABELS[t.deltaVsPrev as keyof typeof DELTA_LABELS]
     : null;
+  // 有按维度归类的词就按维度显示；没有（老记录）才退回扁平列表。
+  const hasDimTags = Object.values(t.dimTags ?? {}).some((a) => a?.length);
+  // 通用词：写进了 descriptors、但不属于任何一维的那些 —— 它们没被
+  // dimTags 覆盖，得单独显示（否则存了却看不见）。
+  const covered = new Set(Object.values(t.dimTags ?? {}).flat());
+  const otherDescriptors = t.descriptors.filter((d) => !covered.has(d));
 
   return (
     <div className="relative pl-6">
@@ -394,8 +440,29 @@ function TastingItem({ t }: { t: TastingRow }) {
           </p>
         )}
 
-        {t.descriptors.length > 0 && (
-          <p className="text-xs text-stone-500 mt-1">{t.descriptors.join(" / ")}</p>
+        {hasDimTags ? (
+          <div className="mt-1 space-y-0.5">
+            {DIM_KEYS.filter((k) => t.dimTags[k]?.length).map((k) => (
+              <p key={k} className="text-xs text-stone-500">
+                <span className="text-stone-400">{DIM_LABELS[k]}</span>{" "}
+                {t.dimTags[k].join(" / ")}
+              </p>
+            ))}
+            {/* 通用词没挂在任何维度上，但也在 descriptors 里 —— 得单独
+                渲染出来，否则它存了却永远看不见。 */}
+            {otherDescriptors.length > 0 && (
+              <p className="text-xs text-stone-500">
+                <span className="text-stone-400">其他</span>{" "}
+                {otherDescriptors.join(" / ")}
+              </p>
+            )}
+          </div>
+        ) : (
+          t.descriptors.length > 0 && (
+            <p className="text-xs text-stone-500 mt-1">
+              {t.descriptors.join(" / ")}
+            </p>
+          )
         )}
 
         {(t.grams != null || t.vessel) && (
@@ -410,6 +477,40 @@ function TastingItem({ t }: { t: TastingRow }) {
           <p className="text-xs text-stone-600 mt-1.5 leading-relaxed whitespace-pre-wrap">
             {t.note}
           </p>
+        )}
+
+        {t.images.length > 0 && (
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            {t.images.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="block"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={url}
+                  alt=""
+                  className="w-full aspect-square object-cover rounded border border-stone-200"
+                />
+              </a>
+            ))}
+          </div>
+        )}
+
+        {t.videos.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {t.videos.map((url) => (
+              <video
+                key={url}
+                src={url}
+                controls
+                className="w-full max-w-xs rounded border border-stone-200"
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
