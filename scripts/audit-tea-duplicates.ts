@@ -128,6 +128,17 @@ async function main() {
   console.log(`  → 其中将被标为「待整理」：${dupIds.size} 款`);
   console.log(`无引用空壳（非经典）：${shells.length} 款`);
   console.log(`合计将标为「待整理」：${targets.length} 款`);
+  // 被标为待整理的那些身上有没有内容？—— 有的话，站长在「只看待整理」
+  // 里合并它们时，内容会转到主体（merge-batch 会转移笔记/帖子/茶仓条目）。
+  const markedRefs = targets.reduce(
+    (n, t) => n + t.refs,
+    0,
+  );
+  const markedWithContent = targets.filter((t) => t.refs > 0).length;
+  console.log(
+    `  → 身上有内容的：${markedWithContent} 款（共 ${markedRefs} 篇引用）` +
+      `—— 合并时会转到主体`,
+  );
   console.log(`已经是「待整理」（不动）：${teas.filter((t) => t.needsReview).length} 款`);
 
   if (dupGroups.length > 0) {
