@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
         type: "raw",
         tastingNoteCount: 1,
         aliases: [note.title.slice(0, 200)],
+        // 从笔记标题提炼出来的茶品是**素材**：名字往往就是笔记标题，
+        // 未必是规范命名。先进「待整理」层，站长编辑过才公开。
+        needsReview: true,
         createdBy: session.user.id,
         createdAt: new Date(),
         updatedAt: new Date(),

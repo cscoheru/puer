@@ -5,6 +5,7 @@ import { z } from "zod";
 import { clampListLimit, clampListPage, paginationCapped, parseRequestedPage } from "@/lib/pagination-limits";
 import { can } from "@/lib/permissions";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_LIST_READ } from "@/lib/rate-limit";
+import { visibleTeaWhere } from "@/lib/tea-tier";
 
 const teaSchema = z.object({
   name: z.string().min(1).max(200),
@@ -59,7 +60,11 @@ export async function GET(req: NextRequest) {
   const safeLimit = clampListLimit(limit, { isAdmin });
   const page = clampListPage(requestedPage, { isAdmin });
 
-  const where: Record<string, unknown> = {};
+  // 可见性口径只有一份（src/lib/tea-tier.ts）：「待整理」的茶品除了站长
+  // 与创建者本人，谁都看不见。
+  const where: Record<string, unknown> = {
+    ...visibleTeaWhere({ id: session?.user?.id ?? null, isAdmin }),
+  };
   if (!session?.user) where.isClassic = true;
   if (brand) where.brand = brand;
   if (year) where.year = parseInt(year);
@@ -101,6 +106,9 @@ export async function POST(req: NextRequest) {
   const tea = await prisma.tea.create({
     data: {
       ...data,
+      // 用户自建的茶品是**素材**：先进「待整理」层，站长编辑过（改名/合并/
+      // 提升为经典）才进入公开的「普通」层。用户自己看得见，别人看不见。
+      needsReview: true,
       createdBy: session.user.id,
     },
   });

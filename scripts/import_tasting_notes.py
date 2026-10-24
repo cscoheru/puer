@@ -56,9 +56,16 @@ def load_env():
 
 
 def normalize(s: str) -> str:
-    """归一化：去空格/括号/连字符，全角转半角，小写"""
+    """归一化：去空格/括号/连字符，全角转半角，小写
+
+    ⚠️ **必须与 src/lib/tea-name-normalize.ts 的 normalizeTeaName() 一致** ——
+    那是同一套规则的 TS 版（两处互相引用，改一处要改另一处）。
+
+    括号里的**内容要留着**：「2019 冰岛（生）」与「2019 冰岛（熟）」如果都
+    归一化成「2019冰岛」，两条不同的茶会被当成同一条。
+    """
     s = unicodedata.normalize("NFKC", s)
-    s = re.sub(r"[\s\-_（）()\[\]【】「」,，.。]+", "", s)
+    s = re.sub(r"[\s\-_（）()\[\]【】「」,，.。:：·、/]+", "", s)
     return s.lower()
 
 
@@ -167,6 +174,29 @@ def find_strict_match(cursor, title: str, parsed: dict) -> str | None:
     return None
 
 
+def find_name_match(cursor, parsed: dict) -> str | None:
+    """第二层半：只按归一化品名匹配 —— **不要求年份**。
+
+    之前两层都要年份（find_exact_match 要 year+batch，find_strict_match 要
+    year + 归一化名），年份解析不出来就**完全不去重** —— 于是同一款茶被
+    反复导入成好几条（站长 2026-10-24 报的「国饮-2015班章大树 / 普洱自在饮：
+    2019-01茶友盲品 / 国饮-2015」就是这种）。
+
+    这里是兜底：名字归一化后一样就算同一条。
+    代价是全表扫（teas 表约 1700 行）—— 这是一次性导入脚本，可接受。
+    """
+    norm_product = normalize(parsed["product"])
+    if not norm_product:
+        return None
+
+    cursor.execute("SELECT id, name, aliases FROM teas")
+    for tid, name, aliases in cursor.fetchall():
+        for c in [name] + (aliases or []):
+            if normalize(c) == norm_product:
+                return tid
+    return None
+
+
 def find_or_create_tea(cursor, conn, title: str, parsed: dict, admin_id: str) -> tuple[str, str]:
     """三层去重 → 返回 (tea_id, match_type)"""
     # Layer 1: Exact
@@ -187,6 +217,11 @@ def find_or_create_tea(cursor, conn, title: str, parsed: dict, admin_id: str) ->
             conn.commit()
         return tid, "matched"
 
+    # Layer 2.5: 只按归一化名匹配（年份解析不出来时的兜底）
+    tid = find_name_match(cursor, parsed)
+    if tid:
+        return tid, "name-matched"
+
     # Layer 3: Create new tea
     name = parsed["product"][:200]
     brand = parsed["brand"] or "未知"
@@ -194,8 +229,11 @@ def find_or_create_tea(cursor, conn, title: str, parsed: dict, admin_id: str) ->
     tea_type = "raw" if "熟" not in name else "ripe"
 
     cursor.execute(
-        """INSERT INTO teas (id, name, brand, year, type, aliases, "createdBy", "createdAt", "updatedAt")
-           VALUES (gen_random_uuid()::text, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+        # needsReview = true → 进「待整理」层。
+        # 从笔记标题提炼出来的名字多半不规范（就是标题），先进待整理层，
+        # 站长编辑过（改名/合并/提升为经典）才进公开库。见 src/lib/tea-tier.ts。
+        """INSERT INTO teas (id, name, brand, year, type, aliases, "createdBy", "createdAt", "updatedAt", "needsReview")
+           VALUES (gen_random_uuid()::text, %s, %s, %s, %s, %s, %s, NOW(), NOW(), TRUE)
            RETURNING id""",
         (name, brand, year_val, tea_type, [title[:200]], admin_id),
     )

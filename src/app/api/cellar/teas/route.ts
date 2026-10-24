@@ -31,7 +31,9 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get("q") || "").trim();
   if (!q) return NextResponse.json({ teas: [] });
 
-  const teas = await searchCellarTeas(q);
+  const teas = await searchCellarTeas(q, {
+    viewer: { id: actor!.ownerId, isAdmin: false },
+  });
 
   return NextResponse.json({ teas });
 }

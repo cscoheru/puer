@@ -10,6 +10,8 @@ interface Tea {
   year: number;
   type: string;
   isClassic: boolean;
+  /** 待整理：还没被站长整理过的茶品素材（只有站长看得见）。 */
+  needsReview: boolean;
   tastingNoteCount: number;
   _count?: { tastingNotes: number };
 }
@@ -35,6 +37,8 @@ export default function AdminTeasPage() {
   const [brand, setBrand] = useState("");
   const [filter, setFilter] = useState("");
   const [threshold, setThreshold] = useState(0.7);
+  // 只看「待整理」层（站长要整理的那些）
+  const [onlyPending, setOnlyPending] = useState(false);
   // 勾选待合并的茶品 id + 保留主体 id
   const [selected, setSelected] = useState<string[]>([]);
   const [keepId, setKeepId] = useState<string>("");
@@ -51,6 +55,8 @@ export default function AdminTeasPage() {
   const brandGroups = useMemo(() => {
     const m = new Map<string, Tea[]>();
     for (const t of teas) {
+      // 「只看待整理」时只留待整理的茶品
+      if (onlyPending && !t.needsReview) continue;
       const list = m.get(t.brand) || [];
       list.push(t);
       m.set(t.brand, list);
@@ -58,7 +64,12 @@ export default function AdminTeasPage() {
     return [...m.entries()]
       .map(([name, list]) => ({ name, list }))
       .sort((a, b) => b.list.length - a.list.length || a.name.localeCompare(b.name, "zh"));
-  }, [teas]);
+  }, [teas, onlyPending]);
+
+  const pendingCount = useMemo(
+    () => teas.filter((t) => t.needsReview).length,
+    [teas],
+  );
 
   const activeGroup = useMemo(
     () => brandGroups.find((g) => g.name === brand) || null,
@@ -86,6 +97,29 @@ export default function AdminTeasPage() {
     }
     return out.sort((a, b) => b[2] - a[2]).slice(0, 50);
   }, [activeGroup, threshold]);
+
+  /** 把茶品移进/移出「待整理」层。 */
+  async function curate(teaId: string, needsReview: boolean) {
+    setMessage("处理中…");
+    try {
+      const res = await fetch("/api/admin/teas/curate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teaId, needsReview }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "操作失败");
+        return;
+      }
+      setTeas((prev) =>
+        prev.map((t) => (t.id === teaId ? { ...t, needsReview } : t)),
+      );
+      setMessage(needsReview ? "已退回待整理" : "已整理，进入普通层");
+    } catch {
+      setMessage("操作失败");
+    }
+  }
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -146,6 +180,9 @@ export default function AdminTeasPage() {
       <h1 className="text-2xl font-serif font-bold text-stone-800 mb-2">茶品合并（按品牌）</h1>
       <p className="text-sm text-stone-500 mb-6">
         选择品牌 → 勾选多款疑似重复 → 指定保留主体（⭐）→ 批量合并。共 {teas.length} 个茶品、{brandGroups.length} 个品牌。
+        {pendingCount > 0 && (
+          <span className="ml-2 text-amber-700">待整理 {pendingCount} 款（还没进公开库）</span>
+        )}
       </p>
 
       {message && (
@@ -177,6 +214,21 @@ export default function AdminTeasPage() {
                 className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:border-amber-500 outline-none"
               />
             )}
+            <button
+              onClick={() => {
+                setOnlyPending((v) => !v);
+                setSelected([]);
+                setKeepId("");
+                setBrand("");
+              }}
+              className={`px-3 py-1.5 text-sm border rounded-lg transition ${
+                onlyPending
+                  ? "bg-amber-800 text-white border-amber-800"
+                  : "bg-white text-stone-600 border-stone-200 hover:border-stone-300"
+              }`}
+            >
+              只看待整理（{pendingCount}）
+            </button>
           </div>
 
           {/* 批量合并操作条 */}
@@ -241,10 +293,23 @@ export default function AdminTeasPage() {
                           {isKeep && <span className="mr-0.5">⭐</span>}
                           {t.name}
                           {t.isClassic && <span className="ml-1 text-amber-700">🏵️</span>}
+                          {t.needsReview && (
+                            <span className="ml-1 text-[0.65rem] px-1 py-0.5 rounded bg-amber-100 text-amber-800">
+                              待整理
+                            </span>
+                          )}
                         </Link>
                         <span className="text-[0.65rem] text-stone-400 shrink-0">
                           {t.year} · {t._count?.tastingNotes ?? t.tastingNoteCount} 篇
                         </span>
+                        {t.needsReview && (
+                          <button
+                            onClick={() => curate(t.id, false)}
+                            className="shrink-0 text-[0.65rem] text-amber-700 hover:underline"
+                          >
+                            整理好了
+                          </button>
+                        )}
                       </div>
                     );
                   })}

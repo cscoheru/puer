@@ -20,7 +20,13 @@ export async function POST(req: NextRequest) {
   const tea = await prisma.tea.findUnique({ where: { id: teaId }, select: { id: true } });
   if (!tea) return NextResponse.json({ error: "茶品不存在" }, { status: 404 });
 
-  await prisma.tea.update({ where: { id: teaId }, data: { isClassic } });
+  // 提升为经典 = 站长认可了这条茶 → 同时清掉「待整理」标记，
+  // 它就正式进入公开的「经典」层。
+  // 取消经典**不动** needsReview —— 「还没整理好」与「不是经典」是两件事。
+  await prisma.tea.update({
+    where: { id: teaId },
+    data: isClassic ? { isClassic: true, needsReview: false } : { isClassic: false },
+  });
 
   return NextResponse.json({ success: true, teaId, isClassic });
 }

@@ -163,6 +163,14 @@ model Tea {
   isClassic  Boolean @default(false) // 入选"经典普洱"模块
   marketInfo Json?   // 东和行情快照 {skuId, name, price, unit, changePct, updatedAt}
 
+  /// 待整理：茶品素材，还没被站长编辑过。
+  /// true = 只有站长（与创建者本人）看得见；编辑完（改名/合并/提升为经典）
+  /// 就清成 false，进入「普通」层。见 src/lib/tea-tier.ts。
+  ///
+  /// ⚠️ 与 `TastingNote.extractionMeta.needsReview`（笔记抽取结果需要复核）
+  /// **不是一回事** —— 那个是抽取质量标记，这个是茶品条目的整理状态。
+  needsReview Boolean @default(false)
+
   // P2-R21 品牌管理删除箱：软删除标记（null=正常；非空=在删除箱中，前台/后台列表均过滤）
   deletedAt DateTime?
 
@@ -184,6 +192,8 @@ model Tea {
   @@index([brand, year])
   @@index([tastingNoteCount])
   @@index([deletedAt])
+  /// 待整理层的筛选（后台审核队列 + 读点过滤）。
+  @@index([needsReview, deletedAt])
   @@map("teas")
 }
 

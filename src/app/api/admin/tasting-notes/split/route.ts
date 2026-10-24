@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
       year: Number.isInteger(year) ? year : sourceTea?.year ?? 0,
       type: type === "raw" || type === "ripe" ? type : sourceTea?.type || "raw",
       isClassic: false, // 归档待审：审核发布后才进经典普洱
+      // 拆出来的茶品是**素材**（名字多半来自笔记标题）—— 先进「待整理」层
+      needsReview: true,
       createdBy: session.user.id,
     },
   });

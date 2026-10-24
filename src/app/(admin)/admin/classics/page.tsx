@@ -10,6 +10,8 @@ interface Tea {
   year: number;
   type: string;
   isClassic: boolean;
+  /** 待整理：还没整理过的茶品素材。 */
+  needsReview?: boolean;
   tastingNoteCount: number;
   _count?: { tastingNotes: number };
 }
@@ -54,8 +56,14 @@ export default function AdminClassicsPage() {
 
   const filtered = useMemo(() => {
     let list = teas.filter((t) => (tab === "classic" ? t.isClassic : !t.isClassic));
-    // 待审核 tab：只看有笔记的（归档产物）；经典 tab 全部
-    if (tab === "pending") list = list.filter((t) => (t._count?.tastingNotes ?? t.tastingNoteCount) > 0);
+    // 待审核 tab：有笔记的（归档产物）**或**「待整理」的茶品 ——
+    // 后者是站长要整理的素材（重名、命名随意），也在这儿处理。
+    if (tab === "pending") {
+      list = list.filter(
+        (t) =>
+          (t._count?.tastingNotes ?? t.tastingNoteCount) > 0 || t.needsReview,
+      );
+    }
     if (brandFilter) list = list.filter((t) => t.brand === brandFilter);
     if (search) list = list.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()) || t.brand.includes(search));
     return list;
@@ -70,7 +78,12 @@ export default function AdminClassicsPage() {
   const paged = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
   const pendingCount = useMemo(
-    () => teas.filter((t) => !t.isClassic && (t._count?.tastingNotes ?? t.tastingNoteCount) > 0).length,
+    () =>
+      teas.filter(
+        (t) =>
+          !t.isClassic &&
+          ((t._count?.tastingNotes ?? t.tastingNoteCount) > 0 || t.needsReview),
+      ).length,
     [teas],
   );
 

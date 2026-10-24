@@ -4,6 +4,7 @@ import { can } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
+import { visibleTeaWhere } from "@/lib/tea-tier";
 
 const teaSchema = z.object({
   name: z.string().min(1).max(200),
@@ -31,6 +32,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const session = await auth();
   if (!tea || (tea.isClassic !== true && !session?.user)) {
     return NextResponse.json({ error: "茶品不存在" }, { status: 404 });
+  }
+  // 「待整理」的茶品：只有站长与创建者本人看得见。别人看到的是 404 ——
+  // 不是 403，因为「它存在但你不能看」本身就是信息。
+  if (tea.needsReview) {
+    const isAdmin = can(session?.user, "admin:access");
+    if (!isAdmin && tea.createdBy !== session?.user?.id) {
+      return NextResponse.json({ error: "茶品不存在" }, { status: 404 });
+    }
   }
 
   return NextResponse.json(tea);

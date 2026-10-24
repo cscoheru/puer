@@ -6,6 +6,7 @@ import { TeaGrid } from "@/components/tea/tea-list";
 import { LANDING_MIN_TEAS, PREFERRED_BRANDS, normalizeTeaType, teaListSelect } from "@/lib/tea-query";
 import { pageWindow } from "@/lib/pagination";
 import { can } from "@/lib/permissions";
+import { visibleTeaWhere } from "@/lib/tea-tier";
 
 export const metadata: Metadata = {
   title: "普洱茶库 - 普洱茶品大全（大益/下关/福今）",
@@ -42,7 +43,11 @@ export default async function TeaListPage({ searchParams }: PageProps) {
   const parsedPage = Number.parseInt(params.page || "1", 10);
   const page = Math.min(Math.max(1, Number.isFinite(parsedPage) ? parsedPage : 1), 500);
 
-  const where: Record<string, unknown> = { deletedAt: null };
+  // 「待整理」的茶品不在公开库里（站长的工作台不算公开页）。
+  const where: Record<string, unknown> = {
+    deletedAt: null,
+    ...visibleTeaWhere({ id: session?.user?.id ?? null, isAdmin }),
+  };
   if (classicOnly) where.isClassic = true;
   if (brand) where.brand = brand;
   if (Number.isFinite(parsedYear)) where.year = parsedYear;
@@ -70,7 +75,8 @@ export default async function TeaListPage({ searchParams }: PageProps) {
       .catch(() => []),
     // 子集口径的总数：始终是「全库经典款数」，不受当前筛选影响
     prisma.tea.count({ where: { deletedAt: null, isClassic: true } }),
-    prisma.tea.count({ where: { deletedAt: null } }),
+    // 公开可见的总数（经典 + 普通）—— 不含「待整理」
+    prisma.tea.count({ where: { deletedAt: null, needsReview: false } }),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));

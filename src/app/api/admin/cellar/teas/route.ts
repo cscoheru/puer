@@ -18,7 +18,11 @@ export async function GET(req: NextRequest) {
   const q = (req.nextUrl.searchParams.get("q") || "").trim();
   if (!q) return NextResponse.json({ teas: [] });
 
-  const teas = await searchCellarTeas(q, { includeClassic: false });
+  // 管理员：全部可见（含「待整理」—— 并库时要找的正是那些重复条目）
+  const teas = await searchCellarTeas(q, {
+    withClassicBadge: false,
+    viewer: { id: null, isAdmin: true },
+  });
 
   return NextResponse.json({ teas });
 }

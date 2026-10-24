@@ -36,9 +36,17 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { id } = await params;
   const tea = await prisma.tea.findFirst({
     where: { id, deletedAt: null },
-    select: { name: true, brand: true, year: true, type: true, description: true, coverImage: true, isClassic: true },
+    select: { name: true, brand: true, year: true, type: true, description: true, coverImage: true, isClassic: true, needsReview: true, createdBy: true },
   });
   if (!tea) return { title: "茶品未找到" };
+  // 「待整理」的茶品：只有站长与创建者本人看得见。metadata 也要拦 ——
+  // 否则 404 的 HTML 里还带着茶名/厂牌/年份（跟上面那段注释说的是同一件事）。
+  if (tea.needsReview) {
+    const s = await auth();
+    if (!can(s?.user, "admin:access") && tea.createdBy !== s?.user?.id) {
+      return { title: "茶品未找到", robots: { index: false, follow: false } };
+    }
+  }
   // 茶品库 = 全集；非经典（在建档/私人档案）的**详情**要求登录。
   // 正文 `:82` 会对未登录者 notFound()，但 metadata 是随 404 响应体的 RSC payload
   // 一起下发的 —— 不在这里也拦一道，未登录者就能从 404 的 HTML 里直接读到茶名/厂牌/年份。
@@ -90,6 +98,11 @@ export default async function TeaDetailPage({ params }: PageProps) {
   if (!tea) notFound();
   if (!tea.isClassic && !session?.user) {
     redirect(`/login?next=${encodeURIComponent(`/tea/${id}`)}`);
+  }
+  // 「待整理」的茶品：只有站长与创建者本人看得见 —— 别人看到的是 404
+  // （不是 403：「它存在但你不能看」本身就是信息）。
+  if (tea.needsReview && !isAdmin && tea.createdBy !== session?.user?.id) {
+    notFound();
   }
 
   const [allTastingNotes, articles, editorLine] = await Promise.all([

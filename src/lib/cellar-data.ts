@@ -23,6 +23,7 @@ import {
   DIM_KEYS,
   tastingWaitRemainingMs,
 } from "@/lib/cellar.ts";
+import { visibleTeaWhere } from "@/lib/tea-tier.ts";
 import type { Delta, Stage } from "@/lib/tasting-extract/vocab.ts";
 
 // ─── JSON 安全读取 ────────────────────────────────────────────────────────
@@ -904,19 +905,50 @@ export async function reviewTeaRequest(
  * 之前两个接口各写了一份 —— where、orderBy、take 全一样，只差 select。
  * 两份会各自漂移（比如别名匹配改了只改一边）。现在只有这一份。
  */
+/**
+ * 搜茶品库（茶仓选茶用）。
+ *
+ * ## 只搜「经典 + 普通」
+ *
+ * 「待整理」的茶品是站长还没整理过的素材（重名、命名随意、重复）。
+ * 用户在茶仓里搜到它们，就是站长最初报的那个问题 —— 出来一堆重复条目。
+ * 所以这里按 `needsReview: false` 过滤掉。
+ *
+ * ## `withClassicBadge` 而不是 `includeClassic`
+ *
+ * ⚠️ 这个选项名以前叫 `includeClassic`，但它的真实语义是「**返回**
+ * `isClassic` 这个字段」—— 后台并库时不需要经典角标，所以传 false 只是
+ * **不返回该字段**，**不是**「排除经典茶品」。名字与行为相反，是个
+ * 会误导人的陷阱，改掉。
+ */
 export async function searchCellarTeas(
   q: string,
-  opts: { includeClassic?: boolean } = {},
+  opts: {
+    withClassicBadge?: boolean;
+    /** 看的人 —— 决定「待整理」的茶品能不能被看到。 */
+    viewer?: { id: string | null; isAdmin: boolean };
+  } = {},
 ): Promise<
   { id: string; name: string; brand: string | null; year: number | null; type: string | null; isClassic?: boolean }[]
 > {
+  // 可见性口径只有一份（src/lib/tea-tier.ts）。
+  // ⚠️ where 的**顶层**不能有两个 OR —— 所以关键词匹配与可见性条件
+  // 一起放进 AND 里，OR 各自嵌在自己的元素中。
+  const visibility = visibleTeaWhere(
+    opts.viewer ?? { id: null, isAdmin: false },
+  );
   const teas = await prisma.tea.findMany({
     where: {
       deletedAt: null,
-      OR: [
-        { name: { contains: q, mode: "insensitive" } },
-        { brand: { contains: q, mode: "insensitive" } },
-        { aliases: { has: q } },
+      AND: [
+        {
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { brand: { contains: q, mode: "insensitive" } },
+            { aliases: { has: q } },
+          ],
+        },
+        ...(Object.keys(visibility).length > 0 ? [visibility] : []),
       ],
     },
     // 经典优先，其次按品鉴笔记数（被品得多的通常是用户真正会买的）。
@@ -928,7 +960,7 @@ export async function searchCellarTeas(
       brand: true,
       year: true,
       type: true,
-      ...(opts.includeClassic === false ? {} : { isClassic: true }),
+      ...(opts.withClassicBadge === false ? {} : { isClassic: true }),
     },
   });
   return teas;

@@ -13,7 +13,7 @@
   DATABASE_URL: PostgreSQL 连接字符串（默认从 .env 读取）
 """
 
-import os, sys, re, uuid, argparse
+import os, sys, re, uuid, argparse, unicodedata
 
 try:
     import psycopg
@@ -47,6 +47,17 @@ def load_env():
 
 def normalize_title(raw: str) -> str:
     return re.sub(r"^[（(]资料[)）]\s*", "", raw.strip())
+
+
+def normalize_name(s: str) -> str:
+    """茶品名归一化 —— **必须与 src/lib/tea-name-normalize.ts 一致**。
+
+    括号里的内容要留着：「2019 冰岛（生）」与「2019 冰岛（熟）」归一化后
+    如果都变成「2019冰岛」，两条不同的茶就被当成同一条了。
+    """
+    s = unicodedata.normalize("NFKC", s)
+    s = re.sub(r"[\s\-_（）()\[\]【】「」,，.。:：·、/]+", "", s)
+    return s.lower()
 
 
 def detect_brand(name_part: str) -> str | None:
@@ -137,8 +148,12 @@ def main():
     # 获取已有茶品做去重
     cur.execute("SELECT brand, year, name, id FROM teas")
     existing = {}
+    # 归一化名的次级索引：名字写法不同但归一化后一样 → 同一款茶
+    # （「2003-7542」与「2003 7542」）。这是年份/品牌对不上时的兜底。
+    existing_by_norm = {}
     for brand, year, name, tid in cur.fetchall():
         existing[(brand, year, name)] = tid
+        existing_by_norm.setdefault((brand, year, normalize_name(name)), tid)
 
     # 获取 admin 用户
     cur.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
@@ -155,10 +170,14 @@ def main():
         key = (parsed["brand"], parsed["year"], parsed["name"])
         article_author[article_id] = author_id
 
+        norm_key = (parsed["brand"], parsed["year"], normalize_name(parsed["name"]))
         if key in existing:
             to_link.append((article_id, existing[key], title, parsed))
+        elif norm_key in existing_by_norm:
+            to_link.append((article_id, existing_by_norm[norm_key], title, parsed))
         else:
             existing[key] = None  # placeholder
+            existing_by_norm[norm_key] = None
             to_create.append((article_id, key, parsed, title))
 
     now = "2025-01-01T00:00:00Z"
@@ -178,8 +197,10 @@ def main():
 
     # 创建新茶品
     insert_tea = """
-        INSERT INTO teas (id, name, brand, year, type, "createdBy", "createdAt", "updatedAt")
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        -- needsReview = true → 进「待整理」层（从文章标题提炼的名字多半
+        -- 不规范），站长整理过才进公开库。见 src/lib/tea-tier.ts。
+        INSERT INTO teas (id, name, brand, year, type, "createdBy", "createdAt", "updatedAt", "needsReview")
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE)
     """
     created = 0
     for article_id, key, parsed, title in to_create:
