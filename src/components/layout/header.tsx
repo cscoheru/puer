@@ -161,9 +161,14 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Mobile slide-down menu */}
+      {/*
+        Mobile slide-down menu.
+        菜单展开后比手机视口高，而 header 是 sticky —— 跟侧栏一样的毛病：
+        超出视口的那截永远滚不到（sticky 元素比视口高时，超出部分不可达）。
+        给它「视口高 - 头部高」的上限，让菜单自己滚。
+      */}
       {menuOpen && (
-        <div className="md:hidden border-t border-amber-100 bg-white/95 backdrop-blur">
+        <div className="md:hidden border-t border-amber-100 bg-white/95 backdrop-blur max-h-[calc(100vh-3.5rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin]">
           <div className="px-4 pt-3">
             <SearchBar />
           </div>
