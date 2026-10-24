@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_LOGIN } from "@/lib/rate-limit";
+import { checkRateLimit, rateLimitKey, LIMIT_LOGIN } from "@/lib/rate-limit";
 import { findUserByAccount } from "@/lib/user-lookup";
 import { sessionInvalidated } from "@/lib/password-reset";
 

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { requirePermission } from "@/lib/admin-auth";
 import { invalidateAuthCache } from "@/lib/auth";
-import { resetPasswordSchema } from "@/lib/password-reset";
+import { generateResetCode, hashResetCode } from "@/lib/password-reset";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +25,6 @@ export async function PUT(
   if (error) return error;
   const { id } = await params;
 
-  const body = await req.json().catch(() => ({}));
-  const parsed = resetPasswordSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "密码不合法" },
-      { status: 400 },
-    );
-  }
-
   const user = await prisma.user.findUnique({
     where: { id },
     select: { id: true, username: true, isSynthetic: true },
@@ -43,13 +33,23 @@ export async function PUT(
     return NextResponse.json({ error: "用户不存在" }, { status: 404 });
   }
 
-  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+  // 管理员**不碰别人的密码** —— 给他发一个重置码，他自己设。
+  const code = generateResetCode();
+  const passwordHash = await hashResetCode(code);
   const now = new Date();
 
+  // 申请单上记一条 —— 站长日后能查到「给谁发过重置码」。
   const ops: Prisma.PrismaPromise<unknown>[] = [
-    prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash, passwordChangedAt: now },
+    prisma.passwordResetRequest.create({
+      data: {
+        userId: user.id,
+        status: "approved",
+        note: "管理员直接发起",
+        passwordHash,
+        handledBy: "admin",
+        handledAt: now,
+        requestIp: null,
+      },
     }),
   ];
   // 自动化账号是机器，发通知没有意义（它们也不会看站内信）。
@@ -59,7 +59,7 @@ export async function PUT(
         data: {
           userId: user.id,
           type: "system",
-          content: "你的密码已被管理员重置。如果不是本人操作，请立即联系站长。",
+          content: `管理员为你发起了一次密码重置。重置码：${code}。到登录页的「忘记密码」里用它设置新密码。如果不是本人操作，请立即联系站长。`,
           link: null,
         },
       }),
@@ -71,5 +71,5 @@ export async function PUT(
   // 立刻作废旧会话（否则 30 秒的 auth 缓存窗口内，旧 token 仍然有效）
   invalidateAuthCache(user.id);
 
-  return NextResponse.json({ success: true, username: user.username });
+  return NextResponse.json({ success: true, username: user.username, code });
 }

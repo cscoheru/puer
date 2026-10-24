@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { findUserByAccount } from "@/lib/user-lookup";
 import { forgotPasswordSchema, RESET_STATUS } from "@/lib/password-reset";
@@ -57,10 +56,8 @@ export async function POST(req: NextRequest) {
       select: { id: true },
     });
     if (!pending) {
-      // 用户自设了新密码 → 只存哈希。明文不落库、不进日志，管理员也看不到。
-      const passwordHash = parsed.data.newPassword
-        ? await bcrypt.hash(parsed.data.newPassword, 12)
-        : null;
+      // 申请单**不存密码** —— 用户在**审批通过之后**凭重置码自己设。
+      // 站点没验证过申请人的身份之前，不该让任何人定下这个账号的密码。
       await prisma.$transaction([
         prisma.passwordResetRequest.create({
           data: {
@@ -70,20 +67,22 @@ export async function POST(req: NextRequest) {
             answers: {
               registration: parsed.data.registration.trim(),
               lastLogin: parsed.data.lastLogin.trim(),
+              region: parsed.data.region?.trim() || null,
+              articles: parsed.data.articles?.trim() || null,
+              comments: parsed.data.comments?.trim() || null,
+              upvotes: parsed.data.upvotes?.trim() || null,
               email: parsed.data.email?.trim() || null,
             },
             // 申请人 IP —— 站长拿它和账号的注册 IP 对照
             requestIp: ip,
-            passwordHash,
           },
         }),
         prisma.notification.create({
           data: {
             userId: user.id,
             type: "system",
-            content: passwordHash
-              ? "我们收到了你的密码重置申请，站长核对后会批准，你就能用新密码登录。如果不是本人操作，请忽略这条。"
-              : "我们收到了你的密码重置申请，站长核对后会尽快处理。如果不是本人操作，请忽略这条。",
+            content:
+              "我们收到了你的密码重置申请，站长核对后会给重置码。如果不是本人操作，请忽略这条。",
             link: null,
           },
         }),

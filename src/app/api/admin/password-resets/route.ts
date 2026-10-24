@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/admin-auth";
-import { RESET_STATUS } from "@/lib/password-reset";
+import { compareAnswers, RESET_STATUS, summarizeChecks } from "@/lib/password-reset";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +10,9 @@ export const dynamic = "force-dynamic";
  * 用户在登录页点「忘记密码」会在这里留下一条申请（站内没有邮件通道，
  * 管理员只能在这里看到）。后台「用户管理」页的顶部会列出来。
  *
- * 每条申请**并排给出「用户填的」与「站点知道的」**：站长据此客观判断
- * 是不是本人，而不是凭感觉批准。
+ * 每条申请都**自动比对**用户填的答案与系统真值，逐题给出
+ * 「吻合 / 接近 / 对不上 / 无法核对」—— 站长看到的是判断依据，不是原始
+ * 数字，让他自己心算。
  */
 export async function GET() {
   const { error } = await requirePermission("admin:users");
@@ -23,8 +24,6 @@ export async function GET() {
     select: {
       id: true,
       note: true,
-      // 只给「有没有自设密码」这个标志，**不给哈希本身**
-      passwordHash: true,
       answers: true,
       requestIp: true,
       createdAt: true,
@@ -44,29 +43,56 @@ export async function GET() {
     },
   });
 
+  // 逐个算「收到的赞」—— 与用户主页显示的口径一致（只计真人点赞）。
+  const articleIds = requests.map((r) => r.user.id);
+  const likeCounts = new Map<string, number>();
+  if (articleIds.length > 0) {
+    const rows = await prisma.$queryRaw<Array<{ authorId: string; n: bigint }>>`
+      SELECT a."authorId", count(*)::bigint AS n
+      FROM likes l
+      JOIN articles a ON a.id = l."articleId"
+      JOIN users u ON u.id = l."userId"
+      WHERE a."authorId" = ANY(${articleIds}::text[])
+        AND u."isSynthetic" = false
+      GROUP BY a."authorId"
+    `;
+    for (const row of rows) likeCounts.set(row.authorId, Number(row.n));
+  }
+
   return Response.json({
-    requests: requests.map((r) => ({
-      id: r.id,
-      note: r.note,
-      // 用户自己定了新密码 → 批准即生效，管理员不用再设
-      selfPassword: r.passwordHash != null,
-      // 用户填的核验答案
-      answers: (r.answers ?? {}) as Record<string, string | null>,
-      requestIp: r.requestIp,
-      createdAt: r.createdAt.toISOString(),
-      // 站点知道的真值 —— 供站长对照
-      user: {
-        id: r.user.id,
-        uid: r.user.uid,
-        username: r.user.username,
-        email: r.user.email,
+    requests: requests.map((r) => {
+      const facts = {
         registeredAt: r.user.createdAt.toISOString(),
         lastLoginAt: r.user.lastLoginAt?.toISOString() ?? null,
-        registrationIp: r.user.registrationIp,
-        registrationRegion: r.user.registrationRegion,
+        region: r.user.registrationRegion,
         articles: r.user._count.articles,
         comments: r.user._count.comments,
-      },
-    })),
+        upvotes: likeCounts.get(r.user.id) ?? 0,
+      };
+      const answers = (r.answers ?? {}) as Record<string, string | null>;
+      const checks = compareAnswers(answers, facts);
+      return {
+        id: r.id,
+        note: r.note,
+        requestIp: r.requestIp,
+        createdAt: r.createdAt.toISOString(),
+        /** 逐题比对结果 —— 站长的判断依据 */
+        checks,
+        summary: summarizeChecks(checks),
+        user: {
+          id: r.user.id,
+          uid: r.user.uid,
+          username: r.user.username,
+          email: r.user.email,
+          registeredAt: facts.registeredAt,
+          lastLoginAt: facts.lastLoginAt,
+          registrationIp: r.user.registrationIp,
+          registrationRegion: r.user.registrationRegion,
+          articles: facts.articles,
+          comments: facts.comments,
+          upvotes: facts.upvotes,
+        },
+      };
+    }),
   });
 }

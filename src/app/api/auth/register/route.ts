@@ -4,14 +4,8 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_REGISTER } from "@/lib/rate-limit";
 import { verifyTurnstile } from "@/lib/verify-turnstile";
-
-// ── Password strength ────────────────────────────────────────────────
-// Medium: 8+ chars, at least 1 letter, 1 number
-const passwordSchema = z
-  .string()
-  .min(8, "密码至少8个字符")
-  .regex(/[a-zA-Z]/, "密码必须包含至少一个字母")
-  .regex(/[0-9]/, "密码必须包含至少一个数字");
+// 密码规则只有一份（注册与自助重置共用）—— src/lib/password-policy.ts
+import { passwordSchema } from "@/lib/password-policy";
 
 const registerSchema = z.object({
   username: z

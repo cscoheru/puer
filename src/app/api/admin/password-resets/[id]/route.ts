@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/admin-auth";
 import { invalidateAuthCache } from "@/lib/auth";
-import { RESET_STATUS, resetPasswordSchema } from "@/lib/password-reset";
+import {
+  generateResetCode,
+  hashResetCode,
+  MAX_RESET_REJECTS,
+  RESET_STATUS,
+} from "@/lib/password-reset";
 
 export const dynamic = "force-dynamic";
 
@@ -49,21 +53,43 @@ export async function PUT(
     await prisma.passwordResetRequest.update({
       where: { id: rejected.id },
       data: {
-        status: RESET_STATUS.cancelled,
+        status: RESET_STATUS.rejected,
         handledBy: session?.user?.name ?? session?.user?.email ?? null,
         handledAt: new Date(),
       },
     });
+
+    // 连续两次都没通过 → 账号挂起（不能再登录）。
+    // 这是在挡「一直申请、一直骚扰」和「反复试探」—— 两次都不通过的人，
+    // 要么是忘了自己账号，要么不是本人，两种都不该再让他试。
+    const rejects = await prisma.passwordResetRequest.count({
+      where: { userId: rejected.userId, status: RESET_STATUS.rejected },
+    });
+    let banned = false;
+    if (rejects >= MAX_RESET_REJECTS) {
+      await prisma.user.update({
+        where: { id: rejected.userId },
+        data: {
+          banStatus: "banned",
+          bannedAt: new Date(),
+          banReason: `密码重置申请连续 ${rejects} 次未通过`,
+        },
+      });
+      invalidateAuthCache(rejected.userId);
+      banned = true;
+    }
+
     await prisma.notification.create({
       data: {
         userId: rejected.userId,
         type: "system",
-        content:
-          "我们没有通过你的密码重置申请。如果不是本人操作，请忽略这条。",
+        content: banned
+          ? "我们没有通过你的密码重置申请，且已多次未通过，账号已被暂停。如果不是本人操作，请联系站长。"
+          : "我们没有通过你的密码重置申请。你可以再次申请。如果不是本人操作，请忽略这条。",
         link: null,
       },
     });
-    return NextResponse.json({ success: true, rejected: true });
+    return NextResponse.json({ success: true, rejected: true, banned });
   }
 
   const request = await prisma.passwordResetRequest.findUnique({
@@ -80,19 +106,10 @@ export async function PUT(
     );
   }
 
-  // 用户在申请时**自设了**新密码 → 直接用他的（管理员看不到明文，也不用
-  // 把它告诉用户 —— 用户自己知道）。没自设 → 管理员必须指定一个。
-  let passwordHash = request.passwordHash;
-  if (!passwordHash) {
-    const parsed = resetPasswordSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.issues[0]?.message ?? "密码不合法" },
-        { status: 400 },
-      );
-    }
-    passwordHash = await bcrypt.hash(parsed.data.password, 12);
-  }
+  // 批准 = 管理员核对通过 → **生成一个重置码**给本人。
+  // 密码由**用户自己**设（凭重置码），管理员从头到尾不碰别人的密码。
+  const code = generateResetCode();
+  const passwordHash = await hashResetCode(code);
   const now = new Date();
 
   await prisma.$transaction([
@@ -103,7 +120,8 @@ export async function PUT(
     prisma.passwordResetRequest.update({
       where: { id: request.id },
       data: {
-        status: RESET_STATUS.done,
+        status: RESET_STATUS.approved,
+        passwordHash,
         handledBy: session?.user?.name ?? session?.user?.email ?? null,
         handledAt: now,
       },
@@ -112,7 +130,7 @@ export async function PUT(
       data: {
         userId: request.userId,
         type: "system",
-        content: "你的密码已被重置。如果不是本人操作，请立即联系站长。",
+        content: `你的密码重置申请已通过。重置码：${code}。到登录页的「忘记密码」里用它设置新密码。如果不是本人操作，请立即联系站长。`,
         link: null,
       },
     }),
@@ -121,5 +139,6 @@ export async function PUT(
   // 立刻作废旧会话（否则 30 秒的 auth 缓存窗口内，旧 token 仍然有效）
   invalidateAuthCache(request.userId);
 
-  return NextResponse.json({ success: true });
+  // 重置码明文只在响应里给管理员一次（方便站外转达），站内通知里也有一份。
+  return NextResponse.json({ success: true, code });
 }
