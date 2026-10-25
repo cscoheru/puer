@@ -54,7 +54,7 @@ export async function PATCH(
   if (limited) return limited;
 
   const d = parsed.data;
-  const ok = await updateCellarItem(actor!.ownerId, id, {
+  const result = await updateCellarItem(actor!.ownerId, id, {
     ...("name" in d ? { name: d.name ?? null } : {}),
     ...("acquiredAt" in d
       ? { acquiredAt: d.acquiredAt ? new Date(d.acquiredAt) : null }
@@ -63,15 +63,18 @@ export async function PATCH(
     ...("remindEveryMonths" in d
       ? { remindEveryMonths: d.remindEveryMonths }
       : {}),
-    ...("nextRemindAt" in d
-      ? { nextRemindAt: d.nextRemindAt ? new Date(d.nextRemindAt) : null }
-      : {}),
   });
 
-  if (!ok) {
+  if (!result.ok) {
     return NextResponse.json({ error: "条目不存在" }, { status: 404 });
   }
-  return NextResponse.json({ ok: true });
+  // 把重算后的提醒状态带回去 —— 前端要显示「下次提醒」，
+  // 不回传的话用户点了「采纳建议」却看不到日期变了。
+  return NextResponse.json({
+    ok: true,
+    remindEveryMonths: result.remindEveryMonths,
+    nextRemindAt: result.nextRemindAt?.toISOString() ?? null,
+  });
 }
 
 /**

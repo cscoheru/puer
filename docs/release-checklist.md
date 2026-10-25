@@ -32,6 +32,42 @@ ssh puer-hk 'docker exec -w /app puer-hub-app \
 **临时**修通(client 运行时动态加载),但 build-time 客户端仍是旧的,下次
 schema 再动仍会复发。**这条只用于紧急止血,生产发布必须重 build。**
 
+### 迁移是**裸 psql** 跑的(不是 `prisma migrate deploy`)
+
+生产库**没有 `_prisma_migrations` 表** → `prisma migrate deploy` 用不了。
+迁移一律手工 psql 执行:
+
+```bash
+# 1. 先在服务器上跑迁移(带幂等,重复执行安全)
+docker cp prisma/migrations/20261025_cellar_reminders/migration.sql \
+  puer-hub-postgres:/tmp/m.sql
+docker exec puer-hub-postgres psql -U puerhub -d puerhub -f /tmp/m.sql
+
+# 2. **直接查库确认** —— 别信「脚本执行了」
+docker exec puer-hub-postgres psql -U puerhub -d puerhub -c \
+  "SELECT column_name FROM information_schema.columns
+    WHERE table_name='cellar_items' AND column_name='lastRemindedAt'"
+```
+
+**顺序固定:先 psql 跑迁移 → 再 rsync → 再 `docker build --no-cache` → 再切镜像。**
+迁移必须在**旧镜像还在跑**的时候跑(它带 `SET lock_timeout='3s'`,不重写表)。
+
+⚠️ **一次改动可能有多个新增迁移文件** —— 要把每一个都在服务器上应用。
+
+---
+
+## 🔴 新增定时任务(cron)
+
+- [ ] 任务写进 `scripts/cron-task.sh`(宿主跑)或 `scripts/*.mjs`(容器跑)
+- [ ] **正本写进 `scripts/crontab.txt`** —— 服务器的 crontab 只存在于服务器上,
+      仓库里没有文件记录它,下次换机就会静默消失(R27 的教训)
+- [ ] 服务器 crontab **也要改**,改完 `crontab -l | diff - scripts/crontab.txt` 核对
+- [ ] 有暂停开关的脚本,加进 `scripts/pause-switch.test.mjs` 的 `CASES`
+- [ ] 脚本的 env 依赖在 `cron-task.sh` 里 **export 出来**(容器里有的变量,
+      宿主上不一定有 —— 少了就静默走不通)
+- [ ] 跑批的**跳过与失败必须落到日志**,成功/失败计数随 report 打印
+      (「静默降级 = 延迟爆炸」)
+
 ---
 
 ## 部署流程

@@ -215,8 +215,17 @@ test("新建条目：acquiredAt 必须是 ISO 时间", () => {
 test("改条目：字段都可空（清空用 null）", () => {
   assert.equal(updateCellarItemSchema.safeParse({ name: null }).success, true);
   assert.equal(updateCellarItemSchema.safeParse({ qtyNote: "还剩半饼" }).success, true);
-  assert.equal(updateCellarItemSchema.safeParse({ remindEveryMonths: 0 }).success, false);
+  assert.equal(updateCellarItemSchema.safeParse({ remindEveryMonths: 0 }).success, true);
+  assert.equal(updateCellarItemSchema.safeParse({ remindEveryMonths: -1 }).success, false);
   assert.equal(updateCellarItemSchema.safeParse({ remindEveryMonths: 61 }).success, false);
+});
+
+test("改条目：nextRemindAt 由服务端算，客户端传不进来", () => {
+  assert.equal(
+    updateCellarItemSchema.safeParse({ nextRemindAt: "2026-12-01T00:00:00.000Z" }).success,
+    false,
+    "下次提醒的时刻是服务端算的（src/lib/cellar-reminder.ts），客户端传了要报错",
+  );
 });
 
 test("换仓：评分越界被拒", () => {

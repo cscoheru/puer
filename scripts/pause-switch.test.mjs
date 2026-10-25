@@ -18,6 +18,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const CASES = [
   { file: "auto-post.mjs", env: "AUTO_DRAFT_PAUSED" },
   { file: "ai-news-draft.mjs", env: "AUTO_NEWS_DRAFT_PAUSED" },
+  { file: "cellar-reminders.mjs", env: "CELLAR_REMINDERS_PAUSED" },
 ];
 
 test("暂停开关：开启时退出码 0 且明确打印已暂停", () => {

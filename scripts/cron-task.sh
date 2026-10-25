@@ -10,14 +10,14 @@
 # resolve dynamically here — replacing the fragile hardcoded 172.18.0.2 in
 # auto-post-cron.sh.
 #
-# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post|baseline-report>
+# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post|baseline-report|cellar-reminders>
 # On failure an [ALERT] line is appended to backups/health-alerts.log
 # (same file the site-down check writes to).
 
 set -uo pipefail
 cd /opt/puer-hub
 
-TASK="${1:?usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health>}"
+TASK="${1:?usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post|baseline-report|cellar-reminders>}"
 
 log_alert() {
   echo "[ALERT] $(date -Is) cron-task($TASK): $1" >> /opt/puer-hub/backups/health-alerts.log
@@ -27,6 +27,11 @@ log_alert() {
 DB_PWD=$(grep -E "^DB_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '"')
 # R27:AI 自动任务由 DeepSeek 切换到 MiniMax(与容器内 src/lib 同一 key)
 MINIMAX=$(grep -E "^MINIMAX_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
+# 茶仓可见性(与容器内同一份口径)。cellar-reminders 要用 cellarVisibleTo 判定
+# 「这个人能不能看见茶仓」—— 少了这三个变量,脚本会以为谁都看不见而一条不发。
+FEATURE_CELLAR=$(grep -E "^FEATURE_CELLAR=" .env | head -1 | cut -d= -f2- | tr -d '"')
+CELLAR_UIDS=$(grep -E "^CELLAR_UIDS=" .env | head -1 | cut -d= -f2- | tr -d '"')
+EDITOR_AUTHOR_UIDS=$(grep -E "^EDITOR_AUTHOR_UIDS=" .env | head -1 | cut -d= -f2- | tr -d '"')
 
 # ── resolve postgres container IP (docker network) ───────────────────
 PG_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' puer-hub-postgres 2>/dev/null)
@@ -98,6 +103,16 @@ case "$TASK" in
         # --apply 才写库;脚本默认 dry-run。
         export PENTAGI_ARTIFACT_HOST="${PENTAGI_ARTIFACT_HOST:-pentagi-vps}"
         run node --import tsx scripts/ai-news-draft.mjs --apply
+        ;;
+      cellar-reminders)
+        # F4 复饮提醒(PRD v0.3 §7 Phase 4):给到期的茶仓条目发一条站内通知。
+        # 宿主机直跑(裸 pg + tsx 加载 src/lib/cellar-reminder.ts 的纯逻辑)。
+        # 可见性要用**与前台同一份**口径(cellarVisibleTo)→ 茶仓开关与两个
+        # 白名单必须在这里 export,否则脚本会以为谁都看不见茶仓而一条不发。
+        export FEATURE_CELLAR="${FEATURE_CELLAR:-}"
+        export CELLAR_UIDS="${CELLAR_UIDS:-}"
+        export EDITOR_AUTHOR_UIDS="${EDITOR_AUTHOR_UIDS:-}"
+        run node --import tsx scripts/cellar-reminders.mjs --apply
         ;;
       *)
         echo "unknown task: $TASK" >&2

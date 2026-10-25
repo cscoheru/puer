@@ -1,0 +1,71 @@
+# puer.im 生产 crontab —— **正本**
+#
+# 为什么这个文件存在（R27 的教训）：
+# 服务器的 crontab 只存在于服务器上（`crontab -l`），仓库里没有任何文件
+# 记录它 —— 于是「新增一个定时任务」这件事只活在服务器里，下次换机/重建/
+# 手工同步时就会**静默消失**，而且没人发现（cron 只是少跑一个任务而已）。
+#
+# 所以：**改 crontab 必须改这个文件**，然后同步到服务器，两边都要有。
+#
+# 装到服务器上：
+#   crontab -l > /tmp/crontab.current          # 先备份
+#   （把下面生效的行加进去）
+#   crontab /tmp/crontab.new
+#   crontab -l | diff - scripts/crontab.txt    # 核对
+#
+# 时间一律 **UTC**（服务器 TZ=Etc/UTC）。北京时间 = UTC + 8。
+#
+# 任务清单与 scripts/cron-task.sh 的分支一一对应。
+
+# ── 备份与健康检查 ────────────────────────────────────────────────────────
+
+# 每日数据库备份（保留 7 天）
+0 4 * * * mkdir -p /opt/puer-hub/backups/db && cd /opt/puer-hub && docker compose exec -T postgres pg_dump -U puerhub puerhub | gzip > /opt/puer-hub/backups/db/$(date +\%Y\%m\%d).sql.gz && find /opt/puer-hub/backups/db/ -mtime +7 -delete
+
+# 每 5 分钟探一次站点，挂了写告警
+*/5 * * * * curl -sSf -o /dev/null https://puer.im/forum 2>&1 || echo "[ALERT] Site down at $(date)" >> /opt/puer-hub/backups/health-alerts.log
+
+# 每日 uploads 备份（保留 7 天）
+17 3 * * * tar czf /opt/puer-hub/backups/uploads-$(date +\%Y\%m\%d).tar.gz -C /opt/puer-hub uploads/ && find /opt/puer-hub/backups/ -name "uploads-*.tar.gz" -mtime +7 -delete
+
+# 备机镜像同步（每 6 小时）
+0 */6 * * * /opt/puer-hub/scripts/sync-images-to-standby.sh >> /opt/puer-hub/backups/image-sync.log 2>&1
+
+# 每日 00:05（UTC）快照文章浏览量
+5 0 * * * docker exec -i puer-hub-postgres psql -U puerhub -d puerhub < /opt/puer-hub/scripts/snapshot-views.sql >> /var/log/puer-auto.log 2>&1
+
+# ── 内容管线 ──────────────────────────────────────────────────────────────
+
+# 茶记草稿（每日 10:07 北京时间）
+7 2 * * * /opt/puer-hub/scripts/cron-task.sh auto-post >> /var/log/puer-auto.log 2>&1
+
+# 茶问草稿（每日 10:37 北京时间）
+37 2 * * * /opt/puer-hub/scripts/cron-task.sh rag-post >> /var/log/puer-auto.log 2>&1
+
+# PentAGI 资讯草稿（每周一 18:00 北京时间）
+0 10 * * 1 /opt/puer-hub/scripts/cron-task.sh ai-news-draft >> /var/log/puer-news-draft.log 2>&1
+
+# 真实读者/用户指标基线（每日 12:17 北京时间）
+17 4 * * * /opt/puer-hub/scripts/cron-task.sh baseline-report >> /var/log/puer-baseline.log 2>&1
+
+# ── F4 复饮提醒（PRD v0.3 §7 Phase 4）─────────────────────────────────────
+#
+# 给到期的茶仓条目发站内通知。默认 dry-run，要真发用 --apply —— cron 里
+# 走的是 cron-task.sh 的 cellar-reminders 分支（它带 --apply）。
+# 一键暂停：CELLAR_REMINDERS_PAUSED=1（写在 /opt/puer-hub/.env）。
+51 2 * * * /opt/puer-hub/scripts/cron-task.sh cellar-reminders >> /var/log/cellar-reminders.log 2>&1
+
+# ── 每小时探针 ────────────────────────────────────────────────────────────
+
+# MiniMax 余额/API 健康探针
+0 * * * * /opt/puer-hub/scripts/cron-task.sh minimax-health >> /var/log/minimax-health.log 2>&1
+
+# ── 已停用（保留行以便回溯，不要直接删）──────────────────────────────────
+#
+# auto-reply（13 条）—— DISABLED-20261021：PRD v0.3 §12 第 3 条，AI 回复待
+#   F0 标注上线；脚本内还有 AUTO_REPLY_ENABLED 开关兜底。
+# auto-vote —— R28-removed：F0 要求自动投票一律停止。
+# auto-boost-new —— DISABLED-20261021：同上（灌票 + AI 回复）。
+# auto-register —— DISABLED-20260811：PRD §12 决策 7，暂停建号。
+# auto-convert —— DISABLED-T8：旧发布管线，已废弃。
+# auto-publish-youtube / auto-publish-facebook —— DISABLED-20260811：站长暂停。

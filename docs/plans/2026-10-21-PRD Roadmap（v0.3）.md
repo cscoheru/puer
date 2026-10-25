@@ -427,7 +427,7 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 
 | # | 项目 | 出处 | 现状 | 差在哪 |
 |---|---|---|---|---|
-| 1 | **F4 复饮提醒** | Phase 4 | 字段有、行为无 | `cellar_items.remindEveryMonths` / `nextRemindAt` 只在 schema 与 API 里存在；**没有任何任务会去算 `nextRemindAt`，也不会发过站内通知**。「最近一次更好→缩短间隔、走下坡→尽快喝」的规则同样没有 |
+| 1 | **F4 复饮提醒** | Phase 4 | ✅ **已实现（2026-10-25）** | 见 §14.4 |
 | 2 | **F5 行情联动** | Phase 4 | **整块没有** | `PriceSnapshot` **表都不存在**（schema 里没有）；没有后台录入、没有茶品页价格区间时间线、没有「行情仅供参考、不构成投资建议」的声明 |
 | 3 | **版主权限落地** | §13.4 Phase 2 | 半拉子 | `can()` 支持 `board:moderate`，`board_moderators` 表与申请/审批 API 都在，但**没有任何调用点传 `moderatedBoardIds`** → 版主这个角色现在拿不到任何实际能力；授权表是摆设 |
 | 4 | **条款缺两块** | §8 末段 | 未写 | 用户协议里没有「禁止抓取与用于模型训练」的明文，也没有「站长原创笔记的版权声明」。按本文要求「CC 只出草稿，由站长自行请法律人士审阅」——**草稿还没出** |
@@ -439,6 +439,40 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 
 - Phase 2 退出标准：10–20 位真实藏茶用户内测一周；站长对自己的茶仓**一次性手工评分**（自评/站长评要分开标注）。
 - §7 F0：历史帖按 origin 补标 —— 脚本 `scripts/backfill-article-origin.mjs` 已在，**是否已跑完全库**需确认。
+
+### 14.4 F4 复饮提醒的落地状态（2026-10-25）
+
+**做成了什么**
+
+- 提醒时刻的**唯一口径**在 `src/lib/cellar-reminder.ts`（纯函数，可离线单测）：
+  `nextRemindAt = max( 最近一次品鉴的服务端 createdAt + N 个月 , lastRemindedAt + N 个月 )`，
+  `N = remindEveryMonths`（**0 = 不提醒**）。锚点按「同一条茶」跨条目取，与 24 小时闸门同口径。
+- 服务端拥有 `nextRemindAt`：新建条目 / 改间隔 / 记一条品鉴三个写点都重算
+  （`recomputeNextRemindAt`），**客户端传不进来**（zod 挡成 400）。
+- 跑批 `scripts/cellar-reminders.mjs`（宿主 cron，裸 pg）：认领 → 推进 → 插通知
+  **在同一个事务里**（插通知失败就整体回滚，下次重试 —— 提醒不会被吞掉）；
+  推进的 UPDATE 带**完整双守卫**（否则会天天重复提醒，或提醒一次就永远沉默）；
+  默认 dry-run；`CELLAR_REMINDERS_PAUSED=1` 一键暂停。
+- 站内通知新增 `type='reminder'`（DB 里是自由字符串，无需迁移）；
+  铃铛改为**每分钟轮询**（页面不可见时暂停），点开某条即标记已读
+  —— 顺带修掉了「未读数只增不减、徽标永远 9+」的既有 bug。
+- 「最近一次更好→缩短间隔 / 走下坡→尽快喝」：**只建议、不自动改用户的设置**
+  （站长 2026-10-25 拍板），条目页给一个「采纳建议」按钮。
+- 可见性用现成的纯函数 `cellarVisibleTo`（不重写白名单）。
+
+**没做的（按默认假设后置）**
+
+- **邮件月度汇总**：站内没有 SMTP/nodemailer → 按 §11.6 的默认假设本期不做，只做站内通知。
+- **提醒的「推迟到下周」**：PRD 没要求，且 `nextRemindAt` 由服务端算。
+
+**运维**
+
+- 迁移 `prisma/migrations/20261025_cellar_reminders/`（裸 psql）：加 `lastRemindedAt`、
+  给 `nextRemindAt` 加索引、把 `remindEveryMonths` 的 CHECK 放宽到 0..60、回填存量。
+- crontab 正本进了仓库：`scripts/crontab.txt`（此前仓库里**没有任何文件**记录
+  服务器的 crontab —— R27 的教训：只活在服务器上的改动迟早丢）。
+- ⚠️ 存量条目的 `nextRemindAt` 回填到**半年后** → 跑批首日到期数为 0 是**正确行为**，
+  验收要手工把一条数据的 `nextRemindAt` 改到过去再验。
 
 ### 14.3 本轮（2026-10-24 ~ 10-25）顺带修掉的、PRD 里没写的事
 

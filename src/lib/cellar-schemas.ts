@@ -33,6 +33,7 @@ import {
   CELLAR_MAX_VIDEOS,
   DIM_MAX,
   DIM_MIN,
+  MAX_REMIND_MONTHS,
   STORAGE_SCORE_MAX,
   STORAGE_SCORE_MIN,
   type DimKey,
@@ -156,7 +157,8 @@ export const createCellarItemSchema = z
     name: z.string().max(200).nullable().optional(),
     acquiredAt: z.iso.datetime().nullable().optional(),
     qtyNote: z.string().max(100).nullable().optional(),
-    remindEveryMonths: z.number().int().min(1).max(60).optional(),
+    // 0 = 不提醒（用户可以关掉复饮提醒）。上限与 DB 的 CHECK 一致。
+    remindEveryMonths: z.number().int().min(0).max(MAX_REMIND_MONTHS).optional(),
     storage: storageSchema.optional(),
   })
   .refine((d) => Boolean(d.teaId || d.teaRequest), {
@@ -168,8 +170,10 @@ export const updateCellarItemSchema = z.strictObject({
   name: z.string().max(200).nullable().optional(),
   acquiredAt: z.iso.datetime().nullable().optional(),
   qtyNote: z.string().max(100).nullable().optional(),
-  remindEveryMonths: z.number().int().min(1).max(60).optional(),
-  nextRemindAt: z.iso.datetime().nullable().optional(),
+  remindEveryMonths: z.number().int().min(0).max(MAX_REMIND_MONTHS).optional(),
+  // ⚠️ **没有** nextRemindAt —— 下次提醒的时刻由服务端算
+  // （src/lib/cellar-reminder.ts）。客户端传了会被 strictObject 挡成 400，
+  // 比「悄悄忽略」好：用户至少知道自己没设置成功。
 });
 
 /** 换仓（新增一条仓储期）。 */

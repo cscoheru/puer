@@ -16,6 +16,11 @@ import {
   type DimKey,
 } from "@/lib/cellar";
 import { DELTA_LABELS, STAGE_LABELS } from "@/lib/tasting-extract/vocab";
+import {
+  remindIntervalLabel,
+  reminderAdvice,
+  type ReminderAdvice,
+} from "@/lib/cellar-reminder";
 import StorageSlider from "@/components/cellar/storage-slider";
 import type { EditorLine } from "@/lib/editor-line";
 
@@ -32,6 +37,9 @@ import type { EditorLine } from "@/lib/editor-line";
  * 站长线只在**这款茶已在茶品库里**时才有（`teaId`）。自建茶品还没并入
  * 茶品库之前，没有站长线可对照 —— 那一栏不显示，而不是显示「暂无」。
  */
+
+/** 提醒间隔的可选值（月）。0 = 不提醒（单选项里另有「不提醒」）。 */
+const REMIND_OPTIONS = [1, 2, 3, 6, 12, 24, 36, 60];
 
 interface TastingRow {
   id: string;
@@ -71,6 +79,10 @@ interface ItemData {
   acquiredAt: string | null;
   qtyNote: string | null;
   remindEveryMonths: number;
+  /** 下次提醒的时刻（服务端算）。 */
+  nextRemindAt: string | null;
+  /** 上次提醒的时刻（跑批写的）。 */
+  lastRemindedAt: string | null;
   epochs: EpochRow[];
   tastings: TastingRow[];
   /** 间隔闸门的基准（服务端按「同一条茶」算好直接给）。 */
@@ -92,6 +104,7 @@ export default function CellarDetail({
   const [showStorage, setShowStorage] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [message, setMessage] = useState("");
+  const [advising, setAdvising] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -102,6 +115,44 @@ export default function CellarDetail({
       // 保留初始数据 —— 刷新失败不该把页面清空
     }
   }, [initialItem.id]);
+
+  /**
+   * 复饮建议 —— 口径在 src/lib/cellar-reminder.ts（纯函数）。
+   *
+   * 信号来自**最近一次品鉴**（服务端按「同一条茶」跨条目取，这里用本条目
+   * 自己的记录近似 —— 建议只是建议，不参与提醒时间的计算）。
+   */
+  const latestTasting = latestTastingByCreatedAt(item.tastings);
+  const advice: ReminderAdvice = reminderAdvice(
+    {
+      deltaVsPrev: latestTasting?.deltaVsPrev ?? null,
+      stage: latestTasting?.stage ?? null,
+    },
+    item.remindEveryMonths,
+  );
+
+  /** 采纳建议 = 把提醒间隔改成建议值（服务端重算下次提醒的时刻）。 */
+  const applySuggestion = async (months: number) => {
+    setAdvising(true);
+    try {
+      const res = await fetch(`/api/cellar/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remindEveryMonths: months }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "改不了");
+        return;
+      }
+      setMessage(`提醒间隔已改成${remindIntervalLabel(months)}`);
+      await load();
+    } catch {
+      setMessage("改不了");
+    } finally {
+      setAdvising(false);
+    }
+  };
 
   // **不**在挂载时 load()：服务端组件已经把条目取好传进来了（useState 的
   // 初值），挂载再取一遍就是同一份数据取两次 —— 4 条 SQL 跑两遍。
@@ -313,7 +364,32 @@ export default function CellarDetail({
               />
             ) : (
               <div className="text-xs text-stone-400 space-y-1">
-                <p>提醒间隔：每 {item.remindEveryMonths} 个月</p>
+                <p>
+                  复饮提醒：{remindIntervalLabel(item.remindEveryMonths)}
+                  {item.remindEveryMonths > 0 && item.nextRemindAt && (
+                    <> · 下次 {item.nextRemindAt.slice(0, 10)}</>
+                  )}
+                </p>
+                {item.lastRemindedAt && (
+                  <p>上次提醒：{item.lastRemindedAt.slice(0, 10)}</p>
+                )}
+                {advice.tone !== "neutral" && advice.text && (
+                  <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+                    <p className="leading-relaxed">{advice.text}</p>
+                    {advice.suggestedMonths != null &&
+                      advice.suggestedMonths !== item.remindEveryMonths && (
+                        <button
+                          onClick={() => applySuggestion(advice.suggestedMonths!)}
+                          disabled={advising}
+                          className="mt-2 px-2.5 py-1 text-xs bg-amber-800 text-white rounded-lg hover:bg-amber-900 disabled:opacity-50 transition"
+                        >
+                          {advising
+                            ? "应用中…"
+                            : `采纳建议（每 ${advice.suggestedMonths} 个月）`}
+                        </button>
+                      )}
+                  </div>
+                )}
                 {item.qtyNote && <p>备注：{item.qtyNote}</p>}
                 {item.acquiredAt && (
                   <p>入仓：{item.acquiredAt.slice(0, 10)}</p>
@@ -615,8 +691,7 @@ function EditItemForm({
 }: {
   item: ItemData;
   onSaved: (message: string) => void;
-}) {
-  const [name, setName] = useState(item.name ?? "");
+}) {  const [name, setName] = useState(item.name ?? "");
   const [qtyNote, setQtyNote] = useState(item.qtyNote ?? "");
   const [acquiredAt, setAcquiredAt] = useState(
     item.acquiredAt ? item.acquiredAt.slice(0, 10) : "",
@@ -685,15 +760,20 @@ function EditItemForm({
           />
         </label>
         <label className="block text-sm">
-          <span className="text-xs text-stone-500">提醒间隔（月）</span>
-          <input
-            type="number"
-            min={1}
-            max={60}
-            value={remindEveryMonths}
+          <span className="text-xs text-stone-500">复饮提醒</span>
+          <select
+            value={String(remindEveryMonths)}
             onChange={(e) => setRemindEveryMonths(Number(e.target.value))}
-            className="w-full mt-1 px-3 py-2 border border-stone-300 rounded-lg text-sm"
-          />
+            className="w-full mt-1 px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white"
+          >
+            <option value="0">不提醒</option>
+            {REMIND_OPTIONS.includes(remindEveryMonths)
+              ? null
+              : <option value={String(remindEveryMonths)}>每 {remindEveryMonths} 个月</option>}
+            {REMIND_OPTIONS.filter((n) => n !== remindEveryMonths).map((n) => (
+              <option key={n} value={String(n)}>每 {n} 个月</option>
+            ))}
+          </select>
         </label>
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}

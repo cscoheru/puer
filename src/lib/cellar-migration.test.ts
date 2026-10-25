@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { DELTAS, STAGES } from "./tasting-extract/vocab.ts";
-import { STORAGE_SCORE_MAX, STORAGE_SCORE_MIN } from "./cellar.ts";
+import { MAX_REMIND_MONTHS, STORAGE_SCORE_MAX, STORAGE_SCORE_MIN } from "./cellar.ts";
 
 /**
  * 「两层都挡住才算数 —— 应用层会漂移，约束不会。」
@@ -59,7 +59,67 @@ test("DB 的耗时下界与应用层一致", () => {
 });
 
 test("DB 的提醒间隔范围与应用层一致", () => {
-  assert.match(SQL, /"remindEveryMonths" BETWEEN 1 AND 60/);
+  assert.match(SQL, /"remindEveryMonths" BETWEEN 1 AND 60/, "老迁移是历史，别去改它");
+});
+
+// ─── 复饮提醒迁移（F4）────────────────────────────────────────────────────
+
+const REMINDERS_SQL = readFileSync(
+  new URL(
+    "../../prisma/migrations/20261025_cellar_reminders/migration.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
+test("提醒间隔的下界放宽到 0（0 = 不提醒），与应用层一致", () => {
+  assert.match(
+    REMINDERS_SQL,
+    new RegExp(`"remindEveryMonths" BETWEEN 0 AND ${MAX_REMIND_MONTHS}`),
+    "应用层放行 0，DB 也要放行 —— 否则是一个 500（两层都要挡住才算数）",
+  );
+  assert.match(
+    REMINDERS_SQL,
+    /DROP CONSTRAINT IF EXISTS "cellar_items_remindEveryMonths_check"/,
+    "老约束是 1..60，必须先删再加，否则线上约束还是老的",
+  );
+});
+
+test("提醒迁移加了 lastRemindedAt 与 nextRemindAt 的索引", () => {
+  assert.match(REMINDERS_SQL, /ADD COLUMN IF NOT EXISTS "lastRemindedAt"/);
+  assert.match(
+    REMINDERS_SQL,
+    /CREATE INDEX IF NOT EXISTS "cellar_items_nextRemindAt_idx"/,
+    "跑批每天扫「到期」的条目，没有索引就是全表扫",
+  );
+});
+
+test("提醒迁移是幂等的", () => {
+  const adds = REMINDERS_SQL.match(/ALTER TABLE "[a-z_]+" ADD CONSTRAINT/g) ?? [];
+  const guards = REMINDERS_SQL.match(/IF NOT EXISTS \(SELECT 1 FROM pg_constraint/g) ?? [];
+  assert.equal(
+    guards.length,
+    adds.length,
+    "每个 ADD CONSTRAINT 都要有对应的 pg_constraint 守卫，否则重跑会失败",
+  );
+  assert.match(REMINDERS_SQL, /DROP CONSTRAINT IF EXISTS/);
+});
+
+test("提醒迁移设了锁超时", () => {
+  assert.match(REMINDERS_SQL, /SET lock_timeout = '3s';/);
+  const lockAt = REMINDERS_SQL.indexOf("SET lock_timeout");
+  const alterAt = REMINDERS_SQL.search(/^ALTER TABLE /m);
+  assert.ok(lockAt !== -1, "迁移里应该设了 lock_timeout");
+  assert.ok(alterAt !== -1, "迁移里应该有 ALTER");
+  assert.ok(lockAt < alterAt, "lock_timeout 要在 ALTER 之前");
+});
+
+test("提醒迁移回填了存量条目的 nextRemindAt", () => {
+  assert.match(
+    REMINDERS_SQL,
+    /UPDATE "cellar_items" ci\s+SET "nextRemindAt"/,
+    "不回填的话存量条目永远扫不到（nextRemindAt 是 NULL）",
+  );
 });
 
 test("DB 的词库来源枚举是封闭的（其它枚举列都有 CHECK，它不该是例外）", () => {

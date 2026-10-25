@@ -55,6 +55,8 @@ export default async function CellarItemPage({
         acquiredAt: item.acquiredAt,
         qtyNote: item.qtyNote,
         remindEveryMonths: item.remindEveryMonths,
+        nextRemindAt: item.nextRemindAt,
+        lastRemindedAt: item.lastRemindedAt,
         epochs: item.epochs,
         tastings: item.tastings,
         latestTastingCreatedAt: item.latestTastingCreatedAt,

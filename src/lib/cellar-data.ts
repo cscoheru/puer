@@ -20,9 +20,11 @@ import {
   type ExportItem,
   type ExportStorage,
   type ExportTasting,
+  DEFAULT_REMIND_MONTHS,
   DIM_KEYS,
   tastingWaitRemainingMs,
 } from "@/lib/cellar.ts";
+import { computeNextRemindAt } from "@/lib/cellar-reminder.ts";
 import { visibleTeaWhere } from "@/lib/tea-tier.ts";
 import type { Delta, Stage } from "@/lib/tasting-extract/vocab.ts";
 
@@ -199,6 +201,8 @@ export interface CellarItemDetail {
   qtyNote: string | null;
   remindEveryMonths: number;
   nextRemindAt: string | null;
+  /** 上次提醒的时刻（跑批写的）。 */
+  lastRemindedAt: string | null;
   createdAt: string;
   updatedAt: string;
   epochs: {
@@ -247,6 +251,7 @@ const DETAIL_SELECT = {
   qtyNote: true,
   remindEveryMonths: true,
   nextRemindAt: true,
+  lastRemindedAt: true,
   createdAt: true,
   updatedAt: true,
   tea: { select: { id: true, name: true, year: true, brand: true, type: true } },
@@ -324,6 +329,7 @@ export async function getCellarItem(
     qtyNote: r.qtyNote,
     remindEveryMonths: r.remindEveryMonths,
     nextRemindAt: r.nextRemindAt?.toISOString() ?? null,
+    lastRemindedAt: r.lastRemindedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     epochs: r.storageEpochs.map((e) => ({
@@ -374,6 +380,62 @@ export interface CreateCellarItemInput {
 }
 
 /**
+ * 重算「下次提醒的时刻」—— **唯一入口**。
+ *
+ * 口径在 src/lib/cellar-reminder.ts（那里是纯函数，可离线单测）：
+ *   anchor       = 最近一次品鉴的**服务端 createdAt**（按同一条茶跨条目，
+ *                   与 24 小时闸门同口径）→ acquiredAt → createdAt
+ *   nextRemindAt = max( anchor + N 个月 , lastRemindedAt + N 个月 )
+ *   N            = remindEveryMonths（0 → 不提醒，nextRemindAt 为空）
+ *
+ * 三个写点共用它：新建条目、改条目（间隔/入仓时间变了）、记一条品鉴。
+ * 放在同一个事务里 → 不会出现「品鉴写了、提醒没重排」的中间态。
+ */
+export async function recomputeNextRemindAt(
+  userId: string,
+  itemId: string,
+  client: Pick<typeof prisma, "cellarItem" | "cellarTasting"> = prisma,
+  now: Date = new Date(),
+): Promise<Date | null> {
+  const item = await client.cellarItem.findFirst({
+    where: { id: itemId, userId },
+    select: {
+      id: true,
+      teaId: true,
+      acquiredAt: true,
+      createdAt: true,
+      remindEveryMonths: true,
+      lastRemindedAt: true,
+    },
+  });
+  if (!item) return null;
+
+  // 「最近一次品鉴」按**同一条茶**跨条目取 —— 与 24 小时闸门口径一致，
+  // 否则同款茶的两个条目会各自计时、互相打架。
+  const lastTasting = await client.cellarTasting.findFirst({
+    where: {
+      userId,
+      cellarItem: item.teaId ? { teaId: item.teaId } : { id: itemId },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+
+  const next = computeNextRemindAt({
+    remindEveryMonths: item.remindEveryMonths,
+    anchor: lastTasting?.createdAt ?? item.acquiredAt ?? item.createdAt,
+    lastRemindedAt: item.lastRemindedAt,
+    now,
+  });
+
+  await client.cellarItem.updateMany({
+    where: { id: itemId, userId },
+    data: { nextRemindAt: next },
+  });
+  return next;
+}
+
+/**
  * 新建一条茶仓条目。
  *
  * `userId` 是**条目所有者**，也就是录入者本人 —— 没有代录。
@@ -385,6 +447,16 @@ export async function createCellarItem(
   userId: string,
   input: CreateCellarItemInput,
 ): Promise<string> {
+  const now = new Date();
+  const remindEveryMonths = input.remindEveryMonths ?? DEFAULT_REMIND_MONTHS;
+  // 建条目时还没有品鉴记录 → 锚点是入仓时间（没有就按现在）。
+  const nextRemindAt = computeNextRemindAt({
+    remindEveryMonths,
+    anchor: input.acquiredAt ?? now,
+    lastRemindedAt: null,
+    now,
+  });
+
   const created = await prisma.cellarItem.create({
     data: {
       userId,
@@ -393,9 +465,8 @@ export async function createCellarItem(
       name: input.name ?? null,
       acquiredAt: input.acquiredAt ?? null,
       qtyNote: input.qtyNote ?? null,
-      ...(input.remindEveryMonths != null
-        ? { remindEveryMonths: input.remindEveryMonths }
-        : {}),
+      remindEveryMonths,
+      nextRemindAt,
       ...(input.storage
         ? {
             storageEpochs: {
@@ -420,15 +491,26 @@ export interface UpdateCellarItemInput {
   acquiredAt?: Date | null;
   qtyNote?: string | null;
   remindEveryMonths?: number;
-  nextRemindAt?: Date | null;
 }
 
-/** 改条目。**改不到别人的条目**（where 里带 userId）。 */
+export interface UpdateCellarItemResult {
+  ok: boolean;
+  /** 改完之后的提醒间隔与下次提醒时刻（前端要显示「下次提醒」）。 */
+  remindEveryMonths: number | null;
+  nextRemindAt: Date | null;
+}
+
+/**
+ * 改条目。**改不到别人的条目**（where 里带 userId）。
+ *
+ * 「下次提醒的时刻」**由服务端算**（`recomputeNextRemindAt`），客户端
+ * 传不进来 —— 间隔或入仓时间变了就重排。
+ */
 export async function updateCellarItem(
   userId: string,
   itemId: string,
   input: UpdateCellarItemInput,
-): Promise<boolean> {
+): Promise<UpdateCellarItemResult> {
   const data: Record<string, unknown> = {};
   if ("name" in input) data.name = input.name ?? null;
   if ("acquiredAt" in input) data.acquiredAt = input.acquiredAt ?? null;
@@ -436,14 +518,47 @@ export async function updateCellarItem(
   if ("remindEveryMonths" in input && input.remindEveryMonths != null) {
     data.remindEveryMonths = input.remindEveryMonths;
   }
-  if ("nextRemindAt" in input) data.nextRemindAt = input.nextRemindAt ?? null;
-  if (!Object.keys(data).length) return false;
+  if (!Object.keys(data).length) {
+    return { ok: false, remindEveryMonths: null, nextRemindAt: null };
+  }
 
-  const res = await prisma.cellarItem.updateMany({
-    where: { id: itemId, userId },
-    data,
+  return prisma.$transaction(async (tx) => {
+    const res = await tx.cellarItem.updateMany({
+      where: { id: itemId, userId },
+      data,
+    });
+    if (res.count === 0) {
+      return { ok: false, remindEveryMonths: null, nextRemindAt: null };
+    }
+
+    // 间隔或入仓时间变了 → 重排下次提醒的时刻。
+    const touchesRemind =
+      "remindEveryMonths" in input || "acquiredAt" in input;
+    let nextRemindAt: Date | null = null;
+    let remindEveryMonths: number | null = null;
+    if (touchesRemind) {
+      nextRemindAt = await recomputeNextRemindAt(userId, itemId, tx);
+      const after = await tx.cellarItem.findFirst({
+        where: { id: itemId, userId },
+        select: { remindEveryMonths: true },
+      });
+      remindEveryMonths = after?.remindEveryMonths ?? null;
+
+      // 用户关了提醒 → 把还没读的那条提醒撤掉。
+      // 留着一条未读提醒在铃铛里，跟「别再提醒我」是直接矛盾的。
+      if (input.remindEveryMonths === 0) {
+        await tx.notification.deleteMany({
+          where: {
+            userId,
+            type: "reminder",
+            read: false,
+            link: `/tea-cellar/${itemId}`,
+          },
+        });
+      }
+    }
+    return { ok: true, remindEveryMonths, nextRemindAt };
   });
-  return res.count > 0;
 }
 
 /** 删条目。品鉴记录与仓储期随条目级联删除。 */
@@ -605,6 +720,13 @@ export async function addTastingGuarded(
         },
         select: { id: true },
       });
+
+      // 记了一条品鉴 → 重排「下次提醒的时刻」（同事务，不会出现
+      // 「品鉴写了、提醒没重排」）。锚点是**服务端写入时刻**，
+      // 所以补录一条三个月前的品鉴会把提醒时钟往后推 —— 这是刻意的
+      // （同 24 小时闸门：不信客户端给的 tastedAt）。
+      await recomputeNextRemindAt(userId, itemId, tx, now);
+
       return { ok: true, id: tasting.id } as const;
     },
     // 锁等太久（比如另一个请求卡在事务里）就别等了 —— 10 秒还拿不到，

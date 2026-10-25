@@ -24,6 +24,9 @@ crontab 停用只解决「不调度」，解决不了「有人手动跑」或「
   `status=draft`，由人工审核后才发布；F0 要给它加的是来源标注（`origin` /
   `disclosure_label`），不是停用。
 - `ai-news-draft.mjs` —— PentAGI 每周资讯 → 草稿箱，**保持运行**。同样只写草稿。
+- `cellar-reminders.mjs` —— F4 复饮提醒（给到期��茶仓条目发站内通知），
+  **保持运行**。它不是内容生产，是用户自己的提醒；开关是 `CELLAR_REMINDERS_PAUSED=1`
+  （一键暂停，与上面两个「暂停开关」同一套写法，暂停时退出码 0）。
 
 ## 验证
 

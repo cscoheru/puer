@@ -463,15 +463,25 @@ export function buildTastingTags(
 export const DEFAULT_REMIND_MONTHS = 6;
 
 /**
+ * 提醒间隔的上限（月）—— 与 DB 的 CHECK 约束一致。
+ * 0 = 不提醒（用户可以关掉复饮提醒）。
+ */
+export const MAX_REMIND_MONTHS = 60;
+
+/**
  * 根据最近一次品鉴结果建议的提醒间隔。
  *
  * PRD：「最近一次为『更好』时建议缩短间隔，为『走下坡』时建议尽快喝」。
  * 这里只给**建议**，不自动改用户的设置 —— 自动改会让人措手不及。
+ *
+ * `base = 0` 表示用户关了提醒 → 返回 0（**不给建议**）。
+ * 以前这里会静默变成 6 个月，用户明明关掉了提醒，界面却建议「每 6 个月」。
  */
 export function suggestRemindMonths(
   lastDelta: string | null | undefined,
   base: number = DEFAULT_REMIND_MONTHS,
 ): number {
+  if (base === 0) return 0;
   const months = Number.isInteger(base) && base > 0 ? base : DEFAULT_REMIND_MONTHS;
   if (lastDelta === "better") return Math.max(1, Math.floor(months / 2));
   if (lastDelta === "worse") return Math.max(1, Math.floor(months / 3));
@@ -720,7 +730,8 @@ export function cellarExportRows(
         item.name ?? "",
         item.acquiredAt ?? "",
         item.qtyNote ?? "",
-        item.remindEveryMonths,
+        // 0 = 不提醒。导出成人话，别让用户以为「0 个月后提醒」。
+        item.remindEveryMonths === 0 ? "不提醒" : item.remindEveryMonths,
         epoch ? epochIndex + 1 : "",
         item.epochs.length,
         epoch?.storageScore ?? "",

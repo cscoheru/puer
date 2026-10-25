@@ -1099,8 +1099,12 @@ model CellarItem {
 
   acquiredAt DateTime? // 入仓时间
   qtyNote    String?   @db.VarChar(100) // 「还剩半饼」这类自由备注
-  remindEveryMonths Int @default(6) // 复饮提醒间隔，Phase 4 用
+  remindEveryMonths Int @default(6) // 复饮提醒间隔（月）；0 = 不提醒
+  /// 下次提醒的时刻。**服务端算**（见 src/lib/cellar-reminder.ts）——
+  /// 客户端不能直接写，传了会被 zod 挡掉。
   nextRemindAt     DateTime?
+  /// 上次提醒的时刻。跑批靠它做幂等（同一条目不会天天重复提醒）。
+  lastRemindedAt   DateTime?
 
   storageEpochs StorageEpoch[]
   tastings      CellarTasting[]
@@ -1113,6 +1117,8 @@ model CellarItem {
   // 审核通过时按 teaRequestId 批量回填 teaId（见 cellar-data.ts 的
   // reviewTeaRequest）。Postgres 不会自动给外键列建索引 —— 缺了它就是全表扫。
   @@index([teaRequestId])
+  // 跑批每天扫「到期」的条目 —— 没有索引就是全表扫。
+  @@index([nextRemindAt])
   // 列表查询：where userId + order by updatedAt desc, id desc。合在一起才能
   // 一次索引扫描出有序结果，否则每次列表都要额外排一次序。
   @@index([userId, updatedAt(sort: Desc), id(sort: Desc)])

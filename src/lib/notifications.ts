@@ -1,6 +1,28 @@
 import { prisma } from "@/lib/prisma";
 
-type NotificationType = "reply" | "upvote" | "mention" | "system" | "followed_update" | "essence";
+/**
+ * 站内通知的类型。
+ *
+ * DB 里 `notifications.type` 是自由字符串（VarChar(30)，没有 CHECK），
+ * 所以新增类型不需要迁移 —— 但**应用层这份清单要跟着加**，否则将来
+ * 有人写 `type: "reminder"` 会过不了类型检查。
+ *
+ * - reply：帖子/评论收到回复
+ * - upvote：点赞（尚未实现，只是字面量）
+ * - mention：@提及（尚未实现，只是字面量）
+ * - system：系统消息（审核结果、密码重置、交易…）
+ * - followed_update：关注的帖子有更新
+ * - essence：帖子被设为精华
+ * - reminder：**复饮提醒**（F4 · PRD v0.3 §7）—— 到期的茶仓条目
+ */
+export type NotificationType =
+  | "reply"
+  | "upvote"
+  | "mention"
+  | "system"
+  | "followed_update"
+  | "essence"
+  | "reminder";
 
 export async function createNotification(
   userId: string,

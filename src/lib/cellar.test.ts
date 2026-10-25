@@ -533,6 +533,20 @@ test("每一行的列数与表头一致（否则数据会错位）", () => {
   }
 });
 
+test("导出时把「0 = 不提醒」写成人话", () => {
+  const rows = cellarExportRows([
+    { ...sampleItems[1], remindEveryMonths: 0 },
+  ]);
+  const map = Object.fromEntries(
+    CELLAR_EXPORT_CSV_HEADER.map((h, i) => [h, rows[0][i]]),
+  );
+  assert.equal(
+    map["提醒间隔(月)"],
+    "不提醒",
+    "0 会被用户读成「0 个月后提醒」",
+  );
+});
+
 test("导出的 CSV 能被解析回来（备注里的逗号/引号/换行都不丢）", () => {
   // 备注是自由文本（上限 5000 字），里面出现逗号、双引号、换行都完全正常。
   // 这正是 toCsv 的转义存在的理由 —— 用生产解析器验一遍才算数。
