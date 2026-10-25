@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   formatPriceRange,
   midpoint,
+  parseMarketPrice,
+  suggestRangeFromMarketPrice,
   PRICE_DISCLAIMER,
   PRICE_SNAPSHOT_INTERVAL_DAYS,
   priceTimelineWithStages,
@@ -112,4 +114,43 @@ test("没有站长线记录时，阶段就是空（不编）", () => {
 
 test("免责声明是一句固定的话", () => {
   assert.match(PRICE_DISCLAIMER, /不构成投资建议/);
+});
+
+// ─── 按东和行情给区间建议（站长 2026-10-25 的规则）────────────────────────
+
+test("解析东和行情的展示串 → 每件价", () => {
+  assert.deepEqual(parseMarketPrice("5.6万/件").value, 56000);
+  assert.equal(parseMarketPrice("5.6万/件").kind, "piece");
+  assert.equal(parseMarketPrice("3600/件").value, 3600);
+});
+
+test("行情是个区间时取**上限**（站长定的：上限参考东和）", () => {
+  const p = parseMarketPrice("3.6万～6.8万/件（结合品相和仓储）");
+  assert.equal(p.value, 68000);
+  assert.equal(p.kind, "range");
+});
+
+test("每克价不能当每件价用", () => {
+  const p = parseMarketPrice("0.16元/克");
+  assert.equal(p.value, null, "每克价拿来当上下限会离谱地低");
+  assert.equal(p.kind, "perGram");
+  assert.equal(suggestRangeFromMarketPrice("0.16元/克"), null);
+});
+
+test("区间建议：上限=东和价，下限=60%", () => {
+  assert.deepEqual(suggestRangeFromMarketPrice("5.6万/件"), {
+    low: 33600,
+    high: 56000,
+  });
+  // 下限取整到 10（人话）
+  assert.deepEqual(suggestRangeFromMarketPrice("3800/件"), {
+    low: 2280,
+    high: 3800,
+  });
+});
+
+test("没有行情就不给建议", () => {
+  assert.equal(suggestRangeFromMarketPrice(null), null);
+  assert.equal(suggestRangeFromMarketPrice(""), null);
+  assert.equal(suggestRangeFromMarketPrice("暂无行情"), null);
 });

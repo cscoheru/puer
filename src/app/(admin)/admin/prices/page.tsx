@@ -51,6 +51,12 @@ export default function AdminPricesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  /** 按东和行情给的区间建议（上限=东和价，下限=60%）。 */
+  const [suggestion, setSuggestion] = useState<{
+    low: number;
+    high: number;
+    marketPrice: string | null;
+  } | null>(null);
   const [form, setForm] = useState({
     snapshotDate: new Date().toISOString().slice(0, 10),
     low: "",
@@ -101,6 +107,49 @@ export default function AdminPricesPage() {
   );
   const lastDate = selectedSnapshots[0]?.snapshotDate ?? null;
   const hint = quarterHint(lastDate);
+
+  // 选中一款茶 → 问后端「按东和行情该给什么区间」（上限=东和价、下限=60%）。
+  // 站长可以直接改，建议只是预填。
+  useEffect(() => {
+    let cancelled = false;
+    // 放在微任务里跑：直接在 effect 体里 setState 会被 react-hooks 的
+    // set-state-in-effect 规则判掉。
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      if (!selectedId) {
+        setSuggestion(null);
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/admin/price-snapshots/suggest?teaId=${selectedId}`,
+        );
+        const d = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (d.suggestion) {
+          setSuggestion({
+            low: d.suggestion.low,
+            high: d.suggestion.high,
+            marketPrice: d.marketPrice ?? null,
+          });
+          setForm((f) => ({
+            ...f,
+            low: String(d.suggestion.low),
+            high: String(d.suggestion.high),
+          }));
+        } else {
+          setSuggestion(
+            d.marketPrice ? { low: 0, high: 0, marketPrice: d.marketPrice } : null,
+          );
+        }
+      } catch {
+        // 拉不到建议就不预填，站长手填
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   const submit = async () => {
     if (!selected) {
@@ -306,6 +355,13 @@ export default function AdminPricesPage() {
                     className="w-full mt-1 px-3 py-2 border border-stone-300 rounded-lg"
                   />
                 </label>
+                {suggestion && suggestion.marketPrice && (
+                  <p className="text-xs text-stone-400 mt-2">
+                    {suggestion.high > 0
+                      ? `已按东和行情预填：${suggestion.marketPrice} → 上限 ${suggestion.high}、下限 ${suggestion.low}（60%）。可以改。`
+                      : `东和行情是「${suggestion.marketPrice}」（每克价），没法当每件价的区间上下限 —— 请手填。`}
+                  </p>
+                )}
                 <button
                   onClick={submit}
                   disabled={busy}

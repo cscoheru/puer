@@ -175,3 +175,75 @@ export function priceTimelineWithStages(
 
 /** 「行情仅供参考，不构成投资建议」—— 全站统一的一句。 */
 export const PRICE_DISCLAIMER = "行情仅供参考，不构成投资建议。";
+
+// ─── 按东和行情给一个价格区间的建议 ─────────────────────────────────────
+
+/**
+ * 库里的 `marketInfo.price` 是**给人看的展示串**，不是数字：
+ *
+ *   "5.6万/件"                     → 56000
+ *   "3.6万～6.8万/件（结合品相和仓储）" → 36000～68000
+ *   "0.16元/克"                    → 每克价，**不能**当每件价用
+ *
+ * 所以要解析回数字才能拿来当区间上下限。
+ */
+export interface MarketPriceParse {
+  /** 解析出的每件价（元）。null = 解析不出，或不是每件价。 */
+  value: number | null;
+  kind: "piece" | "range" | "perGram" | "unknown";
+  /** 原样展示串。 */
+  raw: string;
+}
+
+/** 解析 `marketInfo.price` 展示串 → 每件价（元）。 */
+export function parseMarketPrice(
+  raw: string | null | undefined,
+): MarketPriceParse {
+  const s = (raw ?? "").trim();
+  if (!s) return { value: null, kind: "unknown", raw: s };
+  // 每克价不是每件价（拿它当上下限会离谱地低）
+  if (/元\/克|每克/.test(s)) {
+    return { value: null, kind: "perGram", raw: s };
+  }
+  // 去掉括号里的补充说明：「…/件（结合品相和仓储）」
+  const body = s.replace(/[（(][^）)]*[)）]/g, "").trim();
+
+  const nums: number[] = [];
+  const re = /(\d+(?:\.\d+)?)\s*(万|千)?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    let v = Number(m[1]);
+    if (m[2] === "万") v *= 10000;
+    else if (m[2] === "千") v *= 1000;
+    if (Number.isFinite(v) && v > 0) nums.push(v);
+  }
+  if (nums.length === 0) return { value: null, kind: "unknown", raw: s };
+  // 是一个区间就取**上限**（站长 2026-10-25：「上限请参考东和行情」）
+  return {
+    value: Math.max(...nums),
+    kind: nums.length > 1 ? "range" : "piece",
+    raw: s,
+  };
+}
+
+/** 下限相对上限的比例（站长定的 60%）。 */
+export const MARKET_RANGE_LOW_RATIO = 0.6;
+
+/**
+ * 按东和行情给一个价格**区间**建议。
+ *
+ * 站长 2026-10-25：「上限请参考东和行情，下限为东和行情的 60%」。
+ *
+ * @returns null = 这款茶没有可用的东和行情（或只有每克价）→ 不给建议
+ */
+export function suggestRangeFromMarketPrice(
+  raw: string | null | undefined,
+  lowRatio: number = MARKET_RANGE_LOW_RATIO,
+): { low: number; high: number } | null {
+  const parsed = parseMarketPrice(raw);
+  if (parsed.value === null) return null;
+  const high = Math.round(parsed.value);
+  // 下限取整到 10 —— 「3880 元」比「3883.2 元」像人话
+  const low = Math.round((high * lowRatio) / 10) * 10;
+  return { low: Math.min(low, high), high };
+}

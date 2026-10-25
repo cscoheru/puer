@@ -55,6 +55,10 @@ export default function AdminTeasPage() {
   const [threshold, setThreshold] = useState(0.7);
   // 只看「待整理」层（站长要整理的那些）
   const [onlyPending, setOnlyPending] = useState(false);
+  // 只看经典普洱（站长亲自选的那批）
+  const [onlyClassic, setOnlyClassic] = useState(false);
+  // 年份筛选（"" = 全部）
+  const [year, setYear] = useState("");
   // 勾选待合并的茶品 id + 保留主体 id
   const [selected, setSelected] = useState<string[]>([]);
   const [keepId, setKeepId] = useState<string>("");
@@ -91,12 +95,38 @@ export default function AdminTeasPage() {
     [selected, teas],
   );
 
+  /**
+   * 全局筛选：**搜索 / 年份 / 经典 / 只看待整理**。
+   *
+   * 放在品牌分组**之前**做，这样「品牌 + 搜索 + 年份 + 经典」可以任意叠加
+   * （站长 2026-10-25：「增加几个筛选方式：经典普洱、年份，再加一个搜索框」）。
+   */
+  const scopedTeas = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    return teas.filter((t) => {
+      if (onlyPending && !t.needsReview) return false;
+      if (onlyClassic && !t.isClassic) return false;
+      if (year !== "" && String(t.year) !== year) return false;
+      if (q) {
+        const hit =
+          cleanTeaName(t.name).toLowerCase().includes(q) ||
+          t.brand.toLowerCase().includes(q) ||
+          String(t.year).includes(q);
+        if (!hit) return false;
+      }
+      return true;
+    });
+  }, [teas, onlyPending, onlyClassic, year, filter]);
+
+  /** 库里有哪几年（倒序）。 */
+  const years = useMemo(
+    () => [...new Set(teas.map((t) => t.year))].sort((a, b) => b - a),
+    [teas],
+  );
+
   // 品牌分组（按茶品数降序）
-  const brandGroups = useMemo(() => {
-    const m = new Map<string, Tea[]>();
-    for (const t of teas) {
-      // 「只看待整理」时只留待整理的茶品
-      if (onlyPending && !t.needsReview) continue;
+  const brandGroups = useMemo(() => {    const m = new Map<string, Tea[]>();
+    for (const t of scopedTeas) {
       const list = m.get(t.brand) || [];
       list.push(t);
       m.set(t.brand, list);
@@ -104,13 +134,10 @@ export default function AdminTeasPage() {
     return [...m.entries()]
       .map(([name, list]) => ({ name, list }))
       .sort((a, b) => b.list.length - a.list.length || a.name.localeCompare(b.name, "zh"));
-  }, [teas, onlyPending]);
+  }, [scopedTeas]);
 
-  /** 当前筛选下的全部茶品（「只看待整理」时只留待整理的）。 */
-  const allTeas = useMemo(
-    () => (onlyPending ? teas.filter((t) => t.needsReview) : teas),
-    [teas, onlyPending],
-  );
+  /** 当前筛选下的全部茶品（与品牌分组同一份筛选口径）。 */
+  const allTeas = useMemo(() => scopedTeas, [scopedTeas]);
 
   const pendingCount = useMemo(
     () => teas.filter((t) => t.needsReview).length,
@@ -132,18 +159,12 @@ export default function AdminTeasPage() {
     return brandGroups.find((g) => g.name === brand) || null;
   }, [brandGroups, brand, allTeas]);
 
-  // 可见茶品（筛选词）；按拼音排序，便于把相同/相近的名字排在一起
+  // 可见茶品 —— 搜索/年份/经典已经在 scopedTeas 里筛过了，这里只按拼音排序
+  // （便于把相同/相近的名字排在一起）。
   const visible = useMemo(() => {
     if (!activeGroup) return [];
-    const list = sortTeasForMerge(activeGroup.list);
-    if (!filter.trim()) return list;
-    const q = filter.trim().toLowerCase();
-    return list.filter(
-      (t) =>
-        cleanTeaName(t.name).toLowerCase().includes(q) ||
-        String(t.year).includes(q),
-    );
-  }, [activeGroup, filter]);
+    return sortTeasForMerge(activeGroup.list);
+  }, [activeGroup]);
 
   // 疑似重复：先列**完全同名**的（那些能一键合并），再列相似度达标的。
   // 品牌内 n²，未知品牌 1257 款 ≈79 万次比较，可接受。
@@ -460,26 +481,46 @@ export default function AdminTeasPage() {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 mb-4">
+            {/* 搜索框：跨品牌搜（茶名 / 品牌 / 年份都能搜） */}
+            <input
+              value={filter}
+              onChange={(e) => { setFilter(e.target.value); setSelected([]); setKeepId(""); }}
+              placeholder="搜索茶名 / 品牌 / 年份…"
+              className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:border-amber-500 outline-none"
+            />
             <select
               value={brand}
-              onChange={(e) => { setBrand(e.target.value); setSelected([]); setKeepId(""); setFilter(""); }}
+              onChange={(e) => { setBrand(e.target.value); setSelected([]); setKeepId(""); }}
               className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg bg-white focus:border-amber-500 outline-none"
             >
-              <option value="">全部（{allTeas.length} 款）</option>
+              <option value="">全部品牌（{allTeas.length} 款）</option>
               {brandGroups.map((g) => (
                 <option key={g.name} value={g.name}>
                   {g.name}（{g.list.length} 款）
                 </option>
               ))}
             </select>
-            {brand && (
-              <input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="品牌内筛选茶名/年份…"
-                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:border-amber-500 outline-none"
-              />
-            )}
+            <select
+              value={year}
+              onChange={(e) => { setYear(e.target.value); setSelected([]); setKeepId(""); }}
+              className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg bg-white focus:border-amber-500 outline-none"
+            >
+              <option value="">全部年份</option>
+              {years.map((y) => (
+                <option key={y} value={String(y)}>{y} 年</option>
+              ))}
+            </select>
+            <button
+              onClick={() => { setOnlyClassic((v) => !v); setSelected([]); setKeepId(""); }}
+              className={`px-3 py-1.5 text-sm border rounded-lg transition ${
+                onlyClassic
+                  ? "bg-amber-800 text-white border-amber-800"
+                  : "bg-white text-stone-600 border-stone-200 hover:border-stone-300"
+              }`}
+              title="只看经典普洱（站长亲自选的那批）"
+            >
+              只看经典（{teas.filter((t) => t.isClassic).length}）
+            </button>
             <button
               onClick={() => {
                 setOnlyPending((v) => !v);
