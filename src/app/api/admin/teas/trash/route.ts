@@ -61,7 +61,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
   }
 
-  const { teaId, action } = await req.json();
+  const { teaId, teaIds, action } = await req.json();
+
+  // ── 批量移进回收站 ────────────────────────────────────────────────────
+  // 站长 2026-10-25：「回收站要做到多选后集中放入回收站（现在是一对一）」。
+  if (Array.isArray(teaIds) && teaIds.length > 0) {
+    if (action !== "trash") {
+      return NextResponse.json(
+        { error: "批量只支持移进回收站（恢复请逐条来）" },
+        { status: 400 },
+      );
+    }
+    const ids = teaIds
+      .filter((x: unknown): x is string => typeof x === "string")
+      .slice(0, 500);
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "没有可处理的茶品" }, { status: 400 });
+    }
+    const res = await prisma.tea.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    return NextResponse.json({
+      ok: true,
+      trashed: res.count,
+      skipped: ids.length - res.count,
+    });
+  }
+
   if (!teaId) {
     return NextResponse.json({ error: "缺少参数（teaId）" }, { status: 400 });
   }

@@ -73,13 +73,23 @@ export default function AdminTeasPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetch("/api/teas?limit=9999&includePending=1")
+  const reloadTeas = useCallback(() => {
+    return fetch("/api/teas?limit=9999&includePending=1")
       .then((r) => r.json())
       .then((data) => setTeas(data.teas || []))
       .catch(() => setMessage("加载失败"))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    void reloadTeas();
+  }, [reloadTeas]);
+
+  // 勾选中的那些茶（批量合并 / 批量回收站都要用）
+  const selectedTeas = useMemo(
+    () => selected.map((id) => teas.find((t) => t.id === id)).filter(Boolean) as Tea[],
+    [selected, teas],
+  );
 
   // 品牌分组（按茶品数降序）
   const brandGroups = useMemo(() => {
@@ -188,6 +198,89 @@ export default function AdminTeasPage() {
       setMessage(`「${name}」已移到回收站`);
       loadTrash();
     } catch {
+      setMessage("操作失败");
+    }
+  }
+
+  /**
+   * 把选中的多款**一次性**移进回收站。
+   *
+   * 站长 2026-10-25：「回收站要做到多选后集中放入回收站（现在是一对一）」。
+   * 软删除：行还在、笔记还在，误删了能捞回来。
+   */
+  async function moveSelectedToTrash() {
+    if (selected.length === 0) return;
+    const names = selectedTeas
+      .map((t) => t.name)
+      .slice(0, 5)
+      .join("、");
+    if (
+      !confirm(
+        `把选中的 ${selected.length} 款移进回收站？\n` +
+          `（${names}${selected.length > 5 ? " 等" : ""}）\n` +
+          `它们会从公开茶品库里消失 —— 笔记还在，可以恢复。`,
+      )
+    ) {
+      return;
+    }
+    setMessage("处理中…");
+    try {
+      const res = await fetch("/api/admin/teas/trash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teaIds: selected, action: "trash" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "操作失败");
+        return;
+      }
+      const moved = selected.length;
+      setTeas((prev) => prev.filter((t) => !selected.includes(t.id)));
+      setSelected([]);
+      setKeepId("");
+      setMessage(`已把 ${data.trashed ?? moved} 款移进回收站。`);
+      loadTrash();
+    } catch {
+      setMessage("操作失败");
+    }
+  }
+
+  /**
+   * 一键合并所有「名称 + 年份 + 品牌」全同的茶品。
+   *
+   * 站长 2026-10-25：「对于茶品名称完全一样的，请在系统中直接进行合并，
+   * 不需要手动操作。」
+   *
+   * 先出报告（dry-run）给他看数量与样例，确认后才真并 —— 合并是**删行**
+   * 的操作，不能一按就发生。
+   */
+  async function mergeAllSameName(dryRun: boolean) {
+    setMessage(dryRun ? "统计中…" : "合并中…");
+    try {
+      const res = await fetch("/api/admin/teas/merge-same-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true, dryRun }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error || "操作失败");
+        return;
+      }
+      if (dryRun) {
+        setMessage(
+          `同名同年份同品牌的茶品：${data.groups} 组，多余 ${data.redundant} 条。` +
+            `确认后点「一键合并」执行。`,
+        );
+        return;
+      }
+      setMessage(
+        `已合并 ${data.merged} 组${data.errors?.length ? `，${data.errors.length} 组失败` : ""}。` +
+          `（笔记/帖子/茶仓条目都已转到保留的那条上。）`,
+      );
+      await reloadTeas();
+      loadTrash();    } catch {
       setMessage("操作失败");
     }
   }
@@ -312,11 +405,6 @@ export default function AdminTeasPage() {
     setKeepId(aId);
   }
 
-  const selectedTeas = useMemo(
-    () => selected.map((id) => teas.find((t) => t.id === id)).filter(Boolean) as Tea[],
-    [selected, teas],
-  );
-
   const handleMerge = async () => {
     if (selected.length < 2 || !keepId) return;
     const keep = teas.find((t) => t.id === keepId);
@@ -424,6 +512,13 @@ export default function AdminTeasPage() {
                 🔗 合并所选到主体（{Math.max(selected.length - (keepId ? 1 : 0), 0)} 款并入）
               </button>
               <button
+                onClick={moveSelectedToTrash}
+                className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition"
+                title="把选中的这些一次性移进回收站（软删除，可恢复）"
+              >
+                🗑 放入回收站（{selected.length} 款）
+              </button>
+              <button
                 onClick={() => { setSelected([]); setKeepId(""); }}
                 className="px-3 py-1.5 text-xs border border-amber-300 text-amber-800 rounded-lg hover:bg-amber-100"
               >
@@ -519,6 +614,30 @@ export default function AdminTeasPage() {
                       className="w-20"
                     />
                     <span className="text-[0.65rem] text-stone-500">{threshold.toFixed(2)}</span>
+                    <button
+                      onClick={() => mergeAllSameName(true)}
+                      className="ml-1 px-2 py-1 text-[0.65rem] border border-amber-300 text-amber-800 rounded hover:bg-amber-50 transition"
+                      title="统计「名称 + 年份 + 品牌」全同的茶品有多少组"
+                    >
+                      统计同名
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (
+                          confirm(
+                            "把所有「名称 + 年份 + 品牌」全同的茶品一次并掉？\n" +
+                              "笔记、帖子、茶仓条目都会转到保留的那条上，被并掉的名字进别名。\n" +
+                              "（先点「统计同名」看一眼数量更稳妥。）",
+                          )
+                        ) {
+                          mergeAllSameName(false);
+                        }
+                      }}
+                      className="px-2 py-1 text-[0.65rem] bg-amber-800 text-white rounded hover:bg-amber-900 transition"
+                      title="一次性合并所有同名的茶品（方向由服务器定：经典优先、笔记多的留下）"
+                    >
+                      一键合并同名
+                    </button>
                   </div>
                 </div>
                 <div className="max-h-[32rem] overflow-y-auto space-y-1.5">
