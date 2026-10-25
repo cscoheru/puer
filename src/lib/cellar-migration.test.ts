@@ -122,6 +122,18 @@ test("提醒迁移回填了存量条目的 nextRemindAt", () => {
   );
 });
 
+test("回填必须按 userId 过滤（茶品库全站共享，不按人会拿到别人的品鉴时间）", () => {
+  const backfill = REMINDERS_SQL.slice(
+    REMINDERS_SQL.indexOf('UPDATE "cellar_items" ci'),
+  );
+  assert.match(
+    backfill,
+    /x\."userId" = ci\."userId"/,
+    "回填的锚点必须来自**同一个用户**的品鉴 —— 否则是跨用户的时间信息泄露",
+  );
+  assert.match(backfill, /t\."userId" = ci\."userId"/);
+});
+
 test("DB 的词库来源枚举是封闭的（其它枚举列都有 CHECK，它不该是例外）", () => {
   assert.match(SQL, /"source" IN \('seed', 'llm', 'editor'\)/);
 });

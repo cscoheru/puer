@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   addMonths,
   computeNextRemindAt,
+  monthsSince,
   remindIntervalLabel,
   reminderAdvice,
   reminderNotificationText,
@@ -197,6 +198,47 @@ test("文案不能写成「系统判定」——delta 是用户自己填的", ()
     assert.ok(!a.text.includes("判定"), "不能替用户下判断");
     assert.ok(!a.text.includes("系统认为"));
   }
+});
+
+test("「走下坡」是**阶段**的说法，不能用来描述用户选的「更差」", () => {
+  // 用户只选了「比上次差」（stage=drinking）时说成「走下坡」= 替他改口。
+  const fromDelta = reminderAdvice({ deltaVsPrev: "worse", stage: "drinking" }, 6);
+  assert.equal(fromDelta.source, "delta");
+  assert.ok(
+    !fromDelta.text.includes("走下坡"),
+    `自填的对照不该被说成阶段：${fromDelta.text}`,
+  );
+  assert.match(fromDelta.text, /比上次差/);
+
+  // 阶段 declining → 才是「走下坡」
+  const fromStage = reminderAdvice({ deltaVsPrev: "worse", stage: "declining" }, 6);
+  assert.equal(fromStage.source, "stage");
+  assert.match(fromStage.text, /走下坡/);
+});
+
+// ─── monthsSince：通知里的月数必须是**实际**经过的月数 ───────────────────
+
+test("monthsSince：算的是实际经过的月数", () => {
+  const now = new Date("2026-10-25T00:00:00.000Z");
+  assert.equal(
+    monthsSince(new Date("2026-08-25T00:00:00.000Z"), now),
+    2,
+    "两个月前",
+  );
+  assert.equal(monthsSince(new Date("2026-10-24T00:00:00.000Z"), now), 0);
+  assert.equal(monthsSince(null, now), null, "没有锚点就不知道");
+});
+
+test("通知里的月数用实际经过的月数，不用提醒间隔", () => {
+  // 提醒间隔是「设置值」，不是事实 —— 两年前入仓从没品鉴的条目，
+  // 间隔是 6 个月，实际已经 24 个月没复饮了。
+  const t = reminderNotificationText({
+    teaName: "2004 年班章",
+    monthsSinceLast: 24,
+    months: 6,
+  });
+  assert.match(t, /24 个月没复饮/);
+  assert.ok(!t.includes("6 个月"), "不能把提醒间隔当成事实");
 });
 
 // ─── 展示文案 ───────────────────────────────────────────────────────────

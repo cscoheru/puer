@@ -71,15 +71,16 @@ function log(msg) {
  * 的跑批各拿各的，不互相等。
  */
 const CLAIM_SQL = `
-  SELECT ci.id,
-         ci."userId",
-         u.uid AS user_uid,
-         ci."teaId",
-         COALESCE(t.name, ci.name) AS tea_name,
-         ci."remindEveryMonths",
-         ci."nextRemindAt",
-         ci."acquiredAt",
-         ci."createdAt"
+  SELECT ci.id                       AS id,
+         ci."userId"                AS user_id,
+         u.uid                      AS user_uid,
+         ci."teaId"                 AS tea_id,
+         COALESCE(t.name, ci.name)  AS tea_name,
+         ci."remindEveryMonths"     AS remind_every_months,
+         ci."nextRemindAt"          AS next_remind_at,
+         ci."lastRemindedAt"        AS last_reminded_at,
+         ci."acquiredAt"            AS acquired_at,
+         ci."createdAt"             AS created_at
     FROM cellar_items ci
     JOIN users u ON u.id = ci."userId"
     LEFT JOIN teas t ON t.id = ci."teaId"
@@ -123,20 +124,33 @@ const INSERT_NOTIFICATION_SQL = `
   VALUES ($1, $2, 'reminder', $3, $4, false, $5)
 `;
 
-/** 同一条茶最近一次品鉴的对照与阶段（按茶跨条目）。 */
+/**
+ * 同一条茶最近一次品鉴的对照与阶段（按茶跨条目）。
+ *
+ * ⚠️ **必须带 userId 过滤** —— 茶品库是全站共享的，A 用户和 B 用户可以
+ * 有同一个 teaId 的条目。不按 userId 过滤就会拿到**别人**的私有品鉴记录，
+ * 通知文案会基于别人的记录生成（既是隐私泄露，也是错误的建议）。
+ * 这与 src/lib/cellar-data.ts 的口径一致（那里 where 里带 userId）。
+ */
 const LAST_TASTING_BY_TEA_SQL = `
-  SELECT DISTINCT ON (x."teaId") x."teaId", t."deltaVsPrev", t.stage
+  SELECT DISTINCT ON (x."teaId", x."userId") x."teaId" AS tea_id,
+         x."userId" AS user_id,
+         t."deltaVsPrev" AS delta_vs_prev, t.stage AS stage, t."createdAt" AS created_at
     FROM cellar_tastings t
     JOIN cellar_items x ON x.id = t."cellarItemId"
    WHERE x."teaId" = ANY($1::text[])
-   ORDER BY x."teaId", t."createdAt" DESC
+     AND t."userId" = x."userId"
+   ORDER BY x."teaId", x."userId", t."createdAt" DESC
 `;
 
 /** 自建茶（没有 teaId）最近一次品鉴。 */
 const LAST_TASTING_BY_ITEM_SQL = `
-  SELECT DISTINCT ON (t."cellarItemId") t."cellarItemId", t."deltaVsPrev", t.stage
+  SELECT DISTINCT ON (t."cellarItemId") t."cellarItemId" AS cellar_item_id,
+         t."deltaVsPrev" AS delta_vs_prev, t.stage AS stage, t."createdAt" AS created_at
     FROM cellar_tastings t
+    JOIN cellar_items x ON x.id = t."cellarItemId"
    WHERE t."cellarItemId" = ANY($1::text[])
+     AND t."userId" = x."userId"
    ORDER BY t."cellarItemId", t."createdAt" DESC
 `;
 
@@ -162,8 +176,12 @@ async function main() {
     // 纯逻辑（TypeScript）—— 宿主上由 tsx 加载（cron-task.sh 用
     // `node --import tsx`）。可见性用现成的纯函数，**不要在这里重写一遍
     // 白名单**（src/lib/cellar-guard.ts 的文件头专门警告过这件事）。
-    const { addMonths, reminderAdvice, reminderNotificationText } =
-      await import("../src/lib/cellar-reminder.ts");
+    const {
+      computeNextRemindAt,
+      monthsSince,
+      reminderAdvice,
+      reminderNotificationText,
+    } = await import("../src/lib/cellar-reminder.ts");
     const { cellarVisibleTo } = await import("../src/lib/cellar-guard.ts");
 
     const now = new Date();
@@ -198,17 +216,17 @@ async function main() {
         }
         stats.processed += rows.length;
 
-        // 最近一次品鉴（按茶 / 按条目）—— 用来算建议与文案
+        // 最近一次品鉴（按茶 **+ 按人**）—— 用来算锚点、建议与文案。
         const teaIds = [...new Set(rows.map((r) => r.tea_id).filter(Boolean))];
         const itemIds = rows.map((r) => r.id);
         const byTea = new Map();
         const byItem = new Map();
         if (teaIds.length) {
           const t = await client.query(LAST_TASTING_BY_TEA_SQL, [teaIds]);
-          for (const row of t.rows) byTea.set(row.teaId, row);
+          for (const row of t.rows) byTea.set(`${row.tea_id}:${row.user_id}`, row);
         }
         const i = await client.query(LAST_TASTING_BY_ITEM_SQL, [itemIds]);
-        for (const row of i.rows) byItem.set(row.cellarItemId, row);
+        for (const row of i.rows) byItem.set(row.cellar_item_id, row);
 
         for (const row of rows) {
           const teaName = row.tea_name || "你的茶";
@@ -223,7 +241,7 @@ async function main() {
           }
 
           // 单用户上限：别让一个条目多的人被刷屏。
-          const used = perUser.get(row.userId) ?? 0;
+          const used = perUser.get(row.user_id) ?? 0;
           if (used >= MAX_PER_USER) {
             stats.skippedUserCap++;
             excluded.push(row.id);
@@ -232,28 +250,40 @@ async function main() {
           }
 
           const last = row.tea_id
-            ? byTea.get(row.tea_id)
+            ? byTea.get(`${row.tea_id}:${row.user_id}`)
             : byItem.get(row.id);
           const advice = reminderAdvice(
-            { deltaVsPrev: last?.deltaVsPrev ?? null, stage: last?.stage ?? null },
-            row.remindEveryMonths,
+            { deltaVsPrev: last?.delta_vs_prev ?? null, stage: last?.stage ?? null },
+            row.remind_every_months,
           );
+          // 「已经 N 个月没复饮」要用**实际**经过的月数，不是提醒间隔。
+          const anchor = last?.created_at
+            ? new Date(last.created_at)
+            : row.acquired_at
+              ? new Date(row.acquired_at)
+              : new Date(row.created_at);
           const content = reminderNotificationText({
             teaName,
-            months: row.remindEveryMonths,
+            monthsSinceLast: monthsSince(anchor, now),
+            months: row.remind_every_months,
             advice,
           });
 
-          // 下一次提醒 = now + N（口径见文件头：max(anchor+N, lastRemindedAt+N)，
-          // 而 now ≥ anchor，所以取 now+N）。
-          const next = addMonths(now, row.remindEveryMonths);
+          // 下次提醒的时刻 —— **调唯一实现**（src/lib/cellar-reminder.ts），
+          // 不要在这里自己算：两份口径必然漂（AGENTS.md 的「数据双轨」）。
+          const next = computeNextRemindAt({
+            remindEveryMonths: row.remind_every_months,
+            anchor,
+            lastRemindedAt: row.last_reminded_at,
+            now,
+          });
 
           if (DRY_RUN) {
             // dry-run **一个字都不写** —— 连 nextRemindAt 都不能推进。
             details.push(
               `dry ${teaName} uid=${row.user_uid} → 下次 ${next ? next.toISOString().slice(0, 10) : "-"}`,
             );
-            perUser.set(row.userId, used + 1);
+            perUser.set(row.user_id, used + 1);
             continue;
           }
 
@@ -266,18 +296,19 @@ async function main() {
           if (advanced.rowCount === 0) {
             // 别人刚处理过这条 —— 跳过，不重复提醒。
             stats.skippedAlreadyHandled++;
+            excluded.push(row.id);
             continue;
           }
 
           await client.query(INSERT_NOTIFICATION_SQL, [
             randomUUID(),
-            row.userId,
+            row.user_id,
             content,
             link,
             nowIso,
           ]);
           stats.sent++;
-          perUser.set(row.userId, used + 1);
+          perUser.set(row.user_id, used + 1);
           details.push(`sent ${teaName} uid=${row.user_uid}`);
         }
 
@@ -290,7 +321,9 @@ async function main() {
         throw err;
       }
 
-      if (stats.processed >= MAX_PER_RUN) {
+      // 上限按**真发出去的条数**算 —— 被跳过的条目不消耗预算，
+      // 否则「一堆看不见茶仓的到期条目」会把跑批卡成「一条没发还报 ok」。
+      if (stats.sent >= MAX_PER_RUN) {
         log(`达到单次上限 ${MAX_PER_RUN}，停止。`);
         break;
       }

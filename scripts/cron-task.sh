@@ -32,6 +32,17 @@ MINIMAX=$(grep -E "^MINIMAX_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
 FEATURE_CELLAR=$(grep -E "^FEATURE_CELLAR=" .env | head -1 | cut -d= -f2- | tr -d '"')
 CELLAR_UIDS=$(grep -E "^CELLAR_UIDS=" .env | head -1 | cut -d= -f2- | tr -d '"')
 EDITOR_AUTHOR_UIDS=$(grep -E "^EDITOR_AUTHOR_UIDS=" .env | head -1 | cut -d= -f2- | tr -d '"')
+# 复饮提醒的开关与上限。**脚本读的每一个 env 都必须在这里 export** ——
+# 漏一个,脚本就永远拿不到默认值(比如暂停开关写在 .env 里却没传下去,
+# 「一键暂停」就成了死的,站长以为按下去了其实还在发提醒)。
+CELLAR_REMINDERS_PAUSED=$(grep -E "^CELLAR_REMINDERS_PAUSED=" .env | head -1 | cut -d= -f2- | tr -d '"')
+CELLAR_REMINDERS_MAX_PER_RUN=$(grep -E "^CELLAR_REMINDERS_MAX_PER_RUN=" .env | head -1 | cut -d= -f2- | tr -d '"')
+CELLAR_REMINDERS_MAX_PER_USER=$(grep -E "^CELLAR_REMINDERS_MAX_PER_USER=" .env | head -1 | cut -d= -f2- | tr -d '"')
+# 两个「一键暂停」开关（auto-post / ai-news-draft）。它们**必须**由包装层
+# 传下去 —— 脚本里读的是 `=== "1"`，没有默认值；不传就等于「开关是死的」，
+# 站长在 .env 里写了却停不下来，而且没有任何报错。
+AUTO_DRAFT_PAUSED=$(grep -E "^AUTO_DRAFT_PAUSED=" .env | head -1 | cut -d= -f2- | tr -d '"')
+AUTO_NEWS_DRAFT_PAUSED=$(grep -E "^AUTO_NEWS_DRAFT_PAUSED=" .env | head -1 | cut -d= -f2- | tr -d '"')
 
 # ── resolve postgres container IP (docker network) ───────────────────
 PG_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' puer-hub-postgres 2>/dev/null)
@@ -67,6 +78,7 @@ case "$TASK" in
         # 密钥透传了但 adaptOn 恒 false,于是每日草稿全是 assemble.ts 的逐字拼装,
         # 从未经模型改写。两个 env 必须成对出现,少一个改写路径就整条不跑。
         run docker exec -e DATABASE_URL -e MINIMAX_API_KEY \
+          -e AUTO_DRAFT_PAUSED="${AUTO_DRAFT_PAUSED:-}" \
           -e AUTO_TEA_DRAFT_ADAPT="1" \
           -e AUTO_TEA_DRAFT_AUTHOR_ID="cmpb7net1000001ocrss0o4de" \
           -e AUTO_TEA_DRAFT_BOARD_ID="169748e7-123e-40f5-b283-b016c83f9c32" \
@@ -102,6 +114,7 @@ case "$TASK" in
         # (authorized_keys 一次性配置)。拉不到远端不致命:本地已有目录照常处理。
         # --apply 才写库;脚本默认 dry-run。
         export PENTAGI_ARTIFACT_HOST="${PENTAGI_ARTIFACT_HOST:-pentagi-vps}"
+        export AUTO_NEWS_DRAFT_PAUSED="${AUTO_NEWS_DRAFT_PAUSED:-}"
         run node --import tsx scripts/ai-news-draft.mjs --apply
         ;;
       cellar-reminders)
@@ -109,9 +122,13 @@ case "$TASK" in
         # 宿主机直跑(裸 pg + tsx 加载 src/lib/cellar-reminder.ts 的纯逻辑)。
         # 可见性要用**与前台同一份**口径(cellarVisibleTo)→ 茶仓开关与两个
         # 白名单必须在这里 export,否则脚本会以为谁都看不见茶仓而一条不发。
+        # 暂停开关与上限同理 —— 漏传就等于「一键暂停」是死的。
         export FEATURE_CELLAR="${FEATURE_CELLAR:-}"
         export CELLAR_UIDS="${CELLAR_UIDS:-}"
         export EDITOR_AUTHOR_UIDS="${EDITOR_AUTHOR_UIDS:-}"
+        export CELLAR_REMINDERS_PAUSED="${CELLAR_REMINDERS_PAUSED:-}"
+        export CELLAR_REMINDERS_MAX_PER_RUN="${CELLAR_REMINDERS_MAX_PER_RUN:-}"
+        export CELLAR_REMINDERS_MAX_PER_USER="${CELLAR_REMINDERS_MAX_PER_USER:-}"
         run node --import tsx scripts/cellar-reminders.mjs --apply
         ;;
       *)

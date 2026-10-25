@@ -60,6 +60,10 @@ export default async function CellarItemPage({
         epochs: item.epochs,
         tastings: item.tastings,
         latestTastingCreatedAt: item.latestTastingCreatedAt,
+        // 复饮建议的信号（服务端按「同一条茶、按人」取好）—— 客户端用
+        // 同一个纯函数算，口径与跑批脚本一致。
+        latestTastingDelta: item.latestTastingDelta,
+        latestTastingStage: item.latestTastingStage,
       }}
       editorLine={editorLine}
     />

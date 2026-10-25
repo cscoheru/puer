@@ -87,6 +87,14 @@ interface ItemData {
   tastings: TastingRow[];
   /** 间隔闸门的基准（服务端按「同一条茶」算好直接给）。 */
   latestTastingCreatedAt: string | null;
+  /**
+   * 最近一次品鉴的对照与阶段 —— **服务端按「同一条茶、按人」取好**。
+   *
+   * 复饮建议由它们算出（客户端用同一个纯函数），所以页面上的建议
+   * 与之后收到的提醒不会各说各话（跑批读的是同一条记录）。
+   */
+  latestTastingDelta: string | null;
+  latestTastingStage: string | null;
 }
 
 export default function CellarDetail({
@@ -119,14 +127,14 @@ export default function CellarDetail({
   /**
    * 复饮建议 —— 口径在 src/lib/cellar-reminder.ts（纯函数）。
    *
-   * 信号来自**最近一次品鉴**（服务端按「同一条茶」跨条目取，这里用本条目
-   * 自己的记录近似 —— 建议只是建议，不参与提醒时间的计算）。
+   * 信号来自**服务端按「同一条茶、按人」取好的最近一次品鉴**
+   * （latestTastingDelta / latestTastingStage）—— 与跑批脚本读的是同一条
+   * 记录，所以页面上的建议和之后收到的提醒不会各说各话。
    */
-  const latestTasting = latestTastingByCreatedAt(item.tastings);
   const advice: ReminderAdvice = reminderAdvice(
     {
-      deltaVsPrev: latestTasting?.deltaVsPrev ?? null,
-      stage: latestTasting?.stage ?? null,
+      deltaVsPrev: item.latestTastingDelta,
+      stage: item.latestTastingStage,
     },
     item.remindEveryMonths,
   );
@@ -373,7 +381,7 @@ export default function CellarDetail({
                 {item.lastRemindedAt && (
                   <p>上次提醒：{item.lastRemindedAt.slice(0, 10)}</p>
                 )}
-                {advice.tone !== "neutral" && advice.text && (
+                {advice.text && (
                   <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
                     <p className="leading-relaxed">{advice.text}</p>
                     {advice.suggestedMonths != null &&

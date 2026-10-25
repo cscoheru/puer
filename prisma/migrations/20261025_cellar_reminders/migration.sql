@@ -57,16 +57,24 @@ END $$;
 -- 口径与 src/lib/cellar-reminder.ts 一致（跨条目取同一条茶的最近一次品鉴；
 -- Postgres 的 make_interval 与 JS 的 addMonths 同样会把月末夹到目标月最后一天）。
 --
--- 回填后存量条目的 nextRemindAt 都在**半年后**（默认间隔 6 个月）→ 跑批
--- 首日到期数为 0 是**正确行为**，不是没生效。验收要手工造一条到期数据。
+-- ⚠️ **必须带 userId 过滤** —— 茶品库是全站共享的，A 用户和 B 用户可以
+-- 有同一个 teaId 的条目。不按人过滤就会拿**别人**的品鉴时间当锚点
+-- （跨用户的时间信息泄露，而且算出来的提醒时刻与应用层不是同一个值）。
+--
+-- 回填后：锚点在 N 个月内的条目 → nextRemindAt 在未来（跑批首日到期数为 0，
+-- 是正确行为）；锚点超过 N 个月的（入仓很久、从没品鉴）→ **立即到期**
+-- ——那正是它该被提醒的时候。条目数很少，不会造成刷屏；真多了也有
+-- 单次上限与单用户上限兜底。
 UPDATE "cellar_items" ci
 SET "nextRemindAt" =
   COALESCE(
     (SELECT max(t."createdAt")
        FROM cellar_tastings t
        JOIN cellar_items x ON x.id = t."cellarItemId"
-      WHERE x."teaId" = ci."teaId" AND ci."teaId" IS NOT NULL),
-    (SELECT max(t."createdAt") FROM cellar_tastings t WHERE t."cellarItemId" = ci.id),
+      WHERE x."teaId" = ci."teaId" AND ci."teaId" IS NOT NULL
+        AND x."userId" = ci."userId" AND t."userId" = ci."userId"),
+    (SELECT max(t."createdAt") FROM cellar_tastings t
+      WHERE t."cellarItemId" = ci.id AND t."userId" = ci."userId"),
     ci."acquiredAt",
     ci."createdAt"
   ) + make_interval(months => ci."remindEveryMonths")

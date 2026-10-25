@@ -127,3 +127,38 @@ test("报告里要有计数（跳过与失败必须落到日志）", () => {
   assert.match(CODE, /skipped\(user-cap\)/);
   assert.match(CODE, /errors=/);
 });
+
+test("「最近一次品鉴」必须按 userId 过滤（否则会读到别人的私有记录）", () => {
+  // 茶品库是全站共享的：A 用户和 B 用户可以有同一个 teaId 的条目。
+  // 不按人过滤 → 通知文案基于**别人**的品鉴生成（隐私泄露 + 错误建议）。
+  const byTea = CODE.match(/const LAST_TASTING_BY_TEA_SQL = `([\s\S]*?)`;/)?.[1] ?? "";
+  assert.ok(byTea, "找不到 LAST_TASTING_BY_TEA_SQL");
+  assert.match(
+    byTea,
+    /t\."userId" = x\."userId"/,
+    "跑批读品鉴必须按人过滤 —— 与 src/lib/cellar-data.ts 的口径一致",
+  );
+
+  const byItem = CODE.match(/const LAST_TASTING_BY_ITEM_SQL = `([\s\S]*?)`;/)?.[1] ?? "";
+  assert.match(
+    byItem,
+    /t\."userId" = /,
+    "自建茶的品鉴也要按人过滤",
+  );
+});
+
+test("提醒时刻必须调唯一实现，不要自己内联一份口径", () => {
+  // 两份口径必然漂（AGENTS.md 的「数据双轨」）。跑批已经 import 了
+  // cellar-reminder.ts，就必须用它的 computeNextRemindAt。
+  assert.match(CODE, /computeNextRemindAt\(\{/);
+  assert.match(CODE, /await import\("\.\.\/src\/lib\/cellar-reminder\.ts"\)/);
+});
+
+test("上限按「真发出去的条数」算（跳过的条目不消耗预算）", () => {
+  // 否则「一堆看不见茶仓的到期条目」会把跑批卡成「一条没发还报 ok」。
+  assert.match(CODE, /stats\.sent >= MAX_PER_RUN/);
+  assert.ok(
+    !/stats\.processed >= MAX_PER_RUN/.test(CODE),
+    "不能用认领数当上限 —— 跳过也计数会让跑批空转",
+  );
+});

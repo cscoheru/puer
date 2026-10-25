@@ -41,12 +41,21 @@ schema 再动仍会复发。**这条只用于紧急止血,生产发布必须重 
 # 1. 先在服务器上跑迁移(带幂等,重复执行安全)
 docker cp prisma/migrations/20261025_cellar_reminders/migration.sql \
   puer-hub-postgres:/tmp/m.sql
-docker exec puer-hub-postgres psql -U puerhub -d puerhub -f /tmp/m.sql
+# ⚠️ ON_ERROR_STOP=1 不能省:没有它,psql 遇到错误会**继续往下跑并返回 0**,
+# 运维以为迁移成功了,其实约束/回填都没生效。
+docker exec puer-hub-postgres psql -U puerhub -d puerhub -v ON_ERROR_STOP=1 -f /tmp/m.sql
 
 # 2. **直接查库确认** —— 别信「脚本执行了」
 docker exec puer-hub-postgres psql -U puerhub -d puerhub -c \
   "SELECT column_name FROM information_schema.columns
     WHERE table_name='cellar_items' AND column_name='lastRemindedAt'"
+# 约束真的放宽了吗?(zod 放行 0 而 DB 还是 1..60 → 用户关提醒就是 500)
+docker exec puer-hub-postgres psql -U puerhub -d puerhub -c \
+  "SELECT pg_get_constraintdef(oid) FROM pg_constraint
+    WHERE conname='cellar_items_remindEveryMonths_check'"
+# 回填真的跑了吗?(nextRemindAt 全是 NULL → 跑批永远挑不到行,功能静默失效)
+docker exec puer-hub-postgres psql -U puerhub -d puerhub -c \
+  "SELECT count(*) FROM cellar_items WHERE \"nextRemindAt\" IS NOT NULL"
 ```
 
 **顺序固定:先 psql 跑迁移 → 再 rsync → 再 `docker build --no-cache` → 再切镜像。**

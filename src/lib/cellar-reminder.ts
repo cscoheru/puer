@@ -33,16 +33,21 @@
  *
  * 本文件**不依赖 Prisma**，宿主上的跑批脚本可以直接 import（tsx）。
  */
-import {
-  DEFAULT_REMIND_MONTHS,
-  MAX_REMIND_MONTHS,
-  suggestRemindMonths,
-} from "./cellar.ts";
+import { MAX_REMIND_MONTHS, suggestRemindMonths } from "./cellar.ts";
 
 export { MAX_REMIND_MONTHS };
 
 /** 提醒的三种语气。 */
 export type ReminderTone = "better" | "worse" | "neutral";
+
+/**
+ * 建议的**信号来源**。
+ *
+ * 「走下坡」是 `stage`（茶本身的阶段），「更好/更差」是 `deltaVsPrev`
+ * （**用户自己手选的对照**）。两者来源不同，文案也必须分开 ——
+ * 用户只选了「比上次差」时说成「走下坡」，那是替他改口。
+ */
+export type ReminderSignalSource = "stage" | "delta" | "none";
 
 export interface ReminderAdvice {
   tone: ReminderTone;
@@ -52,6 +57,8 @@ export interface ReminderAdvice {
    * `tone === "neutral"` 时等于当前间隔（= 不缩短）。
    */
   suggestedMonths: number | null;
+  /** 信号来自哪里 —— 文案据此措辞。 */
+  source: ReminderSignalSource;
   /** 人话（≤ 60 汉字，铃铛里是 line-clamp-2）。 */
   text: string;
 }
@@ -162,6 +169,7 @@ export function reminderAdvice(
     return {
       tone: "neutral",
       suggestedMonths: null,
+      source: "none",
       text: "复饮提醒已关闭。",
     };
   }
@@ -169,10 +177,13 @@ export function reminderAdvice(
     return {
       tone: "neutral",
       suggestedMonths: null,
+      source: "none",
       text: "记一条品鉴后，就能给你更准的复饮建议。",
     };
   }
 
+  // 阶段优先于对照：阶段是茶本身的客观状态（站长词表里的「走下坡」），
+  // 对照是用户自己填的主观感受。
   const declining = last.stage === "declining";
   const delta = last.deltaVsPrev;
   const effective: "better" | "worse" | "same" = declining
@@ -182,6 +193,11 @@ export function reminderAdvice(
       : delta === "worse"
         ? "worse"
         : "same";
+  const source: ReminderSignalSource = declining
+    ? "stage"
+    : delta === "better" || delta === "worse"
+      ? "delta"
+      : "none";
 
   const suggested = suggestRemindMonths(effective, n);
   const shortened = suggested < n;
@@ -190,6 +206,7 @@ export function reminderAdvice(
     return {
       tone: "better",
       suggestedMonths: suggested,
+      source,
       text: shortened
         ? `你上次选了「更好」，建议改成每 ${suggested} 个月提醒一次。`
         : "你上次选了「更好」——这饼正在转好，可以早点开来看变化。",
@@ -199,23 +216,45 @@ export function reminderAdvice(
     return {
       tone: "worse",
       suggestedMonths: suggested,
+      source,
       text: shortened
-        ? `你上次标记为走下坡，建议尽快喝掉；提醒间隔可以调到每 ${suggested} 个月。`
-        : "你上次标记为走下坡，建议尽快喝掉。",
+        ? declining
+          ? `你上次把阶段标成「走下坡」，建议尽快喝掉；提醒间隔可以调到每 ${suggested} 个月。`
+          : `你上次选了「比上次差」，建议尽快喝掉；提醒间隔可以调到每 ${suggested} 个月。`
+        : declining
+          ? "你上次把阶段标成「走下坡」，建议尽快喝掉。"
+          : "你上次选了「比上次差」，建议尽快喝掉。",
     };
   }
   return {
     tone: "neutral",
     suggestedMonths: n,
+    source: "none",
     text: "",
   };
 }
 
-/** 提醒间隔的展示文案。0 = 已关闭。 */
+/** 间隔的展示文案。0 = 已关闭。 */
 export function remindIntervalLabel(months: number): string {
   if (!Number.isInteger(months) || months <= 0) return "已关闭";
   if (months === 1) return "每 1 个月";
   return `每 ${months} 个月`;
+}
+
+/**
+ * 距上次品鉴**实际**过了多少个月（取整）。
+ *
+ * 通知文案里的「已经 N 个月没复饮」必须用**真实经过的月数**，不能用提醒
+ * 间隔 —— 那是个设置值，不是事实（一个两年前入仓、从没品鉴的条目，提醒间隔
+ * 是 6 个月，但实际已经 24 个月没复饮了）。
+ */
+export function monthsSince(from: Date | null | undefined, now: Date = new Date()): number | null {
+  if (!from) return null;
+  const f = new Date(from).getTime();
+  if (Number.isNaN(f)) return null;
+  const diff = now.getTime() - f;
+  if (diff < 0) return 0;
+  return Math.floor(diff / (30 * 24 * 60 * 60 * 1000));
 }
 
 /** 铃铛文案的字数上限（铃铛里是 line-clamp-2，太长点不动）。 */
@@ -225,32 +264,50 @@ export const REMINDER_TEXT_MAX = 60;
  * 提醒通知的文案。
  *
  * 短、具体、带茶名 —— 用户在铃铛里一眼要认得出是哪饼茶。
+ *
+ * `monthsSinceLast` 是**实际**距上次品鉴的月数（不是提醒间隔）——
+ * 说「已经 6 个月没复饮」而实际 2 年没喝，是编数字。
  */
 export function reminderNotificationText(input: {
   teaName: string | null | undefined;
-  months: number;
+  /** 实际距上次品鉴的月数；null = 不知道（没品鉴过）。 */
+  monthsSinceLast?: number | null;
+  /** 提醒间隔（月）—— 只在「不知道实际月数」时用作兜底措辞。 */
+  months?: number;
   advice?: ReminderAdvice | null;
 }): string {
-  const name = (input.teaName || "你的茶").trim();
+  const rawName = (input.teaName || "你的茶").trim();
   const advice = input.advice ?? null;
-  const months = Number.isInteger(input.months) && input.months > 0
-    ? input.months
-    : DEFAULT_REMIND_MONTHS;
+  const since = input.monthsSinceLast ?? null;
 
   let text: string;
   if (advice?.tone === "worse") {
-    text = `「${name}」上次标为走下坡，建议尽快喝掉。`;
+    text =
+      advice.source === "stage"
+        ? `「${rawName}」上次标为走下坡，建议尽快喝掉。`
+        : `「${rawName}」上次品鉴选了「更差」，建议尽快喝掉。`;
   } else if (advice?.tone === "better") {
-    text = `「${name}」上次品鉴选了「更好」，可以早点开来看变化。`;
+    text = `「${rawName}」上次品鉴选了「更好」，可以早点开来看变化。`;
+  } else if (since !== null && since > 0) {
+    text = `「${rawName}」已经 ${since} 个月没复饮了，该开一饼看看变化吗？`;
   } else {
-    text = `「${name}」已经 ${months} 个月没复饮了，该开一饼看看变化吗？`;
+    text = `「${rawName}」该复饮看看了，开一饼吧。`;
   }
 
-  if (text.length > REMINDER_TEXT_MAX) {
-    // 茶名过长时截短（保留引号与后缀，前缀优先）
-    const tail = text.slice(-(REMINDER_TEXT_MAX - 3));
-    text = `「${name.slice(0, 8)}…」${tail.slice(tail.indexOf("」") + 1)}`;
-    if (text.length > REMINDER_TEXT_MAX) text = text.slice(0, REMINDER_TEXT_MAX);
-  }
-  return text;
+  return clampReminderText(text, rawName);
+}
+
+/**
+ * 把文案截到上限以内。
+ *
+ * 截短时**保留首尾的引号**（截出来的残句没有收尾引号会很怪），
+ * 且不把 emoji / 代理对劈成半个。
+ */
+export function clampReminderText(text: string, name: string): string {
+  if (text.length <= REMINDER_TEXT_MAX) return text;
+  const safeName = [...name].slice(0, 8).join("");
+  const truncated = `「${safeName}…」${text.slice(text.indexOf("」") + 1)}`;
+  return truncated.length > REMINDER_TEXT_MAX
+    ? truncated.slice(0, REMINDER_TEXT_MAX - 1) + "…"
+    : truncated;
 }

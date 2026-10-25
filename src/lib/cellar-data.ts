@@ -203,6 +203,10 @@ export interface CellarItemDetail {
   nextRemindAt: string | null;
   /** 上次提醒的时刻（跑批写的）。 */
   lastRemindedAt: string | null;
+  /** 最近一次品鉴的对照（用户自填）—— 算复饮建议用。 */
+  latestTastingDelta: string | null;
+  /** 最近一次品鉴的阶段 —— 算复饮建议用。 */
+  latestTastingStage: string | null;
   createdAt: string;
   updatedAt: string;
   epochs: {
@@ -315,7 +319,9 @@ export async function getCellarItem(
       cellarItem: r.teaId ? { teaId: r.teaId } : { id: r.id },
     },
     orderBy: { createdAt: "desc" },
-    select: { createdAt: true },
+    // 阶段与对照也要 —— 前端的复饮建议由**服务端**算（口径与跑批一致，
+    // 同一份记录 → 建议与通知文案不会各说各话）。
+    select: { createdAt: true, deltaVsPrev: true, stage: true },
   });
 
   return {
@@ -323,6 +329,8 @@ export async function getCellarItem(
     name: r.name,
     teaId: r.teaId,
     latestTastingCreatedAt: latestTasting?.createdAt.toISOString() ?? null,
+    latestTastingDelta: latestTasting?.deltaVsPrev ?? null,
+    latestTastingStage: latestTasting?.stage ?? null,
     tea: r.tea,
     teaRequestId: r.teaRequestId,
     acquiredAt: r.acquiredAt?.toISOString() ?? null,
@@ -433,6 +441,28 @@ export async function recomputeNextRemindAt(
     data: { nextRemindAt: next },
   });
   return next;
+}
+
+/**
+ * 重算**同一条茶**下该用户的**所有**条目的提醒时刻。
+ *
+ * 为什么不能只重算刚记品鉴的那一条：锚点是「同一条茶最近一次品鉴」（跨条目），
+ * 所以同款茶的另一个条目也该一起重排 —— 否则用户明明刚喝过这饼茶，
+ * 另一个条目还是按旧锚点到期，又收到一条「该复饮了」。
+ */
+export async function recomputeNextRemindAtForTea(
+  userId: string,
+  teaId: string,
+  client: Pick<typeof prisma, "cellarItem" | "cellarTasting"> = prisma,
+  now: Date = new Date(),
+): Promise<void> {
+  const items = await client.cellarItem.findMany({
+    where: { userId, teaId },
+    select: { id: true },
+  });
+  for (const item of items) {
+    await recomputeNextRemindAt(userId, item.id, client, now);
+  }
 }
 
 /**
@@ -725,7 +755,14 @@ export async function addTastingGuarded(
       // 「品鉴写了、提醒没重排」）。锚点是**服务端写入时刻**，
       // 所以补录一条三个月前的品鉴会把提醒时钟往后推 —— 这是刻意的
       // （同 24 小时闸门：不信客户端给的 tastedAt）。
-      await recomputeNextRemindAt(userId, itemId, tx, now);
+      //
+      // 重排的是**同一条茶**下的所有条目 —— 用户可以把同一款茶在茶仓里
+      // 加两条，只重排其中一条会让另一条提前提醒。
+      if (item.teaId) {
+        await recomputeNextRemindAtForTea(userId, item.teaId, tx, now);
+      } else {
+        await recomputeNextRemindAt(userId, itemId, tx, now);
+      }
 
       return { ok: true, id: tasting.id } as const;
     },
