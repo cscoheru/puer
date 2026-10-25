@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/admin/reviews", label: "内容审核", icon: "🔍" },
   { href: "/admin/tea-reviews", label: "茶图鉴定", icon: "👮" },
   { href: "/admin/tasting-notes", label: "品鉴笔记", icon: "🗂" },
+  { href: "/admin/prices", label: "行情快照", icon: "💹" },
   { href: "/admin/cellar-requests", label: "茶仓后台", icon: "🫙" },
   { href: "/admin/moderators", label: "版主管理", icon: "🛡️" },
   { href: "/admin/hot", label: "热榜管理", icon: "🔥" },

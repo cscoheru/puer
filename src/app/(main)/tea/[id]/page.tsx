@@ -16,6 +16,9 @@ import { parseMarket } from "@/lib/market-info";
 import { isMirrorNoteLive } from "@/lib/tasting-note-plan";
 import { getEditorLine } from "@/lib/editor-line-data";
 import EditorLineView from "@/components/tea/editor-line";
+import PriceTimelineView from "@/components/tea/price-timeline";
+import { listPriceSnapshots, toEditorPoints } from "@/lib/price-snapshot-data";
+import { priceTimelineWithStages } from "@/lib/price-snapshot";
 import { can } from "@/lib/permissions";
 import { canViewPendingTea } from "@/lib/tea-tier";
 
@@ -107,7 +110,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const [allTastingNotes, articles, editorLine] = await Promise.all([
+  const [allTastingNotes, articles, editorLine, priceSnapshots] = await Promise.all([
     prisma.tastingNote.findMany({
       where: { teaId: id },
       orderBy: { createdAt: "desc" },
@@ -137,6 +140,8 @@ export default async function TeaDetailPage({ params }: PageProps) {
     }).catch(() => [] as ArticleWithRelations[]),
     // 站长线（PRD §5 Phase 1）：只取站长原始笔记，AI/帖子镜像不进。
     getEditorLine(id).catch(() => null),
+    // 价格区间序列（PRD §7 F5）：手工录入的成交区间，与站长线对照。
+    listPriceSnapshots(id).catch(() => []),
   ]);
 
   // 镜像笔记的可见性跟随源帖：只保留源帖**当前**处于「已发布且非私密」的笔记。
@@ -395,6 +400,16 @@ export default async function TeaDetailPage({ params }: PageProps) {
                 : t.summary,
           }))}
           statement={editorLine.statement}
+        />
+      )}
+
+      {/* 价格区间（PRD §7 F5）—— 手工录入的成交区间，与站长线对照 */}
+      {priceSnapshots.length > 0 && (
+        <PriceTimelineView
+          entries={priceTimelineWithStages(
+            priceSnapshots,
+            toEditorPoints(editorLine?.tastings ?? []),
+          )}
         />
       )}
 

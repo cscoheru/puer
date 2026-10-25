@@ -99,6 +99,7 @@ model User {
   sentMessages          UserMessage[]        @relation("SentMessages")
   receivedMessages      UserMessage[]        @relation("ReceivedMessages")
   cellarItems           CellarItem[]
+  priceSnapshots        PriceSnapshot[]
   cellarTastings        CellarTasting[]
   teaRequests           TeaRequest[]
 
@@ -193,6 +194,7 @@ model Tea {
   teaSessions  TeaSession[]
   tastingNotes TastingNote[]
   cellarItems  CellarItem[]
+  priceSnapshots PriceSnapshot[]
   mergedFromRequests TeaRequest[]
 
   createdAt DateTime @default(now())
@@ -1123,6 +1125,58 @@ model CellarItem {
   // 一次索引扫描出有序结果，否则每次列表都要额外排一次序。
   @@index([userId, updatedAt(sort: Desc), id(sort: Desc)])
   @@map("cellar_items")
+}
+
+// ─── 行情快照（Phase 4 · F5）──────────────────────────────────────────
+
+/**
+ * 行情快照：**手工录入**的价格区间序列（PRD v0.3 §7 F5）。
+ *
+ * ## 为什么是区间而不是点价
+ *
+ * 普洱的「行情」不是一个数 —— 同一款茶在不同渠道、不同年份、不同品相下
+ * 的成交价能差一截。录一个点价等于编一个精确的数字；录**区间**才是事实。
+ * 所以表里只有 low/high，没有「当前价」。
+ *
+ * ## 为什么手工录，不抓取
+ *
+ * PRD §11.2：「不新增抓取，沿用现状」。`Tea.marketInfo` 里那份东和快照是
+ * 抓来的（单点字符串），本表是站长自己按季度整理的**区间**序列 ——
+ * 两者并存，各管各的。
+ *
+ * ## 频率
+ *
+ * 按季度（PRD：「频率按季度」）。数据库只保证「同一款茶同一天不重复录」
+ * （UNIQUE），季度是约定不是约束 —— 站长有理由补录时应该能录。
+ */
+model PriceSnapshot {
+  id    String @id @default(cuid())
+  teaId String
+  tea   Tea    @relation(fields: [teaId], references: [id], onDelete: Cascade)
+
+  /// 快照日期 —— 「截至这天」的价格区间。手工录入，可以补录过去。
+  snapshotDate DateTime @db.Date
+
+  /// 价格区间（人民币元）。只录区间不录点值（PRD F5）。
+  low       Int
+  high      Int
+  currency  String @default("CNY") @db.VarChar(8)
+
+  /// 来源 —— 必填：「东和」「微拍堂」「茶友私询」… 站长自己说清楚这条价从哪来。
+  sourceLabel String  @db.VarChar(60)
+  note        String? @db.VarChar(300)
+
+  /// 谁录的（站长）。
+  enteredBy String?
+  entered   User?   @relation(fields: [enteredBy], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  /// 同一款茶同一天只能有一条 —— 重录就是改，不是新增。
+  @@unique([teaId, snapshotDate])
+  /// 茶品页按茶 + 时间倒序取序列。
+  @@index([teaId, snapshotDate(sort: Desc)])
+  @@map("price_snapshots")
 }
 
 /// 一段仓储期。换仓 = 新增一条，旧的一条保留（历史要能还原）。
