@@ -104,3 +104,6 @@ docs/f1/eval-set.tsv
 docs/f1/corrections.tsv
 docs/f1/eval-report.json
 docs/f1/runs/
+
+# Playwright MCP 的临时产物（控制台日志、页面快照）—— 每次跑浏览器都会生成
+.playwright-mcp/
