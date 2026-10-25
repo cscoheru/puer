@@ -127,6 +127,9 @@ export async function POST(req: NextRequest) {
     data: {
       ...data,
       authorId: session.user.id,
+      // F0 来源标注：人工发帖就是 human（见 /api/boards/[slug] 的同款注释 ——
+      // 不标 origin，镜像流程会跳过这条帖子，它就进不了数据层）。
+      origin: "human",
       status: isPublish ? "published" : "pending_review",
       // 内联字面量:满足 Prisma Json 字段的索引签名要求
       moderation: isPublish

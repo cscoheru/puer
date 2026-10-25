@@ -67,6 +67,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         : { decision: mod.decision, categories: mod.categories, confidence: mod.confidence, reason: mod.reason, source: mod.source },
       images: session.images || [],
       authorId: sessionUser.user.id,
+      // F0 来源标注：人工发布的茶会帖就是 human。
+      origin: "human",
     },
   });
 

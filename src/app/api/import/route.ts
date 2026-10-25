@@ -48,6 +48,8 @@ export async function POST(req: NextRequest) {
           tags: note.tags,
           status: "draft",
           authorId: session.user.id,
+          // F0 来源标注：ENEX 导入的是站长自己的笔记（人写的）→ human。
+          origin: "human",
         },
       })
     )

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   ORIGIN_HUMAN,
   ORIGIN_AI_FROM_NOTES,
@@ -149,4 +150,40 @@ test("来源链接只接受 http/https，其余一律丢弃", () => {
   assert.equal(accept("vbscript:x"), false);
   assert.equal(accept(""), false);
   assert.equal(accept("https://" + "x".repeat(3000)), false, "超长串拒绝");
+});
+
+// ── 写入侧：人工发帖必须标 origin=human ─────────────────────────────────
+//
+// 2026-10-24 站长实测的 bug：他在「2012-陈升福元昌古韵圆茶」下发了一条
+// 跟进帖，茶品页底部看得见帖子，但**没进站长线**。
+//
+// 根因：人工发帖的路径**不写 origin** → origin 为 NULL →
+// `isHumanOrigin(null)` 为 false → 镜像成品鉴笔记的流程直接跳过
+// （`planArticleTastingNote` 返回 "non-human-origin"）→ 这条帖子永远不会
+// 变成 TastingNote，也就永远进不了数据层。
+//
+// 这个 bug **不报错**，只是「帖子没有变成笔记」，所以只能靠断言挡住。
+test("人工发帖的路径都标了 origin=human", () => {
+  const paths = [
+    "../app/api/boards/[slug]/route.ts",
+    "../app/api/articles/route.ts",
+    "../app/api/sessions/[id]/publish/route.ts",
+    "../app/api/import/route.ts",
+  ];
+  for (const p of paths) {
+    const src = readFileSync(new URL(p, import.meta.url), "utf8");
+    assert.match(
+      src,
+      /origin:\s*"human"/,
+      `${p} 没有标 origin="human" —— 人工发帖会被镜像流程跳过（进不了数据层）`,
+    );
+  }
+});
+
+test("AI 管线标的仍是 AI 来源（不能被人写成 human）", () => {
+  const runner = readFileSync(
+    new URL("../lib/tea-drafts/runner.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(runner, /origin:\s*"ai_from_notes"/);
 });

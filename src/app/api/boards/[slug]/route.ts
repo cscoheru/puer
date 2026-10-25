@@ -110,6 +110,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       teaId: teaId || null,
       boardId: board.id,
       authorId: session.user.id,
+      // F0 来源标注：**人工发帖就是 human**。
+      // 不写这一行 → origin 为 NULL → `isHumanOrigin(null)` 为 false →
+      // 镜像成品鉴笔记的流程直接跳过 → 这条跟进帖**永远进不了数据层**
+      // （2026-10-24 站长实测：茶品页底部看得见帖子，站长线里没有）。
+      origin: "human",
       status: isPublish ? "published" : "pending_review",
       visibility: visibility === "private" ? "private" : "public",
       moderation: isPublish

@@ -86,8 +86,19 @@ export async function getEditorLine(
   const notes = await prisma.tastingNote.findMany({
     where: {
       teaId,
-      // AI/帖子镜像不进站长线（PRD §5 决策）
-      source: { not: "article" },
+      // 只看**站长自己**写的记录（author 已在下面的 where 里限定）。
+      //
+      // 跟进帖的镜像（source="article"）**也在站长线里** —— 它是站长亲手写的
+      // 一手记录，PRD §4 对站长线的定义是「只含真人撰写的内容」。
+      //
+      // 为什么安全：镜像笔记只在三种情况下才会被创建（见
+      // src/lib/tasting-note-plan.ts 的 planArticleTastingNote）：
+      //   ① origin === "human"（F0：AI 内容永不进数据层）
+      //   ② 作者不是合成账号
+      //   ③ 不是从品鉴笔记派生出来的草稿（tasting-draft_* 前缀）
+      // 三道闸都在**写入侧**，所以进了这里的 source="article" 必然是人工内容。
+      // 别的用户的跟进帖镜像作者不是站长 → 下面的 author 过滤把它们挡住，
+      // 它们仍然留在「社区品鉴 · 历年记录」里。
       author: { uid: { in: uids } },
     },
     select: SELECT,
@@ -113,7 +124,7 @@ export async function getEditorLines(
   const notes = await prisma.tastingNote.findMany({
     where: {
       teaId: { in: teaIds },
-      source: { not: "article" },
+      // 同 getEditorLine：站长自己的跟进帖镜像也算站长线（AI 内容在写入侧就被挡住了）。
       author: { uid: { in: uids } },
     },
     select: { ...SELECT, teaId: true },
