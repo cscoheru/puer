@@ -114,15 +114,34 @@ const TEAS_SQL = `
    ORDER BY year, name
 `;
 
-/** 写图（只填空着的）。 */
+/**
+ * 写图（只填空着的）。
+ *
+ * ⚠️ **只写封面，不写 gallery**（站长 2026-10-26 定的）：东和茶图只是
+ * 「本来没图时的封面」，不是茶品图集 —— 把它塞进 gallery 会让茶品页的
+ * 图片墙看起来像是有多张图，其实只有一张东和图。
+ */
 const FILL_SQL = `
   UPDATE teas
-     SET "coverImage" = $2,
-         gallery = CASE WHEN gallery IS NULL OR gallery = '[]'::jsonb
-                        THEN to_jsonb(ARRAY[$2]::text[]) ELSE gallery END
+     SET "coverImage" = $2
    WHERE id = $1
      AND ("coverImage" IS NULL OR "coverImage" = '')
-     AND (gallery IS NULL OR gallery = '[]'::jsonb)
+`;
+
+/**
+ * 清理：把「封面是东和图、且 gallery 里只有这一张」的图集清空。
+ *
+ * 2026-10-25 的第一版脚本顺手把东和图也写进了 gallery —— 站长 2026-10-26
+ * 指出「东和图片仅作为封面」，这个模式把那次写的图集撤掉。
+ * 只动「gallery 恰好只有封面这一张」的（= 当初被脚本写进去的）✅，
+ * 真正的多图图集（本地图）不受影响 ✅。
+ */
+const CLEAR_GALLERY_SQL = `
+  UPDATE teas
+     SET gallery = NULL
+   WHERE "coverImage" LIKE '%/donghe-%'
+     AND gallery IS NOT NULL
+     AND gallery = to_jsonb(ARRAY["coverImage"]::text[])
 `;
 
 async function main() {
@@ -135,6 +154,14 @@ async function main() {
   await client.connect();
 
   try {
+    // 清理模式：把「东和图进了图集」的撤回（站长 2026-10-26 的要求）
+    if (process.argv.includes("--clear-gallery")) {
+      const cleared = await client.query(CLEAR_GALLERY_SQL);
+      log(`已撤回 ${cleared.rowCount} 个图集里的东和图（东和图只做封面）`);
+      log("=== Done: status=ok ===");
+      return;
+    }
+
     const skusByYear = loadSkus();
     const { rows: teas } = await client.query(TEAS_SQL);
     log(`没图的茶品：${teas.length} 款`);
