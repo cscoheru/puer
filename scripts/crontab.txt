@@ -53,6 +53,11 @@
 # 给到期的茶仓条目发站内通知。默认 dry-run，要真发用 --apply —— cron 里
 # 走的是 cron-task.sh 的 cellar-reminders 分支（它带 --apply）。
 # 一键暂停：CELLAR_REMINDERS_PAUSED=1（写在 /opt/puer-hub/.env）。
+#
+# ⚠️ **改了 CELLAR_UIDS / FEATURE_CELLAR 之后，要 `docker compose up -d app`**
+#    让**容器**也拿到同一份值：脚本每次跑都现读 .env，而容器的 env 是
+#    compose up 时烤进去的 —— 两边不同步的话，「谁能看见茶仓」就有两套口径，
+#    会出现「脚本给某人发了提醒，但那人打开链接是 404」。
 51 2 * * * /opt/puer-hub/scripts/cron-task.sh cellar-reminders >> /var/log/cellar-reminders.log 2>&1
 
 # ── 每小时探针 ────────────────────────────────────────────────────────────

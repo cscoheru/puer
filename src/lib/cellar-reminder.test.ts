@@ -172,6 +172,13 @@ test("建议：没品鉴过 → 没有建议", () => {
   assert.equal(a.tone, "neutral");
   assert.equal(a.suggestedMonths, null);
   assert.match(a.text, /品鉴/);
+
+  // 调用方通常传的是「两个信号都为 null 的对象」—— 这条分支也要走到
+  // （只判 !last 的话这段文案就是死代码）。
+  const b = reminderAdvice({ deltaVsPrev: null, stage: null }, 6);
+  assert.equal(b.tone, "neutral");
+  assert.equal(b.suggestedMonths, null);
+  assert.match(b.text, /品鉴/);
 });
 
 test("建议：间隔为 0（关了提醒）→ 退回 6 个月是错的", () => {

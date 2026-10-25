@@ -173,7 +173,11 @@ export function reminderAdvice(
       text: "复饮提醒已关闭。",
     };
   }
-  if (!last) {
+  // 「没品鉴过」= 两个信号都没有。注意：调用方通常传的是
+  // `{ deltaVsPrev: null, stage: null }`（对象，非 null）—— 只判 `!last`
+  // 的话这条分支永远走不到，文案就成了死代码。
+  const hasSignal = Boolean(last?.deltaVsPrev || last?.stage);
+  if (!hasSignal || !last) {
     return {
       tone: "neutral",
       suggestedMonths: null,

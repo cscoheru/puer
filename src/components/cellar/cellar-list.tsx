@@ -27,6 +27,9 @@ interface ItemRow {
   teaType: string | null;
   acquiredAt: string | null;
   qtyNote: string | null;
+  /** 复饮提醒：间隔（月）与下次提醒的时刻。 */
+  remindEveryMonths: number;
+  nextRemindAt: string | null;
   tastingCount: number;
   lastTastedAt: string | null;
   lastDelta: string | null;
@@ -225,6 +228,11 @@ export default function CellarList() {
                     <span className="text-amber-700">{DELTA_TEXT[it.lastDelta]}</span>
                   )}
                   {it.qtyNote && <span>{it.qtyNote}</span>}
+                  {it.remindEveryMonths > 0 && it.nextRemindAt && (
+                    <span className="text-amber-700">
+                      下次复饮 {it.nextRemindAt.slice(0, 10)}
+                    </span>
+                  )}
                 </div>
               </Link>
             </li>
