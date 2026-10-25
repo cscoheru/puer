@@ -368,6 +368,12 @@ test("批准 = 启用用户自设的密码（管理员不碰别人的密码，�
   );
 });
 
+test("写进用户表的密码哈希必须是 bcrypt（旧版的 sha256 会把人锁在门外）", () => {
+  const code = stripComments(HANDLE_SRC);
+  assert.match(code, /isBcryptHash/, "批准前要验一下哈希类型");
+  assert.match(code, /\$2\[aby\]/, "只认 bcrypt");
+});
+
 test("连续驳回两次 → 账号挂起", () => {
   const code = stripComments(HANDLE_SRC);
   assert.match(code, /MAX_RESET_REJECTS/);

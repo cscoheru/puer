@@ -101,6 +101,7 @@ export default function LoginPage() {
       if (data.state) setForgotState(data.state === "used" ? "approved" : data.state);
       if (data.reset) {
         // 密码已经改好了 —— 让他直接回登录页用新密码登录
+        setForgotState("none");
         setNewPassword("");
         setNewPassword2("");
       }
@@ -163,8 +164,8 @@ export default function LoginPage() {
                 账号也回 none），只告诉你这个账号的重置走到哪一步了。 */}
             {forgotState === "approved" && (
               <div className="p-3 text-sm text-green-800 bg-green-50 rounded-lg border border-green-200">
-                ✅ 你的申请已经通过了 —— 填下面的新密码就能改好。
-                如果忘了当时设的密码，就把下面两个时间题按申请时填的内容再答一遍。
+                ✅ 你的重置申请已经通过了。填下面的新密码就能改好 ——
+                如果当初是你自己提交的申请，请把上面两个时间题按当时填的内容再答一遍，用来确认是本人。
               </div>
             )}
             {forgotState === "pending" && (

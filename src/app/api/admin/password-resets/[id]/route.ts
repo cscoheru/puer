@@ -7,6 +7,18 @@ import { MAX_RESET_REJECTS, RESET_STATUS } from "@/lib/password-reset";
 export const dynamic = "force-dynamic";
 
 /**
+ * 这个哈希是不是 bcrypt —— `users.passwordHash` 只接受 bcrypt。
+ *
+ * 2026-10-24 的事故：旧版本（重置码那套）往申请单里存的是 **sha256**，
+ * 批准时把它整个写进了 `users.passwordHash` → 站长的 uid 1001 当场
+ * 登不进去（bcrypt.compare 拿 sha256 串当哈希比对，永远失败）。
+ * 任何要写进用户表密码列的值，都得过这道检查。
+ */
+function isBcryptHash(hash: string): boolean {
+  return /^\$2[aby]\$\d{2}\$/.test(hash);
+}
+
+/**
  * PUT /api/admin/password-resets/[id] —— 处理一条密码重置申请。
  *
  * ## 批准 = 「核对通过，启用用户自己定好的新密码」
@@ -109,6 +121,19 @@ export async function PUT(
     // 用户申请时没定新密码（老数据或管理员代发的申请）—— 没有可启用的密码。
     return NextResponse.json(
       { error: "这条申请没有用户自设的新密码，无法批准" },
+      { status: 400 },
+    );
+  }
+  if (!isBcryptHash(request.passwordHash)) {
+    // ⚠️ 必须挡：users.passwordHash 只能是 bcrypt 哈希。
+    // 旧版本（重置码那套）往申请单里存的是 sha256 —— 把它写进用户表，
+    // 用户就再也登不进去了（bcrypt.compare 对着 sha256 串永远失败）。
+    // 2026-10-24 站长 uid 1001 就是这样被锁在门外的。
+    return NextResponse.json(
+      {
+        error:
+          "这条申请是旧版本留下的（没有可用的新密码），请让用户重新提交一条申请。",
+      },
       { status: 400 },
     );
   }

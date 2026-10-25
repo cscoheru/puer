@@ -641,7 +641,8 @@ model PasswordResetRequest {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// pending | done | cancelled
+  /// pending（待站长核对）| approved（已批准，用户自设的新密码已生效）
+  /// | rejected（被驳回）| used（密码已重置过）| superseded（被更新的申请顶掉）
   status String @default("pending") @db.VarChar(20)
 
   /// 用户填的说明（联系方式、发生了什么）
