@@ -91,19 +91,35 @@ function sweep(now: number): void {
 }
 
 /**
- * 取客户端 IP。nginx 配了完整的 Cloudflare `set_real_ip_from` +
- * `real_ip_header X-Forwarded-For`，且应用端口只绑 127.0.0.1（外部只能经
- * nginx 进来），所以 X-Forwarded-For 的第一个值是真客户端 IP，不可伪造。
+ * 取客户端 IP。
+ *
+ * ⚠️ **不能取 X-Forwarded-For 的第一段** —— 那是**客户端自己写的**。
+ * nginx 转发时用的是 `$proxy_add_x_forwarded_for`（= 客户端送来的那段 +
+ * 真实来源），所以第一段可以随便伪造：
+ *
+ * ```
+ * curl -H 'X-Forwarded-For: 8.8.8.8' https://puer.im/api/...
+ * ```
+ *
+ * 实测（2026-10-24）：伪造的 IP 被原样记进了 `users.registrationIp`，
+ * 而按 IP 的限速（这里和 src/lib/rate-limit.ts 两处）都能被绕开。
+ *
+ * 现在取法：**优先 X-Real-IP** —— nginx 用
+ * `proxy_set_header X-Real-IP $remote_addr` **覆盖**掉客户端送来的值，
+ * 而 `$remote_addr` 已经过 realip 模块按 Cloudflare 的可信 IP 段校正过，
+ * 就是访客真实 IP。应用端口只绑 127.0.0.1，流量必经 nginx，这个头可信。
+ * 没有 X-Real-IP 时，取 X-Forwarded-For 的**最后一段**（nginx 追加的真实来源）。
  */
 function clientIP(req: NextRequest): string {
+  const realIp = req.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return (
-    req.headers.get("x-real-ip") || req.headers.get("cf-connecting-ip") || "unknown"
-  );
+  const last = xff
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .pop();
+  return last || req.headers.get("cf-connecting-ip")?.trim() || "unknown";
 }
 
 /**

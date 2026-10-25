@@ -12,12 +12,15 @@ const store = new Map<string, RateEntry>();
 
 // Periodic cleanup every 5 minutes
 if (typeof setInterval !== "undefined") {
-  setInterval(() => {
+  const timer = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store) {
       if (now > entry.resetAt) store.delete(key);
     }
   }, 300_000);
+  // 别让这个定时器**吊住进程**：Node 里 unref 之后它不再阻止事件循环退出
+  // （否则任何 import 了这个模块的脚本跑完都退不出去 —— 单测就是被它挂住的）。
+  if (typeof timer === "object" && typeof timer.unref === "function") timer.unref();
 }
 
 export interface RateLimitConfig {
@@ -52,13 +55,43 @@ export function rateLimitKey(ip: string, identifier?: string): string {
   return identifier ? `${ip}:${identifier}` : ip;
 }
 
-/** Extract client IP from request headers */
+/**
+ * 取访客的真实 IP。
+ *
+ * ## 为什么不能取 X-Forwarded-For 的**第一段**
+ *
+ * 站点在 Cloudflare 后面，前面还有一层 nginx。nginx 转发给应用时写的是
+ * `X-Forwarded-For: $proxy_add_x_forwarded_for` —— 也就是
+ * 「**客户端自己发来的那段** + 真实来源」。**第一段是客户端可以随便写的**：
+ *
+ * ```
+ * curl -H 'X-Forwarded-For: 8.8.8.8' https://puer.im/...
+ * ```
+ *
+ * 实测（2026-10-24）：这条伪造的 IP 被原样写进了 `users.registrationIp`
+ * 和 `password_reset_requests.requestIp` —— 后台看到的「申请 IP」是假的，
+ * 而所有按 IP 的限速（登录、注册、忘记密码…）都能被绕开。
+ *
+ * ## 现在怎么取
+ *
+ * 1. **优先 `X-Real-IP`** —— nginx 用 `proxy_set_header X-Real-IP $remote_addr`
+ *    **覆盖**掉客户端送来的值，而 `$remote_addr` 已经过 realip 模块按
+ *    Cloudflare 的可信 IP 段校正过，就是访客的真实 IP。
+ *    （应用容器只监听 127.0.0.1:3002，流量必经 nginx，所以这个头可信。）
+ * 2. 没有 X-Real-IP 时，取 X-Forwarded-For 的**最后一段** —— nginx 追加的
+ *    真实来源就在末尾。
+ */
 export function getClientIP(req: Request): string {
-  return (
-    (req as unknown as { headers: Headers }).headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    (req as unknown as { headers: Headers }).headers.get("x-real-ip") ||
-    "unknown"
-  );
+  const headers = (req as unknown as { headers: Headers }).headers;
+  const realIp = headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  const xff = headers.get("x-forwarded-for");
+  const last = xff
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .pop();
+  return last || "unknown";
 }
 
 // ── Preset configs ───────────────────────────────────────────────────
