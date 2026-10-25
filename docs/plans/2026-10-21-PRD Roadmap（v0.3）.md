@@ -465,6 +465,17 @@ User（增补）       share_aggregate: bool (default false), share_consented_at
 - **邮件月度汇总**：站内没有 SMTP/nodemailer → 按 §11.6 的默认假设本期不做，只做站内通知。
 - **提醒的「推迟到下周」**：PRD 没要求，且 `nextRemindAt` 由服务端算。
 
+**上线验收（2026-10-25）**
+
+- 迁移已执行并逐条查库确认：CHECK 放宽到 0..60 ✅、`lastRemindedAt` 列在 ✅、
+  存量 2 条目已回填（回填到半年后 → 跑批首日到期数为 0，**是正确行为**）。
+- 手工把一条条目的 `nextRemindAt` 改到过去 → 跑批发出 1 条提醒 ✅：
+  `sent 602布朗孔雀 uid=1002`，通知内容与链接都对，`nextRemindAt` 被推到
+  now + 6 个月，`lastRemindedAt` 写上。**再跑一次 `sent=0`**（幂等 ✅）。
+- 铃铛每分钟轮询、点开即标记已读 → 之前「未读数只增不减、徽标永远 9+」的
+  既有 bug 一并修掉。
+- ⚠️ 验收时发的那条提醒还在 uid 1002 的铃铛里（测试痕迹），要清掉说一声。
+
 **运维**
 
 - 迁移 `prisma/migrations/20261025_cellar_reminders/`（裸 psql）：加 `lastRemindedAt`、
