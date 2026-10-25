@@ -36,7 +36,6 @@ async function main() {
       year: true,
       brand: true,
       isClassic: true,
-      needsReview: true,
       _count: {
         select: { tastingNotes: true, articles: true, cellarItems: true },
       },
