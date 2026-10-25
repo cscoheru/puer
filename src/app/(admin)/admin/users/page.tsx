@@ -539,8 +539,9 @@ export default function AdminUsersPage() {
             密码重置申请（{resetRequests.length}）
           </h2>
           <p className="text-xs text-stone-500 mb-3">
-            站内没有邮件通道，所以用户申请时**自己定好了新密码**（只存哈希，你看不到）。
-            你核对身份通过 → 点「批准」启用那个密码，用户直接用它登录，不用你另行告知。
+            站内没有邮件通道，所以用户申请时<strong className="text-stone-700">自己定好了新密码</strong>
+            （只存哈希，你看不到）。你核对身份通过 → 点「批准」启用那个密码，
+            用户直接用它登录，不用你另行告知。
           </p>
           <div className="space-y-2">
             {resetRequests.map((r) => (
