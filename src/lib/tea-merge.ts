@@ -20,7 +20,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import { recomputeTeaStats } from "@/lib/tea-stats";
-import { pickMergeDirection } from "@/lib/tea-merge-rules";
+import { pickCover, pickMergeDirection } from "@/lib/tea-merge-rules";
 
 export { groupSameNameTeas, pickMergeDirection } from "@/lib/tea-merge-rules";
 
@@ -55,6 +55,8 @@ export async function mergeTeaPair(
         id: true,
         name: true,
         isClassic: true,
+        coverImage: true,
+        gallery: true,
         _count: { select: { tastingNotes: true, articles: true, cellarItems: true } },
       },
     }),
@@ -64,6 +66,8 @@ export async function mergeTeaPair(
         id: true,
         name: true,
         isClassic: true,
+        coverImage: true,
+        gallery: true,
         _count: { select: { tastingNotes: true, articles: true, cellarItems: true } },
       },
     }),
@@ -92,6 +96,20 @@ export async function mergeTeaPair(
 
   const movedRefs = keep.id === a.id ? refsOf(b) : refsOf(a);
 
+  /**
+   * **封面与图集要一起带过来**。
+   *
+   * 2026-10-26 站长报「经典普洱的封面被换成东和的图了」→ 自查发现：
+   * 合并只搬了笔记/帖子/茶仓条目与**名字**，**没搬封面** —— 被并掉的那行
+   * 如果带着站长的茶图，那张图就跟着那一行一起没了（32 张站长的茶图至今
+   * 躺在 uploads/tea/ 里没人引用），茶品只好用东和图顶上。
+   *
+   * 规则：保留的那条**自己没有**封面时才用被并那条的（它自己的封面更权威）。
+   */
+  const keepRowFull = keep.id === a.id ? a : b;
+  const dropRowFull = keep.id === a.id ? b : a;
+  const coverUpdate = pickCover(keepRowFull, dropRowFull);
+
   await prisma.$transaction([
     prisma.tastingNote.updateMany({
       where: { teaId: drop.id },
@@ -107,7 +125,10 @@ export async function mergeTeaPair(
     }),
     prisma.tea.update({
       where: { id: keep.id },
-      data: newAliases.length > 0 ? { aliases: { push: newAliases } } : {},
+      data: {
+        ...(newAliases.length > 0 ? { aliases: { push: newAliases } } : {}),
+        ...coverUpdate,
+      },
     }),
     prisma.tea.delete({ where: { id: drop.id } }),
   ]);

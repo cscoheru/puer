@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   groupSameNameTeas,
+  pickCover,
   pickMergeDirection,
   type MergeCandidate,
 } from "./tea-merge-rules.ts";
@@ -92,4 +93,35 @@ test("只有一条的不成组", () => {
     clean,
   );
   assert.equal(groups.length, 0);
+});
+
+// ─── 合并时封面怎么算 ─────────────────────────────────────────────────────
+
+test("保留的那条没封面 → 用被并那条的（站长的茶图不能跟着被删）", () => {
+  // 2026-10-26 站长报「经典普洱的封面被换成东和的图了」：合并时没搬封面，
+  // 被并掉那行带的茶图就丢了，茶品只好用东和图顶上。
+  const r = pickCover(
+    { coverImage: null, gallery: null },
+    { coverImage: "/uploads/tea/abc.jpg", gallery: ["/uploads/tea/abc.jpg"] },
+  );
+  assert.equal(r.coverImage, "/uploads/tea/abc.jpg");
+  assert.deepEqual(r.gallery, ["/uploads/tea/abc.jpg"]);
+});
+
+test("保留的那条自己有封面 → 不动它（它自己的更权威）", () => {
+  const r = pickCover(
+    { coverImage: "/uploads/tea/keep.jpg", gallery: ["/uploads/tea/keep.jpg"] },
+    { coverImage: "/uploads/tea/drop.jpg", gallery: ["/uploads/tea/drop.jpg"] },
+  );
+  assert.equal(r.coverImage, undefined);
+  assert.equal(r.gallery, undefined);
+});
+
+test("图集为空但封面在 → 只补图集，不覆盖封面", () => {
+  const r = pickCover(
+    { coverImage: "/uploads/tea/keep.jpg", gallery: null },
+    { coverImage: "/uploads/tea/drop.jpg", gallery: ["/uploads/tea/drop2.jpg"] },
+  );
+  assert.equal(r.coverImage, undefined);
+  assert.deepEqual(r.gallery, ["/uploads/tea/drop2.jpg"]);
 });
