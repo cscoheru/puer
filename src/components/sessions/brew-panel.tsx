@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Socket } from "socket.io-client";
 import { WS_EVENTS } from "@/lib/session-constants";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 
 interface GalleryEntry {
   id: string;
@@ -35,6 +37,8 @@ export default function BrewPanel({
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // 上传失败/格式不支持要看得见 —— 原来这里是静默 catch，用户只看到「点了没反应」
+  const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -56,18 +60,28 @@ export default function BrewPanel({
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+    const resolved = resolveUploadFile(file, "image");
+    if (!resolved) {
+      setError(describeRejectedFiles([file.name]));
+      return;
+    }
     setUploading(true);
+    setError("");
     const fd = new FormData();
-    fd.append("file", file);
+    fd.append("file", resolved.file);
     fd.append("category", "session");
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       if (res.ok) {
         const { url } = await res.json();
         setImageUrl(url);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setError(err.error || "上传失败");
       }
     } catch {
-      // silent
+      setError("上传失败");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -117,10 +131,11 @@ export default function BrewPanel({
 
             {/* Image upload */}
             <div>
+              {error && <p className="text-xs text-red-600">{error}</p>}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
+                accept={IMAGE_ACCEPT}
                 className="hidden"
                 onChange={handleImageSelect}
               />

@@ -18,6 +18,7 @@
  */
 import { useEffect, useState } from "react";
 import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 import RichEditor from "@/components/rich-editor";
 import { isTastingDraftId } from "@/lib/tea-drafts/id";
 import FactCheckPanel from "./fact-check-panel";
@@ -449,7 +450,7 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
                       {uploadingImg ? "…" : "＋"}
                       <input
                         type="file"
-                        accept="image/jpeg,image/png,image/gif,image/webp"
+                        accept={IMAGE_ACCEPT}
                         className="hidden"
                         onChange={uploadImage}
                         disabled={uploadingImg}

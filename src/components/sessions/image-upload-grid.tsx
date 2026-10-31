@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 
 interface Props {
   value: string[];
@@ -43,8 +45,11 @@ export default function ImageUploadGrid({
     try {
       const urls = await Promise.all(
         batch.map(async (file) => {
+          // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+          const resolved = resolveUploadFile(file, "image");
+          if (!resolved) throw new Error(describeRejectedFiles([file.name]));
           const fd = new FormData();
-          fd.append("file", file);
+          fd.append("file", resolved.file);
           fd.append("category", category);
           const res = await fetch("/api/upload", { method: "POST", body: fd });
           if (!res.ok) throw new Error("上传失败");
@@ -124,7 +129,7 @@ export default function ImageUploadGrid({
       <input
         ref={inputRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept={IMAGE_ACCEPT}
         multiple
         className="hidden"
         onChange={handleSelect}

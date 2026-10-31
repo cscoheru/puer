@@ -7,6 +7,7 @@ import VoteButton from "@/components/vote-button";
 import MessageButton from "@/components/message-button";
 import { uploadWithRetry } from "@/lib/upload-client";
 import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { MEDIA_ACCEPT } from "@/lib/upload-types";
 import { sanitizeHtml } from "@/lib/sanitize";
 
 interface Author {
@@ -695,7 +696,7 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
                 <circle cx="8.5" cy="8.5" r="1.5" />
                 <path d="M21 15l-5-5L5 21" />
               </svg>
-              <input id="media-upload-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm" className="hidden" onChange={handleMediaSelect} />
+              <input id="media-upload-input" type="file" accept={MEDIA_ACCEPT} className="hidden" onChange={handleMediaSelect} />
             </label>
           </div>
 
