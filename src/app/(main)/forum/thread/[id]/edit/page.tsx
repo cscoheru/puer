@@ -6,6 +6,8 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import RichEditor from "@/components/rich-editor";
 import { uploadWithRetry } from "@/lib/upload-client";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { MEDIA_ACCEPT } from "@/lib/upload-types";
 import { can } from "@/lib/permissions";
 
 interface MediaItem {
@@ -101,17 +103,29 @@ export default function EditThreadPage({ params }: { params: Promise<{ id: strin
   }, [id]);
 
   const addFiles = useCallback((files: FileList | File[]) => {
-    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/webm", "video/quicktime"];
-    const newItems: MediaItem[] = Array.from(files)
-      .filter((f) => allowedTypes.includes(f.type))
-      .map((f) => ({
+    // 与 /forum/new 同一份 MIME 判定（含 HEIC/AVIF；浏览器不给 type 时按扩展名补）。
+    // 不支持的格式要**告诉用户**，不能静默丢掉 —— 静默丢掉会让文件凭空消失，
+    // 用户只看到「请至少上传一个文件」。
+    const newItems: MediaItem[] = [];
+    const rejected: string[] = [];
+    for (const f of Array.from(files)) {
+      const resolved = resolveUploadFile(f);
+      if (!resolved) {
+        rejected.push(f.name);
+        continue;
+      }
+      newItems.push({
         id: Math.random().toString(36).slice(2),
-        file: f,
-        preview: URL.createObjectURL(f),
-        type: f.type.startsWith("video/") ? "video" as const : "image" as const,
+        file: resolved.file,
+        preview: URL.createObjectURL(resolved.file),
+        type: resolved.isVideo ? "video" as const : "image" as const,
         uploaded: false,
         uploadProgress: 0,
-      }));
+      });
+    }
+    if (rejected.length > 0) {
+      setError(describeRejectedFiles(rejected));
+    }
     setImages((prev) => [...prev, ...newItems]);
 
     // Start uploading each new file immediately
@@ -324,7 +338,7 @@ export default function EditThreadPage({ params }: { params: Promise<{ id: strin
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
+            accept={MEDIA_ACCEPT}
             className="hidden"
             onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); }}
           />

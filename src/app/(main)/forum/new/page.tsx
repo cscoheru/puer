@@ -7,6 +7,8 @@ import Link from "next/link";
 import RichEditor from "@/components/rich-editor";
 import { FLAIRS } from "@/lib/forum-constants";
 import { uploadWithRetry } from "@/lib/upload-client";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { MEDIA_ACCEPT } from "@/lib/upload-types";
 
 interface Board {
   id: string;
@@ -106,17 +108,30 @@ export default function NewThreadPage() {
   }, []);
 
   const addFiles = useCallback((files: FileList | File[]) => {
-    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/webm", "video/quicktime"];
-    const newItems: MediaItem[] = Array.from(files)
-      .filter((f) => allowedTypes.includes(f.type))
-      .map((f) => ({
+    // MIME 判定统一走 `resolveUploadFile`：白名单与服务端同一份（含 HEIC/AVIF），
+    // 浏览器不给 type 时按扩展名补。**不支持的格式要告诉用户**，不能静默丢掉 ——
+    // 静默丢掉就是 2026-10-31 那次「手机端图片上传失败」的形态：文件凭空消失，
+    // 点提交才报「请至少上传一个文件」。
+    const newItems: MediaItem[] = [];
+    const rejected: string[] = [];
+    for (const f of Array.from(files)) {
+      const resolved = resolveUploadFile(f);
+      if (!resolved) {
+        rejected.push(f.name);
+        continue;
+      }
+      newItems.push({
         id: Math.random().toString(36).slice(2),
-        file: f,
-        preview: URL.createObjectURL(f),
-        type: f.type.startsWith("video/") ? "video" : "image",
+        file: resolved.file,
+        preview: URL.createObjectURL(resolved.file),
+        type: resolved.isVideo ? "video" : "image",
         uploaded: false,
         uploadProgress: 0,
-      }));
+      });
+    }
+    if (rejected.length > 0) {
+      setError(describeRejectedFiles(rejected));
+    }
     setMediaItems((prev) => [...prev, ...newItems]);
 
     // Start uploading each new file immediately
@@ -374,14 +389,14 @@ export default function NewThreadPage() {
                 <line x1="12" y1="3" x2="12" y2="15" />
               </svg>
               <p className="text-sm text-stone-600">拖拽文件到此处，或点击选择</p>
-              <p className="text-xs text-stone-400 mt-1">支持 JPG/PNG/GIF/WebP 图片和 MP4/WebM 视频</p>
+              <p className="text-xs text-stone-400 mt-1">支持 JPG/PNG/GIF/WebP/HEIC/AVIF 图片和 MP4/WebM/MOV 视频</p>
               <p className="text-xs text-amber-600 mt-0.5">有视频的帖子在热榜中自动获得加权</p>
             </div>
             <input
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
+              accept={MEDIA_ACCEPT}
               className="hidden"
               onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); }}
             />

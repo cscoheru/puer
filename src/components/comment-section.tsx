@@ -6,6 +6,7 @@ import Link from "next/link";
 import VoteButton from "@/components/vote-button";
 import MessageButton from "@/components/message-button";
 import { uploadWithRetry } from "@/lib/upload-client";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
 import { sanitizeHtml } from "@/lib/sanitize";
 
 interface Author {
@@ -284,20 +285,21 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
   const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/webm", "video/quicktime"];
-    if (!allowed.includes(file.type)) {
-      setError("只支持 JPG/PNG/GIF/WebP 或 MP4/WebM 视频");
+    // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+    const resolved = resolveUploadFile(file);
+    if (!resolved) {
+      setError(describeRejectedFiles([file.name]));
       return;
     }
-    const preview = URL.createObjectURL(file);
-    setMediaUpload({ file, preview });
+    const preview = URL.createObjectURL(resolved.file);
+    setMediaUpload({ file: resolved.file, preview });
     setUploading(true);
     setError("");
     try {
-      const result = await uploadWithRetry(file);
+      const result = await uploadWithRetry(resolved.file);
       setMediaUrl(result.url);
-    } catch {
-      setError("上传失败");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "上传失败");
       setMediaUpload(null);
       setMediaUrl(null);
     } finally {
@@ -312,8 +314,8 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
     try {
       const results = await Promise.all(Array.from(files).map((f) => uploadWithRetry(f)));
       setEditImages((prev) => [...prev, ...results.map((r) => r.url)]);
-    } catch {
-      setError("图片上传失败");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "图片上传失败");
     } finally {
       setEditUploading(false);
       e.target.value = "";

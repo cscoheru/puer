@@ -1,3 +1,14 @@
+import { resolveUploadFile } from "./upload-mime.ts";
+
+/**
+ * canvas 的 `toBlob` 能编码的格式。
+ *
+ * HEIC / HEIF / AVIF **不能**作为 `toBlob` 的输出类型 —— 浏览器不认，会静默
+ * 返回 null，于是压缩这步白做（原文件照传，客户端压缩等于没生效）。
+ * 这三种统一转成 JPEG：既压得下去，也跟服务端入库时的转码口径一致。
+ */
+const CANVAS_ENCODABLE = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
 const CHUNK_SIZE = 1024 * 1024; // 1MB per chunk
 const MAX_RETRIES_PER_CHUNK = 5;
 const IMAGE_MAX_WIDTH = 1200;
@@ -58,7 +69,13 @@ export async function compressImage(file: File): Promise<File> {
 
       ctx.drawImage(img, 0, 0, w, h);
 
-      const outputType = file.type === "image/png" ? "image/jpeg" : file.type;
+      // 输出格式必须是 canvas 编码得了的（heic/heif/avif 会让 toBlob 返回 null）
+      const outputType =
+        file.type === "image/png"
+          ? "image/jpeg"
+          : CANVAS_ENCODABLE.has(file.type)
+            ? file.type
+            : "image/jpeg";
       canvas.toBlob(
         (blob) => {
           clearTimeout(timer);
@@ -165,11 +182,23 @@ export async function uploadFile(
   category?: string,
   opts?: { raw?: boolean }
 ): Promise<UploadResult> {
+  // MIME 在这里统一定一次。
+  //
+  // 浏览器可能根本不给 type（Android WebView / 微信内置浏览器从相册取文件时
+  // 给的是空串或 application/octet-stream）—— 服务端按 multipart 的
+  // Content-Type 判定，空 type 会被以「不支持的文件类型」拒掉。所以先按扩展名
+  // 补出 MIME，并**写回文件**（下面每一步都从 file.type 取值）。
+  const resolved = resolveUploadFile(file);
+  if (!resolved) {
+    throw new Error(`不支持的文件格式（${file.type || "未知"}）`);
+  }
+  const source = resolved.file;
+
   // Compress images before upload — unless the caller needs full resolution
   // (OCR on wrapper fine print dies at the 1200px/q0.75 default).
-  const processed = !opts?.raw && file.type.startsWith("image/")
-    ? await compressImage(file)
-    : file;
+  const processed = !opts?.raw && source.type.startsWith("image/")
+    ? await compressImage(source)
+    : source;
 
   // Small files: single-shot FormData upload
   if (processed.size <= CHUNK_SIZE) {

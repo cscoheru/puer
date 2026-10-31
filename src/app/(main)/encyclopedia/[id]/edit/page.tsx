@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -300,20 +302,26 @@ export default function EditTeaPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file || images.length >= 2) return;
               e.target.value = "";
+              // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+              const resolved = resolveUploadFile(file, "image");
+              if (!resolved) {
+                alert(describeRejectedFiles([file.name]));
+                return;
+              }
               setUploading(true);
               const tempId = `temp-${Date.now()}`;
               try {
                 // Compress on client if > 512KB (reuse upload-client logic)
-                let toUpload: File = file;
-                if (file.size > 512 * 1024 && file.type.startsWith("image/") && file.type !== "image/gif") {
+                let toUpload: File = resolved.file;
+                if (toUpload.size > 512 * 1024 && toUpload.type.startsWith("image/") && toUpload.type !== "image/gif") {
                   const { compressImage } = await import("@/lib/upload-client");
-                  toUpload = await compressImage(file);
+                  toUpload = await compressImage(toUpload);
                 }
                 const fd = new FormData();
                 fd.append("file", toUpload);

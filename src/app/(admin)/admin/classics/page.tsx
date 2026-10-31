@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 import Link from "next/link";
 
 interface Tea {
@@ -302,14 +304,20 @@ export default function AdminClassicsPage() {
                   {b.logo ? "换logo" : "上传logo"}
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept={IMAGE_ACCEPT}
                     className="hidden"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       e.target.value = "";
+                      // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+                      const resolved = resolveUploadFile(file, "image");
+                      if (!resolved) {
+                        alert(describeRejectedFiles([file.name]));
+                        return;
+                      }
                       const fd = new FormData();
-                      fd.append("file", file);
+                      fd.append("file", resolved.file);
                       fd.append("category", "tea");
                       const res = await fetch("/api/upload", { method: "POST", body: fd });
                       if (res.ok) {

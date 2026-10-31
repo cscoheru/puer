@@ -54,8 +54,16 @@ export const VIDEO_MIMES = [
   "video/quicktime",
 ] as const;
 
-/** file input 的 accept 属性（图片）—— 选文件框给得出这些格式。 */
-export const IMAGE_ACCEPT = "image/jpeg,image/png,image/gif,image/webp";
+/**
+ * file input 的 accept 属性（图片）。
+ *
+ * 用完整的 `IMAGE_MIMES` —— 手机相册里就是 HEIC/AVIF，picker 认这些后缀才给得
+ * 出那些照片。少写一个，手机端就是「选了图却什么都没有」。
+ */
+export const IMAGE_ACCEPT = IMAGE_MIMES.join(",");
 
 /** file input 的 accept 属性（视频）。 */
 export const VIDEO_ACCEPT = VIDEO_MIMES.join(",");
+
+/** file input 的 accept 属性（图片 + 视频）—— 发帖、图片帖、品鉴笔记用这个。 */
+export const MEDIA_ACCEPT = [...IMAGE_MIMES, ...VIDEO_MIMES].join(",");

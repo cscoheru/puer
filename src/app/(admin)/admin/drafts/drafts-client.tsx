@@ -17,6 +17,7 @@
  * `onChanged`; `onClose` closes the panel.
  */
 import { useEffect, useState } from "react";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
 import RichEditor from "@/components/rich-editor";
 import { isTastingDraftId } from "@/lib/tea-drafts/id";
 import FactCheckPanel from "./fact-check-panel";
@@ -165,9 +166,10 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
   async function uploadImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-    if (!allowed.includes(file.type)) {
-      alert("只支持 JPG、PNG、GIF、WebP 格式");
+    // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+    const resolved = resolveUploadFile(file, "image");
+    if (!resolved) {
+      alert(describeRejectedFiles([file.name]));
       e.target.value = "";
       return;
     }
@@ -179,7 +181,7 @@ export default function DraftReviewPanel({ draft, sourceNote, onClose, onChanged
     setUploadingImg(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", resolved.file);
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       if (!res.ok) throw new Error(await res.text());
       const { url } = await res.json();

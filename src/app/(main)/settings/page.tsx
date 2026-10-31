@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import CellarDataControls from "@/components/cellar/cellar-data-controls";
@@ -133,14 +135,20 @@ export default function SettingsPage() {
             <input
               ref={fileRef}
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept={IMAGE_ACCEPT}
               className="hidden"
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
+                // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+                const resolved = resolveUploadFile(file, "image");
+                if (!resolved) {
+                  setMessage({ type: "error", text: describeRejectedFiles([file.name]) });
+                  return;
+                }
                 setUploading(true);
                 const fd = new FormData();
-                fd.append("file", file);
+                fd.append("file", resolved.file);
                 try {
                   const res = await fetch("/api/upload", { method: "POST", body: fd });
                   const data = await res.json();

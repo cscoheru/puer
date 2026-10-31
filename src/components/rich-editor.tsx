@@ -9,6 +9,7 @@ import Color from "@tiptap/extension-color";
 import ImageExt from "@tiptap/extension-image";
 import LinkExt from "@tiptap/extension-link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
 
 interface RichEditorProps {
   value: string;
@@ -98,9 +99,10 @@ export default function RichEditor({ value, onChange, placeholder, minHeight = 3
     const file = e.target.files?.[0];
     if (!file || !editor) return;
 
-    const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-    if (!allowed.includes(file.type)) {
-      alert("只支持 JPG、PNG、GIF、WebP 格式");
+    // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+    const resolved = resolveUploadFile(file, "image");
+    if (!resolved) {
+      alert(describeRejectedFiles([file.name]));
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -111,7 +113,7 @@ export default function RichEditor({ value, onChange, placeholder, minHeight = 3
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", resolved.file);
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       if (!res.ok) throw new Error(await res.text());
       const { url } = await res.json();

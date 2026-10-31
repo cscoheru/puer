@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { uploadWithRetry } from "@/lib/upload-client";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 
 interface Tea {
   id: string;
@@ -79,16 +81,27 @@ export default function NewTastingForm() {
   }, [mediaItems]);
 
   const addFiles = useCallback((files: FileList | File[]) => {
-    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-    const newItems: MediaItem[] = Array.from(files)
-      .filter((f) => allowedTypes.includes(f.type))
-      .map((f) => ({
+    // 与 /forum/new 同一份 MIME 判定（含 HEIC/AVIF；浏览器不给 type 时按扩展名补）。
+    // 这里只收图片（`kind: "image"`）；不支持的格式要告诉用户，不能静默丢掉。
+    const newItems: MediaItem[] = [];
+    const rejected: string[] = [];
+    for (const f of Array.from(files)) {
+      const resolved = resolveUploadFile(f, "image");
+      if (!resolved) {
+        rejected.push(f.name);
+        continue;
+      }
+      newItems.push({
         id: Math.random().toString(36).slice(2),
-        file: f,
-        preview: URL.createObjectURL(f),
+        file: resolved.file,
+        preview: URL.createObjectURL(resolved.file),
         uploaded: false,
         uploadProgress: 0,
-      }));
+      });
+    }
+    if (rejected.length > 0) {
+      setError(describeRejectedFiles(rejected));
+    }
     setMediaItems((prev) => [...prev, ...newItems]);
     for (const item of newItems) {
       uploadWithRetry(item.file, (progress) => {
@@ -260,7 +273,7 @@ export default function NewTastingForm() {
             <p className="text-sm text-stone-600">拖拽图片到此处，或点击选择</p>
             <p className="text-xs text-stone-400 mt-1">支持 JPG/PNG/GIF/WebP，封面停在第一张</p>
           </div>
-          <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp"
+          <input ref={fileInputRef} type="file" multiple accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); }} />
           {mediaItems.length > 0 && (

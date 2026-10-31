@@ -17,6 +17,8 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { IMAGE_ACCEPT } from "@/lib/upload-types";
 import RichEditor from "@/components/rich-editor";
 import ForumContent from "@/components/forum-content";
 import VideoPlayer from "@/components/video-player";
@@ -42,7 +44,6 @@ interface Props {
   };
 }
 
-const ACCEPTED = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const MAX_BYTES = 5 * 1024 * 1024;
 
 export default function TastingNoteEditor({ note }: Props) {
@@ -86,8 +87,10 @@ export default function TastingNoteEditor({ note }: Props) {
   async function uploadImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!ACCEPTED.includes(file.type)) {
-      alert("只支持 JPEG、PNG、GIF、WebP 格式");
+    // 与服务端同一份白名单（含 HEIC/AVIF）；浏览器不给 type 时按扩展名补
+    const resolved = resolveUploadFile(file, "image");
+    if (!resolved) {
+      alert(describeRejectedFiles([file.name]));
       e.target.value = "";
       return;
     }
@@ -99,7 +102,7 @@ export default function TastingNoteEditor({ note }: Props) {
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", resolved.file);
       fd.append("category", "tea");
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       if (!res.ok) throw new Error(await res.text());
@@ -317,7 +320,7 @@ export default function TastingNoteEditor({ note }: Props) {
             {uploading ? "…" : "＋"}
             <input
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept={IMAGE_ACCEPT}
               className="hidden"
               onChange={uploadImage}
               disabled={uploading}

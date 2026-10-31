@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { uploadWithRetry } from "@/lib/upload-client";
+import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
+import { MEDIA_ACCEPT } from "@/lib/upload-types";
 import { sanitizeHtml } from "@/lib/sanitize";
 
 interface CommentAuthor {
@@ -41,6 +43,9 @@ export default function TastingNoteComments({ tastingNoteId }: Props) {
   const [showEmoji, setShowEmoji] = useState(false);
   const [showColor, setShowColor] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // 上传失败/格式不支持必须**看得见** —— 原来这里是静默 return，用户只看到
+  // 「点了没反应」（2026-10-31 手机端图片上传失败的一环）。
+  const [error, setError] = useState("");
   const [mediaUpload, setMediaUpload] = useState<{ file: File; preview: string } | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -107,18 +112,24 @@ export default function TastingNoteComments({ tastingNoteId }: Props) {
   const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/webm"];
-    if (!allowed.includes(file.type)) return;
+    // 与服务端同一份白名单（含 HEIC/AVIF）；不支持的格式要告诉用户，不能静默丢掉
+    const resolved = resolveUploadFile(file);
+    if (!resolved) {
+      setError(describeRejectedFiles([file.name]));
+      return;
+    }
+    setError("");
 
-    const preview = URL.createObjectURL(file);
-    setMediaUpload({ file, preview });
+    const preview = URL.createObjectURL(resolved.file);
+    setMediaUpload({ file: resolved.file, preview });
     setUploading(true);
     try {
-      const result = await uploadWithRetry(file);
+      const result = await uploadWithRetry(resolved.file);
       setMediaUrl(result.url);
-    } catch {
+    } catch (err) {
       setMediaUpload(null);
       setMediaUrl(null);
+      setError(err instanceof Error ? err.message : "上传失败");
     } finally {
       setUploading(false);
     }
@@ -204,7 +215,7 @@ export default function TastingNoteComments({ tastingNoteId }: Props) {
                 <circle cx="8.5" cy="8.5" r="1.5" />
                 <path d="M21 15l-5-5L5 21" />
               </svg>
-              <input id="tn-media-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm" className="hidden" onChange={handleMediaSelect} />
+              <input id="tn-media-input" type="file" accept={MEDIA_ACCEPT} className="hidden" onChange={handleMediaSelect} />
             </label>
           </div>
 
@@ -217,6 +228,8 @@ export default function TastingNoteComments({ tastingNoteId }: Props) {
             maxLength={1000}
             className="w-full px-3 py-2.5 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 resize-none"
           />
+
+          {error && <p className="text-red-600 text-xs mt-1">{error}</p>}
 
           {mediaUpload && (
             <div className="mt-2 relative inline-block">

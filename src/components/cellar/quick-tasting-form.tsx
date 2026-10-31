@@ -23,7 +23,8 @@ import {
   type DimKey,
 } from "@/lib/cellar";
 import { uploadWithRetry } from "@/lib/upload-client";
-import { VIDEO_ACCEPT, VIDEO_MIMES } from "@/lib/upload-types";
+import { VIDEO_ACCEPT } from "@/lib/upload-types";
+import { resolveUploadFile } from "@/lib/upload-mime";
 import ImageUploadGrid from "@/components/sessions/image-upload-grid";
 
 /**
@@ -328,7 +329,9 @@ export default function QuickTastingForm({
   const handleVideo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!VIDEO_MIMES.includes(file.type as (typeof VIDEO_MIMES)[number])) {
+    // 与服务端同一份白名单；浏览器不给 type 时按扩展名补
+    const resolved = resolveUploadFile(file, "video");
+    if (!resolved) {
       setVideoError("只支持 MP4 / WebM / QuickTime(.mov) 视频");
       e.target.value = "";
       return;
@@ -341,7 +344,7 @@ export default function QuickTastingForm({
     setUploadingVideo(true);
     setVideoError("");
     try {
-      const { url } = await uploadWithRetry(file, undefined, 3, "tea");
+      const { url } = await uploadWithRetry(resolved.file, undefined, 3, "tea");
       setVideos((prev) => [...prev, url]);
     } catch (err) {
       setVideoError(
