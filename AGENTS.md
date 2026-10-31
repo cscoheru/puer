@@ -63,6 +63,32 @@ This version has breaking changes — APIs, conventions, and file structure may 
    （如 `images`/`videoUrl`）若不在 select 里，页面静默丢内容且不报错。新增展示字段时
    同步加 select + DTO + 类型三处。
 
+## R28 追加：客户端「各抄一份白名单」把手机端图片静默丢掉（2026-10-31）
+
+**事故**：站长报「手机端发帖图片上传失败（文本帖可以发）」。服务端从一开始就收
+HEIC/AVIF 并在入库时转码（真实 iPhone 格式 HEIC 在生产容器里逐段验过，全通）；
+真凶是**客户端 21 处代码各自手抄了一份只有 4 种图片格式的白名单**，手机相册里的
+HEIC（iPhone 默认）/ AVIF（Android 10+）被 `.filter()` **静默丢掉**：文件不进列表、
+不发请求、界面上连缩略图都没有 → 点提交才报「请至少上传一个文件」；文本帖不走
+这段代码，所以照常能发。nginx 日志佐证：手机端**一次** `/api/upload` 请求都没发过。
+
+**规则（R28）**
+
+1. **白名单/常量只有一份实现**：凡是「各处都要用」的东西（MIME、分类、状态值、
+   尺寸上限），放同一个模块两边都 import。**服务端改了、客户端抄的那份不会跟着变**，
+   而且因为过滤是 `.filter()`，丢掉的文件**不报错**——只剩用户一句「上传失败」。
+   新增上传入口前先搜 `type="file"`，确认走的是共享的那份。
+2. **过滤掉的项必须有可见出口**：按类型/状态过滤输入时，被丢弃的项**必须**给用户
+   一条提示（`describeRejectedFiles()` 这类），不许无声丢掉。静默 = 延迟爆炸。
+3. **浏览器给的 `File.type` 不可信**：Android WebView / 微信内置浏览器常给空串或
+   `application/octet-stream`。服务端按 multipart 的 Content-Type 判定，空 type 会被
+   以「不支持的文件类型」拒掉 → 客户端要按**扩展名**推断并**写回 `file.type`**
+   （multipart 与分片的 `X-File-Type` 头都从它取）。
+4. **canvas 的 `toBlob` 输出类型只有 jpeg/png/webp/gif**：heic/heif/avif 不合法，
+   浏览器**静默返回 null**，压缩等于没做。
+
+相关：[[puer-client-upload-mime-drift]]（详见 `src/lib/upload-mime.ts` 文件头）
+
 ## R27 追加：AI 供应商切换与「服务器侧改动回滚」事故
 
 **事故**（2026-09-14 发现）：R26 曾在服务器上手动改 `cron-task.sh`（auto-post 改 docker exec
