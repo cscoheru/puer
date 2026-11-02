@@ -18,6 +18,9 @@ const SELECT = {
   id: true,
   title: true,
   summary: true,
+  // 跳转目标要靠 source/sourceId 拼（镜像笔记 → /article/{sourceId}）
+  source: true,
+  sourceId: true,
   createdAt: true,
   stage: true,
   deltaVsPrev: true,
@@ -37,6 +40,8 @@ type RawNote = {
   id: string;
   title: string;
   summary: string | null;
+  source: string;
+  sourceId: string | null;
   createdAt: Date;
   stage: string | null;
   deltaVsPrev: string | null;
@@ -58,6 +63,8 @@ function toEditorTasting(n: RawNote): EditorTasting {
     id: n.id,
     title: n.title,
     summary: n.summary,
+    source: n.source,
+    sourceId: n.sourceId,
     createdAt: n.createdAt,
     stage: (n.stage as Stage | null) ?? null,
     deltaVsPrev: n.deltaVsPrev,

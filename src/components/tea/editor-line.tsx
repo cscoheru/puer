@@ -1,5 +1,7 @@
+import Link from "next/link";
 import {
   deltaLabel,
+  editorLineHref,
   stageLabel,
   stageTone,
   type EditorTasting,
@@ -8,8 +10,17 @@ import {
 /**
  * 站长线区块（PRD v0.3 §5 Phase 1）。
  *
- * 只展示结构化字段与摘要预览 —— 品鉴全文仍是站长私人的（admin 才看得到），
- * 这里给的是「时间轴 + 结论」，让访客知道这款茶在站长手里是什么状态。
+ * ## 现在是可点的
+ *
+ * 2026-11-02 站长报「站长线上的品鉴记录一个都点不开，看不到详情」。查实是两层
+ * 叠加，**都不是权限设计**：
+ *   ① 这个组件从 2026-10-23 上线起就**从来没渲染过链接**（`git log -p` 全
+ *      history 里没有过 `next/link` / `href=`）—— 是「从未实现」，不是回归；
+ *   ② 就算补上链接，`/tasting/[id]` 当时整个页面是 `admin:access` 守卫，
+ *      连站长自己点进去都是 404。
+ *
+ * 现在：卡片链到记录的正身（镜像笔记 → 帖子页，原始笔记 → 笔记页），
+ * 详情页按「摘要公开、正文要登录」分级展示（`src/lib/archive-visibility.ts`）。
  */
 export default function EditorLineView({
   tastings,
@@ -74,7 +85,10 @@ function EditorLineItem({ t }: { t: EditorTasting }) {
   return (
     <div className="relative pl-6">
       <span className="absolute -left-[9px] top-2 w-4 h-4 rounded-full bg-amber-700 border-2 border-white" />
-      <div className="bg-white border border-stone-200 rounded-lg p-3">
+      <Link
+        href={editorLineHref(t)}
+        className="block bg-white border border-stone-200 rounded-lg p-3 hover:border-amber-400 hover:bg-amber-50/30 transition cursor-pointer group"
+      >
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-semibold text-amber-800">
             {new Date(t.createdAt).getFullYear()} 年
@@ -118,7 +132,11 @@ function EditorLineItem({ t }: { t: EditorTasting }) {
             {t.summary}
           </p>
         )}
-      </div>
+
+        <p className="text-[0.65rem] text-amber-700 mt-1.5 opacity-0 group-hover:opacity-100 transition">
+          查看详情 →
+        </p>
+      </Link>
     </div>
   );
 }

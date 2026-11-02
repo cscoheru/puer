@@ -5,6 +5,7 @@ import {
   buildEditorStatement,
   deltaLabel,
   editorAuthorUids,
+  editorLineHref,
   stageLabel,
   stageTone,
   type EditorTasting,
@@ -14,6 +15,8 @@ const tasting = (over: Partial<EditorTasting> = {}): EditorTasting => ({
   id: "n1",
   title: "开汤",
   summary: null,
+  source: "evernote",
+  sourceId: null,
   createdAt: new Date("2024-01-01"),
   stage: "drinking",
   deltaVsPrev: null,
@@ -24,6 +27,23 @@ const tasting = (over: Partial<EditorTasting> = {}): EditorTasting => ({
   basis: {},
   authorUid: 1001,
   ...over,
+});
+
+test("editorLineHref：镜像笔记跳帖子，原始笔记跳笔记页", () => {
+  // 2026-11-02：站长线卡片要可点 —— 跳转目标靠 source/sourceId 拼
+  assert.equal(
+    editorLineHref({ id: "n1", source: "evernote", sourceId: null }),
+    "/tasting/n1",
+  );
+  assert.equal(
+    editorLineHref({ id: "n2", source: "article", sourceId: "a9" }),
+    "/article/a9",
+  );
+  // 镜像但没有 sourceId（理论上不该发生）→ 落回笔记页，不拼出坏链接
+  assert.equal(
+    editorLineHref({ id: "n3", source: "article", sourceId: null }),
+    "/tasting/n3",
+  );
 });
 
 test("editorAuthorUids：没配就用默认，坏了也回落到默认", () => {

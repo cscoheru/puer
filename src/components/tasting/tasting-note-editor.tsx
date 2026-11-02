@@ -42,11 +42,25 @@ interface Props {
     createdAt: string;
     tea: TeaRef;
   };
+  /**
+   * 能不能编辑。默认 true（这个组件原先只在 admin 后台用）。
+   *
+   * 2026-11-02 起 `/tasting/[id]` 对公众开放（摘要公开、正文要登录），
+   * 于是「编辑」按钮必须按档位关掉 —— 否则普通访客会看到一个点不动的编辑框。
+   */
+  canEdit?: boolean;
+  /**
+   * 正文是否被锁（未登录访客）。服务端此时**不会**把正文传进来
+   * （受保护内容不进 SSR —— 否则 view-source 里就有全文）。
+   */
+  locked?: boolean;
+  /** 登录落点（locked 时给「登录查看」链接）。 */
+  loginHref?: string;
 }
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
-export default function TastingNoteEditor({ note }: Props) {
+export default function TastingNoteEditor({ note, canEdit = true, locked = false, loginHref }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(note.title);
@@ -169,15 +183,17 @@ export default function TastingNoteEditor({ note }: Props) {
                 <span>{new Date(note.createdAt).toLocaleDateString("zh-CN")}</span>
               </div>
             </div>
-            <button
-              onClick={() => {
-                reset();
-                setEditing(true);
-              }}
-              className="shrink-0 text-xs text-amber-700 hover:text-amber-900 font-medium border border-amber-200 rounded-lg px-3 py-1.5 hover:bg-amber-50"
-            >
-              ✏️ 编辑
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => {
+                  reset();
+                  setEditing(true);
+                }}
+                className="shrink-0 text-xs text-amber-700 hover:text-amber-900 font-medium border border-amber-200 rounded-lg px-3 py-1.5 hover:bg-amber-50"
+              >
+                ✏️ 编辑
+              </button>
+            )}
           </div>
           <Link
             href={`/tea/${tea.id}`}
@@ -195,7 +211,23 @@ export default function TastingNoteEditor({ note }: Props) {
         </div>
 
         <div className="bg-white rounded-xl border border-stone-200 p-5 md:p-8 mb-6">
-          <ForumContent html={note.content} />
+          {locked ? (
+            <div className="text-center py-6">
+              <p className="text-sm text-stone-500 mb-3">
+                完整品鉴正文登录后可见（摘要与评分已在上方公开）
+              </p>
+              {loginHref && (
+                <a
+                  href={loginHref}
+                  className="inline-block px-4 py-2 bg-amber-800 text-white text-sm rounded-lg hover:bg-amber-900 transition"
+                >
+                  登录查看全文
+                </a>
+              )}
+            </div>
+          ) : (
+            <ForumContent html={note.content} />
+          )}
         </div>
 
         {note.videoUrl && (

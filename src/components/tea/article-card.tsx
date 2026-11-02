@@ -15,7 +15,10 @@ interface ArticleCardProps {
 }
 
 export default function ArticleCard({ article }: ArticleCardProps) {
-  const href = article.type === "tasting" ? `/tasting/${article.id}` : `/article/${article.id}`;
+  // ⚠️ 不要再按 `article.type === "tasting"` 分流到 `/tasting/${article.id}`：
+  // 那个路由查的是 **TastingNote**，而这里是 Article.id —— 永远查不到，
+  // 对管理员也一样 404（2026-11-02 修掉的死链）。文章一律走 /article/{id}。
+  const href = `/article/${article.id}`;
 
   const scoreObj = article.tastingScores as Record<string, number> | null | undefined;
   const avgScore =

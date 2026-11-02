@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { loadTeaLastActivity } from "@/lib/tea-heat-server";
 import { auth } from "@/lib/auth";
 import { convertText } from "@/lib/s2t";
 import { t, twHref } from "@/i18n/translations";
@@ -22,61 +23,18 @@ type SidebarTea = {
   thumb: string | null;
 };
 
-/** P2-R8 侧栏热点茶品：按最近品鉴/跟进时间动态排序，热度计数兜底补足 */
+/**
+ * P2-R8 侧栏热点茶品：按最近品鉴/跟进时间动态排序，热度计数兜底补足。
+ *
+ * 「最近活动时间」的口径**只有一份**：`loadTeaLastActivity`
+ * （`src/lib/tea-heat-server.ts`）—— 与经典普洱页的「最近更新」排序用的是
+ * 同一个函数。原先这里自己 groupBy 了两遍、用的是 `createdAt`，与那边不一致
+ * （AGENTS.md R28：同一件事只有一份实现）。
+ */
 async function loadHotClassicTeas(take = 5): Promise<SidebarTea[]> {
-  const [recentNotes, recentArticles] = await Promise.all([
-    // 最近品鉴笔记（经典茶），每茶取最新一条时间
-    prisma.tastingNote
-      .groupBy({
-        by: ["teaId"],
-        where: { tea: { isClassic: true } },
-        _max: { createdAt: true },
-        orderBy: { _max: { createdAt: "desc" } },
-        take: 12,
-      })
-      .catch(() => [] as { teaId: string; _max: { createdAt: Date | null } }[]),
-    // 最近跟进帖（经典茶），每茶取最新一条时间
-    prisma.article
-      .groupBy({
-        by: ["teaId"],
-        where: { teaId: { not: null }, tea: { isClassic: true } },
-        _max: { createdAt: true },
-        orderBy: { _max: { createdAt: "desc" } },
-        take: 12,
-      })
-      .catch(() => [] as { teaId: string | null; _max: { createdAt: Date | null } }[]),
-  ]);
-
-  // 合并两种活动信号 → 每茶最近活动时间
-  const activity = new Map<string, Date>();
-  for (const row of [...recentNotes, ...recentArticles]) {
-    if (!row.teaId || !row._max.createdAt) continue;
-    const prev = activity.get(row.teaId);
-    if (!prev || row._max.createdAt > prev) activity.set(row.teaId, row._max.createdAt);
-  }
-  const dynamicIds = [...activity.entries()]
-    .sort((a, b) => b[1].getTime() - a[1].getTime())
-    .slice(0, take)
-    .map(([id]) => id);
-
-  // 动态茶不足时按品鉴数热度补足
-  let ids = dynamicIds;
-  if (ids.length < take) {
-    const fill = await prisma.tea
-      .findMany({
-        where: { isClassic: true, id: { notIn: ids } },
-        orderBy: { tastingNoteCount: "desc" },
-        take: take - ids.length,
-        select: { id: true },
-      })
-      .catch(() => [] as { id: string }[]);
-    ids = [...ids, ...fill.map((t) => t.id)];
-  }
-  if (ids.length === 0) return [];
-
-  const teas = await prisma.tea
+  const classicTeas = await prisma.tea
     .findMany({
-      where: { id: { in: ids } },
+      where: { isClassic: true, needsReview: false },
       select: {
         id: true,
         name: true,
@@ -87,6 +45,22 @@ async function loadHotClassicTeas(take = 5): Promise<SidebarTea[]> {
       },
     })
     .catch(() => []);
+
+  if (classicTeas.length === 0) return [];
+
+  // 每款茶的最后活动时间（共享口径）
+  const activity = await loadTeaLastActivity(classicTeas.map((t) => t.id));
+
+  // 有活动的按活动时间倒序；不足 take 条时按品鉴数热度补足（排后）
+  const byActivity = classicTeas
+    .filter((t) => activity.has(t.id))
+    .sort((a, b) => (activity.get(b.id)!.getTime() - activity.get(a.id)!.getTime()))
+    .slice(0, take);
+  const rest = classicTeas
+    .filter((t) => !activity.has(t.id))
+    .sort((a, b) => b.tastingNoteCount - a.tastingNoteCount)
+    .slice(0, Math.max(0, take - byActivity.length));
+  const teas = [...byActivity, ...rest];
 
   // 保持活动时间排序；缩略图三级链（封面 → 图库 → 茶记图）
   return teas

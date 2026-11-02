@@ -88,6 +88,9 @@ const EDITOR_ACTIONS: readonly Action[] = [
   "tasting:write",
   "tasting:promote",
   "tea:create",
+  // 2026-11-02：站长要能编辑茶品（原先只有 admin 有茶品编辑权，站长反而得去走
+  // 公开的 PUT /api/teas/[id] —— 那条路当时只判等级，是个越权口子）。
+  "tea:edit",
   "tea:review",
   "tea:promote",
 ];

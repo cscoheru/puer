@@ -72,6 +72,13 @@ const READ_POINTS: [string, RegExp][] = [
   ["src/app/api/admin/teas/classic/route.ts", /needsReview/],
   ["src/app/api/admin/tasting-notes/promote/route.ts", /needsReview/],
   ["src/app/api/admin/tasting-notes/split/route.ts", /needsReview/],
+  // 2026-11-02：经典区的公开读点此前**不**带 needsReview —— 用户自建的茶
+  // （越权口子放进去的）会直接公开出现在经典普洱区、侧栏、sitemap、落地页。
+  ["src/app/(main)/forum/classics/page.tsx", /visibleTeaWhere|needsReview/],
+  ["src/components/forum-sidebar.tsx", /needsReview/],
+  ["src/app/sitemap.ts", /needsReview/],
+  ["src/lib/tea-landing-server.ts", /visibleTeaWhere|needsReview/],
+  ["src/lib/price-snapshot-data.ts", /needsReview/],
 ];
 
 test("每个茶品读点/写点都碰到了 needsReview", () => {
@@ -87,6 +94,7 @@ test("待整理的茶品不会被公开读点放行（写死的 needsReview: fal
   for (const file of [
     "src/app/api/teas/route.ts",
     "src/app/(main)/tea/page.tsx",
+    "src/app/(main)/forum/classics/page.tsx",
   ]) {
     const src = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
     assert.match(src, /visibleTeaWhere/, `${file} 应当调 visibleTeaWhere（唯一口径）`);

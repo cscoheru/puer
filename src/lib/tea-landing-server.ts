@@ -6,8 +6,18 @@ import {
   teaListSelect,
   type TeaListRow,
 } from "@/lib/tea-query";
+import { sortTeas, type TeaHeatInput } from "@/lib/tea-heat.ts";
+import { loadTeaHeatInputs } from "@/lib/tea-heat-server.ts";
+import { visibleTeaWhere } from "@/lib/tea-tier.ts";
 
-const CLASSIC = { isClassic: true, deletedAt: null } as const;
+/**
+ * 「经典」= 站长认可的茶品集合。
+ *
+ * `visibleTeaWhere()`（needsReview:false）是「还没被站长整理过」的排除口径 ——
+ * 2026-11-02 收口：经典区的读点此前**不**带它，用户自建的茶（越权口子放进去的）
+ * 会直接公开出现在经典普洱区、侧栏、sitemap 与落地页里。
+ */
+const CLASSIC = { isClassic: true, deletedAt: null, ...visibleTeaWhere() } as const;
 
 export type Facets = {
   brands: { brand: string; count: number; latest: Date | null }[];
@@ -83,20 +93,48 @@ export async function loadFacets(): Promise<Facets> {
 }
 
 /**
- * 某类目下的经典茶（落地页最多展示 200 条，够覆盖现有 152 款）。
+ * 某类目下的经典茶（落地页最多展示 200 条，够覆盖现有 152 款）—— **已按热度排好**。
+ *
+ * 排序口径与 `/forum/classics` 完全一致（同一份 `sortTeas` + 同一份热度公式），
+ * 不在这里另写一套 —— AGENTS.md R28：公式只有一份实现。
  *
  * `CLASSIC` 放在展开的**后面**：调用方传什么都关不掉公开过滤（`isClassic: true` /
  * `deletedAt: null` 是公开面的不变量，不该由调用方决定）。
  * 同样不吞错误：DB 故障时宁可 5xx，也不要给爬虫一个空壳类目页。
+ * （热度**统计**那一环例外：读者数取不到时降级为 0，不让统计问题把页面变成 5xx。）
  */
 export async function loadClassicTeas(
   where: Record<string, unknown>,
   take = 200,
 ): Promise<TeaListRow[]> {
-  return prisma.tea.findMany({
+  const teas = await prisma.tea.findMany({
     where: { ...where, ...CLASSIC },
     orderBy: [{ tastingNoteCount: "desc" }, { year: "desc" }],
     take,
     select: teaListSelect,
   });
+  const heatMap = await loadTeaHeatInputs(
+    teas.map((t) => ({ id: t.id, coverImage: t.coverImage, gallery: t.gallery })),
+  );
+  const now = Date.now();
+  return sortTeas(
+    teas.map((t) => ({
+      ...t,
+      ...(heatMap.get(t.id) ?? EMPTY_HEAT(t.id)),
+    })),
+    "heat",
+    { now, bucket: Math.floor(now / 3600000) },
+  ).slice(0, take);
+}
+
+/** 聚合失败时的兜底热度输入（全部归零，排在最后）。 */
+function EMPTY_HEAT(id: string): TeaHeatInput {
+  return {
+    id,
+    netVotes: 0,
+    replyCount: 0,
+    realReaders: 0,
+    hasMedia: false,
+    lastActivity: new Date(0),
+  };
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { TeaList } from "./tea-list";
-import { sortByHeat, type TeaListRow } from "@/lib/tea-query";
+import { type TeaListRow } from "@/lib/tea-query";
 import { safeJsonLdStringify } from "@/lib/json-ld";
 
 export type Crumb = { name: string; path: string };
@@ -84,7 +84,7 @@ export function TeaLanding({
         茶品档案 <span className="text-sm font-normal text-stone-400">共 {teas.length} 款</span>
       </h2>
       {teas.length > 0 ? (
-        <TeaList teas={sortByHeat(teas)} />
+        <TeaList teas={teas} />
       ) : (
         <p className="text-center text-stone-400 py-16 bg-white rounded-xl border border-dashed border-stone-200 text-sm">
           该分类下暂无经典茶品收录

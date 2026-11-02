@@ -82,7 +82,7 @@ export interface RecordableTea {
 export async function listRecordableTeas(): Promise<RecordableTea[]> {
   const [classicTeas, cellarTeas] = await Promise.all([
     prisma.tea.findMany({
-      where: { isClassic: true, deletedAt: null },
+      where: { isClassic: true, deletedAt: null, needsReview: false },
       select: { id: true, name: true, brand: true, year: true, isClassic: true },
       orderBy: [{ brand: "asc" }, { year: "asc" }, { name: "asc" }],
     }),

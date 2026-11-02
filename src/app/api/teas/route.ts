@@ -6,6 +6,7 @@ import { clampListLimit, clampListPage, paginationCapped, parseRequestedPage } f
 import { can } from "@/lib/permissions";
 import { checkRateLimit, rateLimitKey, getClientIP, LIMIT_LIST_READ } from "@/lib/rate-limit";
 import { visibleTeaWhere } from "@/lib/tea-tier";
+import { canManageTeas, canPromoteToClassic } from "@/lib/tea-permissions";
 
 const teaSchema = z.object({
   name: z.string().min(1).max(200),
@@ -19,8 +20,10 @@ const teaSchema = z.object({
   coverImage: z.string().optional(),
   gallery: z.array(z.string()).optional(),
   description: z.string().optional(),
-  // P2-R6「发布新经典」：Lv.2+ 创建茶品时可同时入选经典普洱吧
-  isClassic: z.boolean().optional(),
+  // ⚠️ 这里**故意没有** isClassic：2026-11-02 起「经典」不再是用户能自称的
+  // 选项 —— zod 会把请求里的 isClassic **strip 掉**，创建逻辑改读原始 body，
+  // 再按权限（canPromoteToClassic）重新判定。留着这个字段的后果是：
+  // 谁都能把自建的茶直接塞进公开的经典普洱区。
 });
 
 export async function GET(req: NextRequest) {
@@ -100,20 +103,36 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.level < 2) {
-    return NextResponse.json({ error: "需要Lv.2茶人及以上才能创建茶品百科" }, { status: 403 });
+  // 2026-11-02：闸门从「等级 >= 2」换成**权限**。
+  //
+  // 等级闸门的意思是「任何 Lv.2 爱茶人都能建茶品、还能把自己建的茶直接
+  // 设成经典」—— 而经典区的读点此前又不按 needsReview 过滤，于是用户自建的
+  // 茶会**直接公开出现在经典普洱区**（列表公开、点进去 404）。
+  // 站长的口径：只有管理员与站长能建经典/编辑茶品；普通用户唯一的参与
+  // 方式是发跟进帖。
+  if (!canManageTeas(session?.user)) {
+    return NextResponse.json({ error: "只有管理员与站长可以创建茶品" }, { status: 403 });
   }
 
   const body = await req.json();
   const data = teaSchema.parse(body);
 
+  // 「是否经典」**由服务端按权限判定** —— 前端勾了不算数。
+  //
+  // zod schema 里没有 isClassic（它会被 strip 掉），所以这里直接读原始 body：
+  // 想发布为经典，必须**同时**满足「请求里勾了」与「这个人有权策展」。
+  const publishAsClassic =
+    body?.isClassic === true && canPromoteToClassic(session?.user);
+
   const tea = await prisma.tea.create({
     data: {
       ...data,
-      // 用户自建的茶品是**素材**：先进「待整理」层，站长编辑过（改名/合并/
-      // 提升为经典）才进入公开的「普通」层。用户自己看得见，别人看不见。
-      needsReview: true,
-      createdBy: session.user.id,
+      isClassic: publishAsClassic,
+      // 站长/管理员自己策展的经典茶视为「已整理」（needsReview=false），
+      // 直接出现在经典普洱区；其余一律进「待整理」层 —— 只有创建者与站长看得见，
+      // 由站长在后台整理（改名/合并/提升为经典）后才进公开层。
+      needsReview: !publishAsClassic,
+      createdBy: session!.user.id,
     },
   });
 

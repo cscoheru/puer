@@ -44,10 +44,12 @@ test("own 类动作只在作用于自己时放行", () => {
   assert.equal(can(user, "post:edit:any", { ownUserId: "other" }), false);
 });
 
-test("站长级作者：能写品鉴、录茶品，但不能进后台", () => {
+test("站长级作者：能写品鉴、录茶品、编辑茶品，但不能进后台", () => {
   assert.equal(can(editor, "tasting:write"), true);
   assert.equal(can(editor, "tea:create"), true);
   assert.equal(can(editor, "tea:review"), true);
+  // 2026-11-02：站长要能编辑茶品（原先只有 admin 有，站长反而没权限）
+  assert.equal(can(editor, "tea:edit"), true);
   assert.equal(can(editor, "admin:access"), false);
 });
 

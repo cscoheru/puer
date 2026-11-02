@@ -5,6 +5,8 @@ import { notFound } from "next/navigation";
 import TastingNoteComments from "@/components/tasting-note-comments";
 import TastingNoteEditor from "@/components/tasting/tasting-note-editor";
 import { can } from "@/lib/permissions";
+import { archiveTier, canViewNoteBody, gateArchiveContent } from "@/lib/archive-visibility";
+import { canManageTeas } from "@/lib/tea-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +17,7 @@ interface PageProps {
 export default async function TastingNotePage({ params }: PageProps) {
   const { id } = await params;
   const session = await auth();
-
-  // Admin only — non-admins see 404
-  if (!can(session?.user, "admin:access")) notFound();
+  const isAdmin = can(session?.user, "admin:access");
 
   const note = await prisma.tastingNote.findUnique({
     where: { id },
@@ -28,7 +28,28 @@ export default async function TastingNotePage({ params }: PageProps) {
     },
   });
 
-  if (!note) notFound();
+  if (!note || note.tea.deletedAt) notFound();
+
+  // R23 茶品库对用户绝对隐藏：非经典茶的档案页对普通用户 404。
+  // 详情页同理 —— 否则猜到一个 id 就能从笔记页摸到茶品库。
+  //
+  // 「待整理」（needsReview）的茶同理：它的档案页对普通用户 404，
+  // 笔记页不能比档案页更宽松（否则就是「列表与详情不一致」的另一种形态）。
+  const teaIsPublic = note.tea.isClassic && !note.tea.needsReview;
+  if (!teaIsPublic && !canManageTeas(session?.user)) notFound();
+
+  // 档案内容分级（2026-11-02 站长定的口径：**摘要公开、正文要登录**）。
+  //
+  // 受保护内容**不进 SSR**：未登录时正文根本不传给客户端组件，
+  // 否则 view-source 里就有全文（P2-R22 一直强调的那条）。
+  const tier = archiveTier({
+    userId: session?.user?.id,
+    isAdmin,
+    isPaidMember: false, // TODO(R22+): 付费会员体系（session 会员字段）
+  });
+  const loginHref = session?.user
+    ? undefined
+    : `/login?next=${encodeURIComponent(`/tasting/${id}`)}`;
 
   const scores = [
     { label: "外形", value: note.appearance },
@@ -38,9 +59,22 @@ export default async function TastingNotePage({ params }: PageProps) {
     { label: "余韵", value: note.aftertaste },
   ].filter((s) => s.value !== null);
 
-  const images: string[] = Array.isArray(note.images)
+  const allImages: string[] = Array.isArray(note.images)
     ? (note.images as unknown[]).filter((i): i is string => typeof i === "string")
     : [];
+
+  // 作者本人与管理员看全文；其余按档位（member 档 = 已登录 → 全文）
+  const canSeeBody = canViewNoteBody(
+    tier,
+    { userId: session?.user?.id, isAdmin },
+    note.authorId,
+  );
+  const gated = gateArchiveContent(
+    canSeeBody ? "staff" : tier,
+    note.content,
+    allImages,
+  );
+  const images = gated.images;
 
   return (
     <div className="max-w-3xl mx-auto px-4 md:px-8 lg:px-16 py-6 md:py-10">
@@ -55,10 +89,14 @@ export default async function TastingNotePage({ params }: PageProps) {
 
       {/* Editable island: title/author/tea card, body, video and image gallery */}
       <TastingNoteEditor
+        canEdit={isAdmin}
+        locked={gated.locked}
+        loginHref={loginHref}
         note={{
           id: note.id,
           title: note.title,
-          content: note.content,
+          // 未登录时这里是空串 —— 正文不进 SSR
+          content: gated.content,
           images,
           videoUrl: note.videoUrl,
           authorName: note.author.username,

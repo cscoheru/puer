@@ -7,6 +7,7 @@ import { LANDING_MIN_TEAS, PREFERRED_BRANDS, normalizeTeaType, teaListSelect } f
 import { pageWindow } from "@/lib/pagination";
 import { can } from "@/lib/permissions";
 import { visibleTeaWhere } from "@/lib/tea-tier";
+import { canManageTeas } from "@/lib/tea-permissions";
 
 export const metadata: Metadata = {
   title: "普洱茶库 - 普洱茶品大全（大益/下关/福今）",
@@ -31,6 +32,8 @@ export default async function TeaListPage({ searchParams }: PageProps) {
   // 暴露名称/厂牌/年份等索引信息，正文与行情仍在详情页闸门之后。
   const session = await auth();
   const isAdmin = can(session?.user, "admin:access");
+  // 「新增茶品」/「编辑」入口：管理员与站长（2026-11-02 收紧，原先是 level >= 2）
+  const canManage = canManageTeas(session?.user);
   const params = await searchParams;
   const brand = params.brand || "";
   const year = params.year || "";
@@ -69,12 +72,12 @@ export default async function TeaListPage({ searchParams }: PageProps) {
     prisma.tea
       .groupBy({
         by: ["brand"],
-        where: { deletedAt: null, isClassic: true },
+        where: { deletedAt: null, isClassic: true, ...visibleTeaWhere() },
         _count: { _all: true },
       })
       .catch(() => []),
     // 子集口径的总数：始终是「全库经典款数」，不受当前筛选影响
-    prisma.tea.count({ where: { deletedAt: null, isClassic: true } }),
+    prisma.tea.count({ where: { deletedAt: null, isClassic: true, ...visibleTeaWhere() } }),
     // 公开可见的总数（经典 + 普通）—— 不含「待整理」
     prisma.tea.count({ where: { deletedAt: null, needsReview: false } }),
   ]);
@@ -109,7 +112,7 @@ export default async function TeaListPage({ searchParams }: PageProps) {
 
       <div className="flex items-center justify-between mb-4 gap-3">
         <h1 className="text-2xl md:text-3xl font-serif font-bold text-stone-800">普洱茶库</h1>
-        {isAdmin && (
+        {canManage && (
           <Link
             href="/encyclopedia/new"
             className="shrink-0 text-sm bg-amber-800 text-white px-4 py-2 rounded-lg hover:bg-amber-900 transition"

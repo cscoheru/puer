@@ -70,7 +70,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     // P2-R23 茶品库隐藏：sitemap 只收录经典普洱茶详情页（非经典私人档案不进搜索引擎）
     const teas = await prisma.tea.findMany({
-      where: { deletedAt: null, isClassic: true },
+      where: { deletedAt: null, isClassic: true, needsReview: false },
       select: { id: true, updatedAt: true, coverImage: true },
       take: 1000,
     });

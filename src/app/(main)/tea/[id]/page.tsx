@@ -8,6 +8,8 @@ import ArticleCard from "@/components/tea/article-card";
 import TastingCard from "@/components/tea/tasting-card";
 import PromoteButton from "@/components/tea/promote-button";
 import { LockedTip, LockedWallOverlay } from "@/components/tea/locked-tip";
+import { archiveTier, canViewArchiveImages, WALL_PREVIEW_COUNT } from "@/lib/archive-visibility";
+import { canManageTeas } from "@/lib/tea-permissions";
 import TeaBackButton from "@/components/tea/back-button";
 import type { Prisma } from "@/generated/prisma/client";
 import { visibleArticleWhere } from "@/lib/article-visibility";
@@ -83,7 +85,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function TeaDetailPage({ params }: PageProps) {
   const { id } = await params;
   const session = await auth();
-  const canEdit = session?.user && session.user.level >= 2;
+  // 2026-11-02：编辑入口从「等级 >= 2」换成**权限**（管理员与站长）。
+  // 原先任何 Lv.2 普通用户在**任意**茶品页都看得到「编辑」并能改经典茶 ——
+  // 越权口子在服务端（PUT /api/teas/[id]）也一并堵上了。
+  const canEdit = canManageTeas(session?.user);
   const isAdmin = can(session?.user, "admin:access");
 
   const tea = await prisma.tea.findFirst({
@@ -162,13 +167,25 @@ export default async function TeaDetailPage({ params }: PageProps) {
   // 但对所有人公开"转化档案"摘要时间线（标题 + summary + 评分 + 首图）。
   const visibleNotes = isAdmin ? tastingNotes : [];
 
-  // P2-R22 付费会员区预埋：目前无付费体系，全员（除 admin）仅见预览——
-  // 转化档案摘要截断（约两行）、时间线不显示笔记图片、图片墙只输出前两行且加渐变锁定遮罩。
-  // 受保护内容一律不进 SSR HTML（view-source 拿不到全文/图 URL）；接入付费体系后改此判断即可。
+  // 档案内容分级 —— **共享模块**（`src/lib/archive-visibility.ts`），别在这里再写一份。
+  //
+  // 2026-11-02 站长定的口径：**摘要公开、正文要登录**。
+  // 原先这里是「付费会员专享」的占位（isPaidMember 恒为 false，站内根本没有付费
+  // 体系），于是所有人只看到 64 字摘要 + 前 10 张图，还要被告知「仅付费会员可见」——
+  // 那套文案一直在骗人。现在：摘要谁都能看，正文与全部图片登录后可见。
+  //
+  // 受保护内容一律不进 SSR HTML（view-source 拿不到全文/图 URL）。
   const isPaidMember = false; // TODO(R22+): 付费会员体系（session 会员字段）
-  const canViewFullArchive = isAdmin || isPaidMember;
-  const ARCHIVE_PREVIEW_LEN = 64; // 摘要预览字数（约两行）
-  const WALL_PREVIEW_COUNT = 10; // 图片墙两行（桌面 5 列 × 2）
+  const tier = archiveTier({
+    userId: session?.user?.id,
+    isAdmin,
+    isPaidMember,
+  });
+  const canViewFullArchive = canViewArchiveImages(tier);
+  // 未登录时的「登录查看」落点（回到当前页）
+  const loginHref = session?.user
+    ? undefined
+    : `/login?next=${encodeURIComponent(`/tea/${id}`)}`;
 
   // Public conversion timeline (curated summary only), oldest → newest
   //
@@ -193,15 +210,11 @@ export default async function TeaDetailPage({ params }: PageProps) {
           ),
         };
       }
-      // 非付费：仅预览——截断摘要（SSR 不输出全文），不带笔记图片
-      const preview =
-        n.summary && n.summary.length > ARCHIVE_PREVIEW_LEN
-          ? `${n.summary.slice(0, ARCHIVE_PREVIEW_LEN)}……`
-          : n.summary;
+      // 未登录：摘要公开（完整），但**不带笔记图片** —— 图片 URL 不下发
       return {
         id: n.id,
         title: n.title,
-        summary: preview,
+        summary: n.summary,
         createdAt: n.createdAt,
         cover: null,
         scores: [n.appearance, n.color, n.aroma, n.taste, n.aftertaste].filter(
@@ -391,14 +404,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
       {/* 站长线（PRD §5 Phase 1）— 站长一手品鉴时间轴 + 来源声明 */}
       {editorLine && (
         <EditorLineView
-          tastings={editorLine.tastings.map((t) => ({
-            ...t,
-            // 摘要同属受保护内容：非付费/非 admin 只能拿到截断版（P2-R22）
-            summary:
-              !canViewFullArchive && t.summary && t.summary.length > ARCHIVE_PREVIEW_LEN
-                ? `${t.summary.slice(0, ARCHIVE_PREVIEW_LEN)}……`
-                : t.summary,
-          }))}
+          tastings={editorLine.tastings}
           statement={editorLine.statement}
         />
       )}
@@ -429,7 +435,13 @@ export default async function TeaDetailPage({ params }: PageProps) {
               return (
                 <div key={n.id} className="relative pl-6">
                   <span className="absolute -left-[9px] top-2 w-4 h-4 rounded-full bg-amber-700 border-2 border-white" />
-                  <div className="bg-white border border-stone-200 rounded-lg p-3 flex gap-3">
+                  {/* 2026-11-02：社区品鉴条目也做成可点（详情页已分级开放：
+                      摘要公开、正文要登录）。此前这里是纯 div，点不动 —— 与
+                      站长线同样的毛病。 */}
+                  <Link
+                    href={`/tasting/${n.id}`}
+                    className="block bg-white border border-stone-200 rounded-lg p-3 flex gap-3 hover:border-amber-400 hover:bg-amber-50/30 transition cursor-pointer group"
+                  >
                     {n.cover && (
                       <img src={n.cover} alt={`${tea.name} 品鉴笔记：${n.title}`} loading="lazy" className="w-16 h-16 object-cover rounded-lg shrink-0" />
                     )}
@@ -449,12 +461,16 @@ export default async function TeaDetailPage({ params }: PageProps) {
                       )}
                       {!canViewFullArchive && (
                         <div className="mt-1.5 flex items-center justify-between">
-                          <span className="text-[0.65rem] text-stone-400">完整品鉴内容仅付费会员可见</span>
-                          <LockedTip label="查看完整品鉴 →" />
+                          <span className="text-[0.65rem] text-stone-400">完整品鉴内容登录后可见</span>
+                          <LockedTip
+                            label="查看完整品鉴 →"
+                            href={loginHref}
+                            tip="登录后即可查看完整内容"
+                          />
                         </div>
                       )}
                     </div>
-                  </div>
+                  </Link>
                 </div>
               );
             })}
@@ -490,7 +506,14 @@ export default async function TeaDetailPage({ params }: PageProps) {
                 ),
               )}
             </div>
-            {!canViewFullArchive && <LockedWallOverlay hiddenCount={hiddenWallCount} />}
+            {!canViewFullArchive && (
+              <LockedWallOverlay
+                hiddenCount={hiddenWallCount}
+                href={loginHref}
+                title="🔒 完整图片库登录后可见"
+                cta="登录查看"
+              />
+            )}
           </div>
         </div>
       )}

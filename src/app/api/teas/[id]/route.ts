@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
+import { canManageTeas } from "@/lib/tea-permissions";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
@@ -44,8 +45,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session?.user || session.user.level < 2) {
-    return NextResponse.json({ error: "需要Lv.2茶人及以上才能编辑茶品百科" }, { status: 403 });
+  // 2026-11-02：闸门从「等级 >= 2」换成**权限**。
+  //
+  // 这是本次查出的**真实越权点**：等级闸门意味着任何 Lv.2 普通用户可以
+  // `PUT /api/teas/<任意经典茶 id>` 改掉它的名称/品牌/年份/封面/行情估价，
+  // 改完立刻公开生效，站长的审核队列（needsReview）也不会被触发。
+  // 同文件下面的 DELETE 早就用的是 `can(user,"tea:edit")` —— 现在两边口径一致。
+  if (!canManageTeas(session?.user)) {
+    return NextResponse.json({ error: "只有管理员与站长可以编辑茶品" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -82,7 +89,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
-  if (!session?.user || !can(session.user, "tea:edit")) {
+  // 删除是破坏性操作 —— 只给管理员（2026-11-02：editor 角色拿到了 tea:edit，
+  // 但那不等于可以删茶；后台的回收站走的也是 admin:content）。
+  if (!session?.user || !can(session.user, "admin:content")) {
     return NextResponse.json({ error: "仅管理员可删除茶品" }, { status: 403 });
   }
 

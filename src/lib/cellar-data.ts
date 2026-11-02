@@ -1120,7 +1120,8 @@ export async function searchCellarTeas(
       brand: true,
       year: true,
       type: true,
-      ...(opts.withClassicBadge === false ? {} : { isClassic: true }),
+      // 「经典」徽章只给站长认可的茶（needsReview 的还没整理过）
+      ...(opts.withClassicBadge === false ? {} : { isClassic: true, needsReview: false }),
     },
   });
   return teas;

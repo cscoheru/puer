@@ -87,6 +87,39 @@ HEIC（iPhone 默认）/ AVIF（Android 10+）被 `.filter()` **静默丢掉**�
 4. **canvas 的 `toBlob` 输出类型只有 jpeg/png/webp/gif**：heic/heif/avif 不合法，
    浏览器**静默返回 null**，压缩等于没做。
 
+## R28b 追加：「经典 = 站长认可」，读点必须带 needsReview（2026-11-02）
+
+**事故**：站长报「普通用户不能发布新经典、更不能编辑茶品」。查实这是一个**真的
+越权漏洞**，而且是**闸门选错了维度**：
+
+- `POST /api/teas` / `PUT /api/teas/[id]` 的闸门是 `session.user.level >= 2`
+  —— **等级闸门，不是权限层**。任何 Lv.2 普通用户可以建茶品、可以**直接把
+  `isClassic` 设成 true**、可以改**任意一款**经典茶的名称/年份/封面/行情。
+- 经典区的公开读点（`/forum/classics`、侧栏、sitemap、落地页、行情快照、
+  茶品库页）**不按 `needsReview` 过滤** → 用户自建的茶**直接公开出现在经典
+  普洱区**（列表公开、点进去 404 —— 典型的「列表与详情不一致」）。
+- 同一文件里 `DELETE` 却用的是 `can(user,"tea:edit")` —— **两套口径并存**。
+
+**规则（R28b）**
+
+1. **闸门用权限，不用等级**：`User.level`（0-4）与 `role` 正交，admin 的 level
+   甚至可能是 0。凡是「谁能做 X」，一律走 `can(actor, "<资源>:<动作>")`
+   （`src/lib/permissions.ts`）—— 等级不是权限。
+2. **「站长」按 PRD 自己的口径认**：PRD v0.3 §12 决策 2 说「role=editor /
+   站长线 一律理解为 authorId 属于配置中的站长账号列表」→ 站长 = **uid ∈
+   `EDITOR_AUTHOR_UIDS`**（与站长线取数**同一份**名单，见
+   `src/lib/tea-permissions.ts::canManageTeas`）。别再拿 uid 白名单当「内容
+   归属」、又拿 role 当「权限」，两套身份互不相通必然出事。
+3. **「经典」是站长的策展结果，不是用户能勾的选项**：用户输入里的 `isClassic`
+   必须被服务端**按权限**重新判定（`canPromoteToClassic`），不能直接落库；
+   经典区的每个公开读点都要带 `needsReview`（用 `visibleTeaWhere()` 这一份
+   口径）。`src/lib/tea-tier.test.ts` 的 READ_POINTS 列表钉住了这些读点。
+4. **公开页面与写接口的准入要**同时**收紧**：只藏按钮等于没关（直连 URL 照样
+   能用）。页面用服务端组件判权限，接口再判一次 —— 两头都要。
+5. **受保护内容不进 SSR**：分级判定要返回「该给的内容」而不是「能不能看」的
+   布尔值；匿名访客拿到的 `content` 必须是空串，否则 view-source 里就有全文
+   （见 `src/lib/archive-visibility.ts::gateArchiveContent`）。
+
 相关：[[puer-client-upload-mime-drift]]（详见 `src/lib/upload-mime.ts` 文件头）
 
 ## R27 追加：AI 供应商切换与「服务器侧改动回滚」事故

@@ -61,6 +61,17 @@ export interface EditorTasting {
   id: string;
   title: string;
   summary: string | null;
+  /**
+   * 记录来源：`evernote` / `manual` / `import`（站长的原始笔记）或
+   * `article`（跟进帖的镜像）。
+   *
+   * 为什么要带上它：站长线的卡片要**可点**（2026-11-02 站长报「点不开」），
+   * 而镜像笔记的正文页面是帖子（`/article/{sourceId}`），原始笔记才是
+   * `/tasting/{id}` —— 没有 source/sourceId 就拼不出正确的跳转目标。
+   */
+  source: string;
+  /** 镜像笔记对应的帖子 id（source === "article" 时有值）。 */
+  sourceId: string | null;
   createdAt: Date;
   stage: Stage | null;
   deltaVsPrev: string | null;
@@ -112,6 +123,19 @@ export function buildEditorStatement(tastings: EditorTasting[]): string | null {
         : "器具不固定";
 
   return `站长线：${people} · 仓储未记录 · ${vesselPart}`;
+}
+
+/**
+ * 站长线一条记录的**跳转目标**。
+ *
+ * - 镜像笔记（跟进帖）→ 帖子页 `/article/{sourceId}`：那是它的正身，
+ *   文章的可见性（published/private）由 `canViewArticleDetail` 判定，
+ *   源帖被下架后链接自然失效 —— 不会出现「帖没了、笔记还在」。
+ * - 原始笔记（站长的一手记录）→ 笔记页 `/tasting/{id}`。
+ */
+export function editorLineHref(t: Pick<EditorTasting, "id" | "source" | "sourceId">): string {
+  if (t.source === "article" && t.sourceId) return `/article/${t.sourceId}`;
+  return `/tasting/${t.id}`;
 }
 
 /** 阶段的中文标签；未知值返回 null。 */

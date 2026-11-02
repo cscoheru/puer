@@ -4,6 +4,12 @@
  * 这些定义原先散落在 `forum/classics/page.tsx`（teaSelect / firstTeaImage /
  * heatScore）与 `tea/page.tsx`（BRANDS），新增品牌/生熟/年份落地页后会被
  * 四处引用 —— 抽到一处避免漂移。
+ *
+ * ⚠️ **热度排序不在这里** —— 2026-11-02 起统一走 `src/lib/tea-heat.ts`
+ * （复用论坛热榜的 `scoreThread` 公式 + 每小时轮转）。这里原来的
+ * `heatScore`/`sortByHeat` 已删除：那份公式以「品鉴数×10」为主导、且
+ * 「新茶加成」用 createdAt（经典茶全是旧茶 → 恒为 0），站长报「经典普洱
+ * 列表一直都是按品鉴数量倒序」就是它造成的。AGENTS.md R28：公式只有一份。
  */
 
 /** 茶品列表行需要的字段（Prisma select 白名单，见 AGENTS.md R26 规则 5） */
@@ -67,36 +73,6 @@ export function firstTeaImage(tea: {
     if (first) return first as string;
   }
   return null;
-}
-
-/** 茶品热度：品鉴数为主 + 评分加权 + 行情快照/跟进帖加成 + 新茶加成 */
-export function heatScore(t: {
-  tastingNoteCount: number;
-  avgRating: number | null;
-  marketInfo: unknown;
-  _count?: { articles: number };
-  createdAt?: Date;
-}) {
-  let score =
-    t.tastingNoteCount * 10 +
-    (t.avgRating ?? 0) * 2 +
-    (t.marketInfo ? 3 : 0) +
-    (t._count?.articles || 0);
-
-  // Recency boost: new teas (≤30 days) get up to 30 bonus points, decaying linearly
-  if (t.createdAt) {
-    const daysSince = (Date.now() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSince <= 30) {
-      score += Math.max(0, 30 - daysSince);
-    }
-  }
-
-  return score;
-}
-
-/** 按热度就地排序（不改原数组） */
-export function sortByHeat<T extends Parameters<typeof heatScore>[0]>(teas: T[]): T[] {
-  return [...teas].sort((a, b) => heatScore(b) - heatScore(a));
 }
 
 /** 筛选下拉的常用品牌（避免长列表；落地页品牌从 DB groupBy 动态取） */

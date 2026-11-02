@@ -64,7 +64,13 @@ async function searchTastingNotes(q: string) {
     `;
   } catch {
     return await prisma.tastingNote.findMany({
-      where: { OR: [{ title: { contains: q, mode: "insensitive" } }, { content: { contains: q, mode: "insensitive" } }] },
+      where: {
+        OR: [{ title: { contains: q, mode: "insensitive" } }, { content: { contains: q, mode: "insensitive" } }],
+        // R23 茶品库对用户绝对隐藏：非经典茶的笔记不参与搜索 ——
+        // 否则搜出来的条目点进去是 404（详情页对非经典茶只对站长开放），
+        // 还会顺带把茶名泄露出去。
+        tea: { isClassic: true, needsReview: false },
+      },
       orderBy: { createdAt: "desc" }, take: 3,
       select: { id: true, title: true, createdAt: true, tea: { select: { name: true, brand: true } }, author: { select: { id: true, username: true } } },
     });
