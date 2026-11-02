@@ -21,11 +21,13 @@
 import { prisma } from "@/lib/prisma";
 import { sortTeas, type TeaHeatInput, type TeaSort } from "./tea-heat.ts";
 
-/** 参与聚合的茶品最小信息（封面/图集决定「有没有媒体」）。 */
+/** 参与聚合的茶品最小信息（封面/图集决定「有没有媒体」，品鉴数进内容项）。 */
 export interface TeaMediaRef {
   id: string;
   coverImage: string | null;
   gallery: unknown;
+  /** 站长的品鉴笔记数 —— 热度公式里的内容项要用（Tea.tastingNoteCount）。 */
+  tastingNoteCount?: number;
 }
 
 /**
@@ -122,6 +124,7 @@ export async function loadTeaHeatInputs(
       hasMedia: !!t.coverImage || hasImages(t.gallery),
       // 没有活动时用纪元前 —— 排序时垫底（时间加成最小）
       lastActivity: new Date(0),
+      tastingNoteCount: t.tastingNoteCount ?? 0,
     });
   }
 
@@ -205,6 +208,7 @@ export async function rankTeasForPage<
       id: t.id,
       coverImage: (t as { coverImage?: string | null }).coverImage ?? null,
       gallery: (t as { gallery?: unknown }).gallery ?? null,
+      tastingNoteCount: t.tastingNoteCount,
     })),
   );
   const now = Date.now();
@@ -218,6 +222,7 @@ export async function rankTeasForPage<
         realReaders: 0,
         hasMedia: false,
         lastActivity: new Date(0),
+        tastingNoteCount: t.tastingNoteCount,
       }),
     })),
     sort,

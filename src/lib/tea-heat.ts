@@ -43,7 +43,22 @@ export interface TeaHeatInput {
   hasMedia: boolean;
   /** 最后活动时间。 */
   lastActivity: Date;
+  /**
+   * 站长一手品鉴记录的条数。
+   *
+   * 为什么要它进热度：**经典普洱里绝大多数茶没有任何跟进帖**，于是互动项全是 0
+   * → 分数恒为 0 → 时间加成乘 0 → 热度榜退化成「按品鉴数倒序」，
+   * 也就是站长一开始报的那个毛病。加一个**对数**权重的内容项，
+   * 这类茶之间才有区分度，且有社区互动的茶仍然排得更高。
+   *
+   * 用 log1p 而不是线性：线性权重（当年是 `品鉴数×10`）会把这一项变成主导项，
+   * 于是热度榜又变回品鉴数倒序。
+   */
+  tastingNoteCount: number;
 }
+
+/** 内容项的权重：够区分「有没有记录」，又不压倒互动项。 */
+export const NOTE_COUNT_WEIGHT = 2;
 
 /** 排序口径。 */
 export const TEA_SORTS = ["heat", "updated", "notes"] as const;
@@ -81,9 +96,10 @@ export function toHotRankInputs(t: TeaHeatInput): HotRankInputs {
   };
 }
 
-/** 一款茶的热度分（与论坛热榜同一公式）。 */
+/** 一款茶的热度分（与论坛热榜**同一个公式**，多带一个内容项）。 */
 export function teaHeatScore(t: TeaHeatInput, now: number): number {
-  return scoreThread(toHotRankInputs(t), now);
+  const contentQuality = Math.log1p(Math.max(0, t.tastingNoteCount)) * NOTE_COUNT_WEIGHT;
+  return scoreThread(toHotRankInputs(t), now, contentQuality);
 }
 
 /**
@@ -97,7 +113,8 @@ export function sortTeasByHeat<T extends TeaHeatInput>(
   opts: { now: number; bucket: number; sessionUserId?: string },
 ): T[] {
   const rows = teas.map((t) => ({ ...t, ...toHotRankInputs(t) }));
-  const ranked = applyHotRank(rows, opts);
+  // 排序 + 抖动的流水线复用热榜的 applyHotRank（只换打分函数）
+  const ranked = applyHotRank(rows, { ...opts, score: (t) => teaHeatScore(t, opts.now) });
   const order = new Map(ranked.map((r, i) => [r.id, i]));
   // 用 id → 名次 回排原数组：避免把 applyHotRank 的 _hotScore/_finalScore 带出去
   // （那是排序状态，不是页面数据 —— 与 board-threads.ts 的处理一致）。

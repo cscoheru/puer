@@ -73,12 +73,15 @@ export interface HotRankInputs {
  * @param now injected epoch ms — the only reason this is deterministic enough
  *            to test. Callers pass `Date.now()` at the edge.
  */
-export function scoreThread(t: HotRankInputs, now: number): number {
+export function scoreThread(t: HotRankInputs, now: number, extraQuality = 0): number {
   const net = Math.max(0, t.upvotes - t.downvotes);
   const score =
     Math.log1p(net) * 6 +
     Math.log1p(t.replyCount) * 4 +
-    Math.log1p(Math.min(t.realReaders ?? 0, 1000)) * 0.2;
+    Math.log1p(Math.min(t.realReaders ?? 0, 1000)) * 0.2 +
+    // 可选的「额外质量项」：不同维度的对象（帖子 vs 茶品）往同一个公式里
+    // 加自己特有的信号，**公式本身仍然只有这一份**（不另写一套打分）。
+    extraQuality;
   const boost = t.hasMedia ? 1.3 : 1;
   const ageMs = now - new Date(t.lastRepliedAt || t.createdAt).getTime();
   const age = Math.min(ageMs / 3600000, 720);
@@ -155,13 +158,25 @@ export function jitterAmount(id: string, seed: number): number {
  */
 export function applyHotRank<T extends HotRankInputs>(
   threads: T[],
-  opts: { now: number; bucket: number; sessionUserId?: string },
+  opts: {
+    now: number;
+    bucket: number;
+    sessionUserId?: string;
+    /**
+     * 自定义打分函数（默认 `scoreThread`）。
+     *
+     * 茶品维度用它把自己的「站长一手记录体量」也算进去（`src/lib/tea-heat.ts`），
+     * 而**排序 + 抖动的流水线只有这一份** —— 两边共用同一个 `applyHotRank`。
+     */
+    score?: (t: T) => number;
+  },
 ): (T & { _hotScore: number; _finalScore: number })[] {
   const { now, bucket, sessionUserId } = opts;
+  const score = opts.score ?? ((t: T) => scoreThread(t, now));
 
   const scored = threads.map((t) => ({
     ...t,
-    _hotScore: scoreThread(t, now),
+    _hotScore: score(t),
   }));
 
   scored.sort((a, b) => b._hotScore - a._hotScore);

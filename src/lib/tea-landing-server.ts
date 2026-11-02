@@ -114,13 +114,18 @@ export async function loadClassicTeas(
     select: teaListSelect,
   });
   const heatMap = await loadTeaHeatInputs(
-    teas.map((t) => ({ id: t.id, coverImage: t.coverImage, gallery: t.gallery })),
+    teas.map((t) => ({
+      id: t.id,
+      coverImage: t.coverImage,
+      gallery: t.gallery,
+      tastingNoteCount: t.tastingNoteCount,
+    })),
   );
   const now = Date.now();
   return sortTeas(
     teas.map((t) => ({
       ...t,
-      ...(heatMap.get(t.id) ?? EMPTY_HEAT(t.id)),
+      ...(heatMap.get(t.id) ?? EMPTY_HEAT(t.id, t.tastingNoteCount)),
     })),
     "heat",
     { now, bucket: Math.floor(now / 3600000) },
@@ -128,7 +133,7 @@ export async function loadClassicTeas(
 }
 
 /** 聚合失败时的兜底热度输入（全部归零，排在最后）。 */
-function EMPTY_HEAT(id: string): TeaHeatInput {
+function EMPTY_HEAT(id: string, tastingNoteCount = 0): TeaHeatInput {
   return {
     id,
     netVotes: 0,
@@ -136,5 +141,6 @@ function EMPTY_HEAT(id: string): TeaHeatInput {
     realReaders: 0,
     hasMedia: false,
     lastActivity: new Date(0),
+    tastingNoteCount,
   };
 }

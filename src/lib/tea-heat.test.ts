@@ -32,6 +32,7 @@ function tea(over: Partial<TeaHeatInput> & { id: string }): TeaHeatInput {
     realReaders: 0,
     hasMedia: false,
     lastActivity: new Date(NOW - 100 * HOUR),
+    tastingNoteCount: 0,
     ...over,
   };
 }
@@ -80,6 +81,28 @@ test("热度：有图有视频加分（与热榜同一个媒体加成）", () =>
 test("热度：最近活动的分更高（时间只加成不惩罚）", () => {
   const old = tea({ id: "a", netVotes: 10, lastActivity: new Date(NOW - 500 * HOUR) });
   const fresh = tea({ id: "a", netVotes: 10, lastActivity: new Date(NOW - 1 * HOUR) });
+  assert.ok(teaHeatScore(fresh, NOW) > teaHeatScore(old, NOW));
+});
+
+test("热度：只有品鉴记录、没有帖子时，分数也不能是 0", () => {
+  // 经典普洱里绝大多数茶没有任何跟进帖 → 互动项全是 0 → 分数恒为 0 →
+  // 时间加成乘 0 → 热度榜退化成「按品鉴数倒序」（站长一开始报的那个毛病）。
+  // 内容项（品鉴记录数）就是为这类茶准备的。
+  const none = tea({ id: "a", tastingNoteCount: 0 });
+  const some = tea({ id: "a", tastingNoteCount: 30 });
+  assert.ok(teaHeatScore(some, NOW) > 0);
+  assert.ok(teaHeatScore(some, NOW) > teaHeatScore(none, NOW));
+});
+
+test("热度：内容项是次要的 —— 有互动的茶仍然压过记录多的茶", () => {
+  const manyNotes = tea({ id: "a", tastingNoteCount: 100 });
+  const active = tea({ id: "b", netVotes: 30, replyCount: 10, tastingNoteCount: 1 });
+  assert.ok(teaHeatScore(active, NOW) > teaHeatScore(manyNotes, NOW));
+});
+
+test("热度：内容项也吃时间加成（最近活动的茶排前面）", () => {
+  const old = tea({ id: "a", tastingNoteCount: 30, lastActivity: new Date(NOW - 500 * HOUR) });
+  const fresh = tea({ id: "a", tastingNoteCount: 30, lastActivity: new Date(NOW - 1 * HOUR) });
   assert.ok(teaHeatScore(fresh, NOW) > teaHeatScore(old, NOW));
 });
 
