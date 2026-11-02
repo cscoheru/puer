@@ -10,6 +10,7 @@ import {
   decideCellarAccess,
 } from "./cellar-guard.ts";
 import { FEATURE_FLAGS } from "./feature-flags.ts";
+import { DEFAULT_EDITOR_UIDS } from "./editor-line.ts";
 
 /**
  * 茶仓访问判定的单测。
@@ -72,8 +73,9 @@ test("全局 flag 开着 → 名单外的人也可见（正式发布时的总闸
 test("flag 关着 → 只有站长线作者白名单里的 uid 可见", () => {
   assert.equal(cellarVisibleTo({ uid: 1001 }, OFF), true);
   assert.equal(cellarVisibleTo({ uid: 1002 }, OFF), true);
-  // 1003 是站长的第三个终端，但不在默认白名单里 —— 要进得来得点名。
-  assert.equal(cellarVisibleTo({ uid: 1003 }, OFF), false);
+  // 1003（云水禅心）是站长的第三个终端，2026-11-02 起进了默认白名单 ——
+  // 生产库实测 classics 版块里在发的是它（渔夫 0 篇），站长线与茶仓都认它。
+  assert.equal(cellarVisibleTo({ uid: 1003 }, OFF), true);
 });
 
 test("flag 关着 → 名单外的普通用户看不见", () => {
@@ -95,12 +97,14 @@ test("CELLAR_UIDS 与站长线作者名单取并集", () => {
 
 test("名单解析容忍空格与重复项", () => {
   const env = { ...OFF, CELLAR_UIDS: " 1001 , 1002 ,1001 " };
-  assert.deepEqual(cellarUidAllowlist(env), [1001, 1002]);
+  assert.deepEqual(cellarUidAllowlist(env), [...DEFAULT_EDITOR_UIDS]);
 });
 
 test("CELLAR_UIDS 写坏 → 回落到站长线作者名单，不放行任何陌生人", () => {
   const env = { ...OFF, CELLAR_UIDS: "abc" };
-  assert.deepEqual(cellarUidAllowlist(env), [1001, 1002]);
+  // 回落到**默认**站长线名单（2026-11-02 起是 [1001,1002,1003] —— 云水禅心也是
+  // 站长的入口，生产库实测 classics 版块里在发的是它）
+  assert.deepEqual(cellarUidAllowlist(env), [...DEFAULT_EDITOR_UIDS]);
   assert.equal(cellarVisibleTo({ uid: 1001 }, env), true);
   assert.equal(cellarVisibleTo({ uid: 9999 }, env), false);
 });
