@@ -36,6 +36,8 @@ interface Props {
     id: string;
     title: string;
     content: string;
+    /** 摘要（站长手写的结论性一段）。**公开可见**，与正文分档。 */
+    summary: string | null;
     images: string[];
     videoUrl: string | null;
     authorName: string;
@@ -212,18 +214,26 @@ export default function TastingNoteEditor({ note, canEdit = true, locked = false
 
         <div className="bg-white rounded-xl border border-stone-200 p-5 md:p-8 mb-6">
           {locked ? (
-            <div className="text-center py-6">
-              <p className="text-sm text-stone-500 mb-3">
-                完整品鉴正文登录后可见（摘要与评分已在上方公开）
-              </p>
-              {loginHref && (
-                <a
-                  href={loginHref}
-                  className="inline-block px-4 py-2 bg-amber-800 text-white text-sm rounded-lg hover:bg-amber-900 transition"
-                >
-                  登录查看全文
-                </a>
+            <div>
+              {/* 摘要公开（站长 2026-11-02 定的口径：摘要公开、正文要登录） */}
+              {note.summary && (
+                <p className="text-sm text-stone-600 leading-relaxed whitespace-pre-wrap">
+                  {note.summary}
+                </p>
               )}
+              <div className="text-center py-6">
+                <p className="text-sm text-stone-500 mb-3">
+                  完整品鉴正文登录后可见{note.summary ? "（上方是摘要）" : ""}
+                </p>
+                {loginHref && (
+                  <a
+                    href={loginHref}
+                    className="inline-block px-4 py-2 bg-amber-800 text-white text-sm rounded-lg hover:bg-amber-900 transition"
+                  >
+                    登录查看全文
+                  </a>
+                )}
+              </div>
             </div>
           ) : (
             <ForumContent html={note.content} />

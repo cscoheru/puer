@@ -95,8 +95,9 @@ export default async function TastingNotePage({ params }: PageProps) {
         note={{
           id: note.id,
           title: note.title,
-          // 未登录时这里是空串 —— 正文不进 SSR
+          // 未登录时这里是空串 —— 正文不进 SSR；**摘要照常给**（摘要公开）
           content: gated.content,
+          summary: note.summary,
           images,
           videoUrl: note.videoUrl,
           authorName: note.author.username,
