@@ -144,4 +144,27 @@ auto-reply/auto-boost-new/publish 管线仍走 DeepSeek，402 欠费后 AI 回�
 4. 本仓库单测跑法是 `npm run test:unit`（node:test），**不是 vitest**——`npx vitest run`
    会把 node:test 文件全数报错，勿被误导。
 
+## R29 追加：部署前必读 —— 同步源码的 5 条硬规则（2026-11-03 事故）
 
+**事故**：一次 rsync 漏了 `--files-from`，把**整个本地仓库根目录**推到了生产机
+`/opt/puer-hub/` —— 其中包含本地那份 `.env`（只有 5 个键），**覆盖掉了生产 .env**
+（26 个键）。后果：定时发布、茶问草稿、MiniMax 探针、自动回复全部拿不到 key；
+恢复时又发现 `.env.bak` 里的 MiniMax key 已是旧的（402），真正现行的那把在
+**运行中容器的 env** 里。
+
+**每次部署（rsync / docker build / 切镜像 / 改生产配置）之前，先读
+`docs/release-checklist.md` 的「部署前必读」一节，并逐条对照：**
+
+1. **rsync 必须带 `--files-from`**，清单每次重新生成。**不带它的 rsync = 整个仓库
+   推过去**（本次事故的直接原因）。
+2. **绝不整体同步仓库根目录**：`.env` / `.env.*` / `node_modules/` / `.next/` /
+   `.git/` / `.claude/` / `public/uploads/` / `uploads/` / `backups/` / `private/`
+   / `rag-data/` 一个都不能进生产树。
+3. **同步后立刻核对 `.env` 没被动过**（比对 hash）。它是唯一的凭据来源。
+4. **恢复凭据用「运行中容器的 env」**，不要用 `.env.bak`（备份可能过期）。
+5. **生产写操作之后用一条独立查询证实结果**，别信「命令跑完了」（本次迁移第一次
+   报成功其实没生效：`docker exec` 少 `-i`，psql 读到空文件照样退出 0）。
+
+> 机制：`.claude/settings.json` 的 PreToolUse hook 会在**每次**执行部署类命令前
+> 自动把这份清单注入上下文（脚本见 `.claude/hooks/predeploy-checklist.sh`），
+> 所以「必读」不靠自觉。

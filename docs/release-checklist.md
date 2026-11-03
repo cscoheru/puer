@@ -5,6 +5,38 @@
 
 ---
 
+## 🔴 部署前必读：同步源码的 5 条硬规则（2026-11-03 事故教训）
+
+**2026-11-03 事故**：一次 rsync 漏了 `--files-from`，把**整个本地仓库根目录**推到了
+生产机 `/opt/puer-hub/` —— 其中包含我本地那份 `.env`（只有 5 个键），**覆盖掉了生产
+`.env`**（26 个键）。后果：定时发布、茶问草稿、MiniMax 探针、自动回复全部拿不到
+key 而失败；恢复时又发现 `.env.bak` 里的 MiniMax key 已是旧的（402），要用**运行中
+容器的 env** 才是现行值。
+
+**教训不是「小心一点」，是「别让同步能碰到它不该碰的东西」。**
+
+- [ ] **rsync 必须带 `--files-from`** —— 每次**重新生成**清单（清单是运行时算的，
+      写死会漏新文件）。**不带 `--files-from` 的 rsync 会把整个仓库推过去。**
+- [ ] **绝不整体同步仓库根目录**。以下目录/文件**绝不能**进生产树：
+      `.env`、`.env.*`、`node_modules/`、`.next/`、`.git/`、`.claude/`、`.DS_Store`、
+      `public/uploads/`、`uploads/`、`backups/`、`private/`、`rag-data/`。
+      （`node_modules` 与 `.next` 尤其危险：Mac 的 darwin 原生模块会覆盖服务器的
+      linux 版本 —— rsync 不带 `--delete` 时旧文件还在，但新文件会被塞进去。）
+- [ ] **同步后立刻核对 `.env` 没被动过**：
+      `sha256sum /opt/puer-hub/.env` 与同步前一致才算过。生产 `.env` 是**唯一**的
+      凭据来源（DB 密码、MiniMax key、AI 管线配置）。
+- [ ] **恢复凭据用「运行中容器的 env」**，不要用 `.env.bak` —— 备份是几周前的，
+      里面的 key 可能已过期（本次 MiniMax key 就是 402）。
+- [ ] **生产写操作之后立刻验证结果，别信「命令跑完了」**。本次迁移第一次「成功」
+      其实没生效（`docker exec` 少了 `-i`，stdin 没进去，`psql` 读到空文件照样
+      退出 0）—— 是查了 `information_schema` 才发现列根本没建。
+      **凡是说「已恢复/已迁移/已生效」，都要用一条独立的查询去证实。**
+
+> 本节由 `.claude/settings.json` 的 PreToolUse hook 在**每次**执行部署类命令前
+> 自动注入（见 `.claude/hooks/predeploy-checklist.sh`）。AGENTS.md 的 R29 引用它。
+
+---
+
 ## 🔴 Schema / Prisma 改动:必须重 build 镜像
 
 **这条规则是 2026-09-01 `https://puer.im` 502 事故的根因总结,不能妥协。**
