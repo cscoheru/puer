@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import TastingNoteComments from "@/components/tasting-note-comments";
 import TastingNoteEditor from "@/components/tasting/tasting-note-editor";
 import { can } from "@/lib/permissions";
@@ -30,6 +30,11 @@ export default async function TastingNotePage({ params }: PageProps) {
 
   if (!note || note.tea.deletedAt) notFound();
 
+  // 匿名访客**打不开**详情页（2026-11-02 站长定的口径：「非登录状态无法点击，
+  // 用户点击则提示登录」）—— 列表上的卡片对他们不是链接，这里也一致地跳登录。
+  const loginHref = `/login?next=${encodeURIComponent(`/tasting/${id}`)}`;
+  if (!session?.user) redirect(loginHref);
+
   // R23 茶品库对用户绝对隐藏：非经典茶的档案页对普通用户 404。
   // 详情页同理 —— 否则猜到一个 id 就能从笔记页摸到茶品库。
   //
@@ -47,9 +52,6 @@ export default async function TastingNotePage({ params }: PageProps) {
     isAdmin,
     isPaidMember: false, // TODO(R22+): 付费会员体系（session 会员字段）
   });
-  const loginHref = session?.user
-    ? undefined
-    : `/login?next=${encodeURIComponent(`/tasting/${id}`)}`;
 
   const scores = [
     { label: "外形", value: note.appearance },
@@ -91,6 +93,7 @@ export default async function TastingNotePage({ params }: PageProps) {
       <TastingNoteEditor
         canEdit={isAdmin}
         locked={gated.locked}
+        hiddenImageCount={Math.max(0, allImages.length - images.length)}
         loginHref={loginHref}
         note={{
           id: note.id,

@@ -47,6 +47,39 @@ export const DISCLOSURE_LABELS: Record<Exclude<ArticleOrigin, "human">, string> 
   ai_autonomous: "AI 生成 · 非站长品鉴",
 };
 
+/**
+ * 评论的来源标注文案（2026-11-03）。
+ *
+ * 与文章的措辞不同：文章是「文章」，评论是「回复」。用同一套 origin 词汇
+ * （human | ai_from_notes | ai_autonomous），但披露文案分开。
+ */
+export const COMMENT_DISCLOSURE_LABELS: Record<Exclude<ArticleOrigin, "human">, string> = {
+  ai_from_notes: "AI 整理回复",
+  ai_autonomous: "AI 回复",
+};
+
+/**
+ * 评论的披露文案（AI 才显示；human 与 null 都不显示 —— 标注本身是信号）。
+ */
+export function commentDisclosureLabel(
+  origin: ArticleOrigin | null | undefined,
+): string | null {
+  if (!origin || origin === ORIGIN_HUMAN) return null;
+  return COMMENT_DISCLOSURE_LABELS[origin];
+}
+
+/**
+ * 「带 AI 标注的评论」—— 读者可以看到它们（并看到徽章）。
+ *
+ * 合成账号写的**未标注**评论仍然对读者隐藏（那是历史机器人评论，PRD 决策 4
+ * 要求藏起来）。自动回复写 ai_autonomous → 读者能看到「AI 回复」徽章，
+ * 而真实计数（`getRealArticleCounts`）依旧只算真人。
+ */
+export const AI_COMMENT_ORIGINS: readonly ArticleOrigin[] = [
+  ORIGIN_AI_FROM_NOTES,
+  ORIGIN_AI_AUTONOMOUS,
+];
+
 // ── Row-level signals used to infer the origin of existing articles ───────
 
 export interface OriginSignals {

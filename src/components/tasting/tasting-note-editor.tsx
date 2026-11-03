@@ -21,6 +21,7 @@ import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
 import { IMAGE_ACCEPT } from "@/lib/upload-types";
 import RichEditor from "@/components/rich-editor";
 import ForumContent from "@/components/forum-content";
+import { LockedTip, LockedWallOverlay } from "@/components/tea/locked-tip";
 import VideoPlayer from "@/components/video-player";
 
 interface TeaRef {
@@ -52,17 +53,25 @@ interface Props {
    */
   canEdit?: boolean;
   /**
-   * 正文是否被锁（未登录访客）。服务端此时**不会**把正文传进来
+   * 正文是否被锁（未付费档）。服务端此时**不会**把正文传进来
    * （受保护内容不进 SSR —— 否则 view-source 里就有全文）。
    */
   locked?: boolean;
-  /** 登录落点（locked 时给「登录查看」链接）。 */
+  /** 登录落点（匿名进来时会被重定向到这里）。 */
   loginHref?: string;
+  /** 图片被锁住的数量（未付费档只给前几张，其余用遮罩挡住）。 */
+  hiddenImageCount?: number;
 }
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
-export default function TastingNoteEditor({ note, canEdit = true, locked = false, loginHref }: Props) {
+export default function TastingNoteEditor({
+  note,
+  canEdit = true,
+  locked = false,
+  loginHref,
+  hiddenImageCount = 0,
+}: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(note.title);
@@ -215,7 +224,7 @@ export default function TastingNoteEditor({ note, canEdit = true, locked = false
         <div className="bg-white rounded-xl border border-stone-200 p-5 md:p-8 mb-6">
           {locked ? (
             <div>
-              {/* 摘要公开（站长 2026-11-02 定的口径：摘要公开、正文要登录） */}
+              {/* 摘要公开（站长 2026-11-02 定的口径：摘要公开、正文要付费会员） */}
               {note.summary && (
                 <p className="text-sm text-stone-600 leading-relaxed whitespace-pre-wrap">
                   {note.summary}
@@ -223,16 +232,9 @@ export default function TastingNoteEditor({ note, canEdit = true, locked = false
               )}
               <div className="text-center py-6">
                 <p className="text-sm text-stone-500 mb-3">
-                  完整品鉴正文登录后可见{note.summary ? "（上方是摘要）" : ""}
+                  完整品鉴内容仅付费会员可见{note.summary ? "（上方是摘要）" : ""}
                 </p>
-                {loginHref && (
-                  <a
-                    href={loginHref}
-                    className="inline-block px-4 py-2 bg-amber-800 text-white text-sm rounded-lg hover:bg-amber-900 transition"
-                  >
-                    登录查看全文
-                  </a>
-                )}
+                <LockedTip label="查看完整品鉴 →" />
               </div>
             </div>
           ) : (
@@ -248,7 +250,9 @@ export default function TastingNoteEditor({ note, canEdit = true, locked = false
 
         {note.images.length > 0 && (
           <div className="bg-white rounded-xl border border-stone-200 p-5 md:p-8 mb-6">
-            <h2 className="text-sm font-semibold text-stone-600 mb-3">图片 ({note.images.length})</h2>
+            <h2 className="text-sm font-semibold text-stone-600 mb-3">
+              图片 ({note.images.length + hiddenImageCount})
+            </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {note.images.map((src, i) => (
                 <a
@@ -263,6 +267,17 @@ export default function TastingNoteEditor({ note, canEdit = true, locked = false
                 </a>
               ))}
             </div>
+            {hiddenImageCount > 0 && (
+              <div className="relative mt-2 overflow-hidden rounded-lg">
+                <div className="image-gallery opacity-30 blur-[2px] pointer-events-none select-none">
+                  {note.images.slice(-1).map((src) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={src} src={src} alt="" referrerPolicy="no-referrer" />
+                  ))}
+                </div>
+                <LockedWallOverlay hiddenCount={hiddenImageCount} />
+              </div>
+            )}
           </div>
         )}
       </>

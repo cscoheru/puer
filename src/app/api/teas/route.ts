@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   //
   // 后台的整理队列要看到全部，用 ?includePending=1（仅管理员可用）。
   const includePending =
-    searchParams.get("includePending") === "1" && isAdmin;
+    searchParams.get("includePending") === "1" && canManageTeas(session?.user);
   const where: Record<string, unknown> = includePending
     ? {}
     : visibleTeaWhere();

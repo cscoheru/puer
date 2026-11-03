@@ -52,6 +52,8 @@ export const TEA_TIER_LABELS: Record<TeaTier, string> = {
 };
 
 /** 看茶品的人。 */
+import { canManageTeas } from "./tea-permissions.ts";
+
 export interface TeaViewer {
   /** 登录用户的 id（未登录为 null）。 */
   id: string | null;
@@ -78,6 +80,42 @@ export interface TeaViewer {
  */
 export function visibleTeaWhere(): Record<string, unknown> {
   return { needsReview: false };
+}
+
+/** 「我的目录」里看得见的茶品（**登录后**的列表与搜索）。 */
+export interface TeaDirectoryViewer {
+  id: string | null;
+  /** 是不是管理员（session 上没有这个字段时按 role 判断，故可选）。 */
+  isAdmin?: boolean;
+  role?: string | null;
+  uid?: number | null;
+  isSynthetic?: boolean;
+}
+
+/**
+ * 「我的目录」可见性 —— 管理员与站长能看到**待整理**的条目。
+ *
+ * 与 `visibleTeaWhere()` 的差别只有一处：待整理的茶品对**管理员与站长**不再
+ * 隐藏（他们能在茶品库里搜到自己刚建的条目）。普通用户与匿名仍然只看已整理的。
+ *
+ * ## 为什么改了这条（2026-11-02）
+ *
+ * 2026-10-24 「待整理对所有人隐藏（含管理员）」是为了解决「搜出来一堆重复」——
+ * 当时**任何 Lv.2 用户**都能建茶，重复条目来自用户。
+ *
+ * 2026-11-02 起创建口关给管理员与站长（`canManageTeas`），重复只可能来自他们
+ * 自己；「待整理」于是变成**他们的工作台**而不是垃圾堆。于是出现了一个荒谬的
+ * 局面：管理员在茶品库里新建一条茶品 → 保存后跳到详情页（`canViewPendingTea`
+ * 放行）→ 回到茶品库**搜不到自己刚建的茶**。
+ *
+ * 公开面不受影响：普通用户与匿名的列表/搜索仍走 `visibleTeaWhere()`。
+ */
+export function visibleTeaWhereForViewer(
+  viewer: TeaDirectoryViewer | null | undefined,
+): Record<string, unknown> {
+  if (!viewer?.id) return visibleTeaWhere();
+  if (canManageTeas({ ...viewer, id: viewer.id, role: viewer.role ?? null })) return {};
+  return visibleTeaWhere();
 }
 
 /**

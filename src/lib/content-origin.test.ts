@@ -6,7 +6,9 @@ import {
   ORIGIN_AI_FROM_NOTES,
   ORIGIN_AI_AUTONOMOUS,
   DISCLOSURE_LABELS,
+  AI_COMMENT_ORIGINS,
   classifyOrigin,
+  commentDisclosureLabel,
   parseOrigin,
   disclosureLabelFor,
   originCanFeedDataLayer,
@@ -115,6 +117,18 @@ test("parseOrigin falls back to human for unknown/garbage values", () => {
   assert.equal(parseOrigin(""), ORIGIN_HUMAN);
   assert.equal(parseOrigin("future_origin"), ORIGIN_HUMAN);
   assert.equal(parseOrigin(42), ORIGIN_HUMAN);
+});
+
+test("评论的披露文案：只有 AI 标注才有，措辞与文章不同", () => {
+  // 2026-11-03：AI 回复要能对读者可见且可识别（自动回复恢复运行的前提）
+  assert.equal(commentDisclosureLabel(ORIGIN_AI_AUTONOMOUS), "AI 回复");
+  assert.equal(commentDisclosureLabel(ORIGIN_AI_FROM_NOTES), "AI 整理回复");
+  // 真人写的（以及历史数据的 null）不显示任何标注 —— 标注本身是信号
+  assert.equal(commentDisclosureLabel(ORIGIN_HUMAN), null);
+  assert.equal(commentDisclosureLabel(null), null);
+  assert.equal(commentDisclosureLabel(undefined), null);
+  // 标注词汇与文章同一套
+  assert.deepEqual([...AI_COMMENT_ORIGINS].sort(), ["ai_autonomous", "ai_from_notes"]);
 });
 
 test("disclosure labels render only for AI origins", () => {

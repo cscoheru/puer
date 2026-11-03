@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { REAL_AUTHOR } from "@/lib/real-content";
+import { AI_COMMENT_ORIGINS, ORIGIN_HUMAN } from "@/lib/content-origin";
 import { prisma } from "@/lib/prisma";
 import { checkUserCanPost } from "@/lib/check-mute";
 import { publishCommentEffects } from "@/lib/comment-effects";
@@ -51,6 +52,9 @@ export async function POST(req: NextRequest) {
       parentId: parentId || null,
       authorId: session.user.id,
       status: isPublish ? "published" : "pending_review",
+      // 真人写的评论显式标 human（与 Article.origin 同一套词汇）。
+      // AI 回复由 scripts/auto-reply.mjs 写 ai_autonomous。
+      origin: ORIGIN_HUMAN,
       // 内联字面量:满足 Prisma Json 字段的索引签名要求
       moderation: isPublish
         ? undefined
@@ -87,25 +91,34 @@ export async function GET(req: NextRequest) {
 
   // 待审评论仅管理员和评论作者本人可见;普通用户只见 published
   const baseWhere = articleId ? { articleId } : { tastingNoteId };
-  const where =
-    can(session?.user, "comment:moderate")
-      ? baseWhere
-      : session?.user?.id
-        ? { ...baseWhere, OR: [{ status: "published" }, { status: "pending_review", authorId: session.user.id }] }
-        : { ...baseWhere, status: "published" };
+  const statusFilter = can(session?.user, "comment:moderate")
+    ? []
+    : session?.user?.id
+      ? [{ OR: [{ status: "published" }, { status: "pending_review", authorId: session.user.id }] }]
+      : [{ status: "published" }];
 
   // F0 决策 4：剔除展示计数的同时，明细里的机器人评论也要藏起来。
   // 只过滤**展示**（列表不返回），不删数据 —— PRD 说历史自动化记录保留用于审计。
+  //
+  // 2026-11-03：加了「**带 AI 标注的**评论也可见」这一档 —— 合成账号写的
+  // 未标注评论照旧隐藏，但自动回复写的 ai_autonomous 评论读者能看到（带
+  // 「AI 回复」徽章）。否则恢复自动回复等于白烧模型配额：评论发出来读者看不见。
+  const where = {
+    ...baseWhere,
+    AND: [
+      { OR: [{ author: REAL_AUTHOR }, { origin: { in: [...AI_COMMENT_ORIGINS] } }] },
+      ...statusFilter,
+    ],
+  };
+
   const comments = await prisma.comment.findMany({
-    where: {
-      ...where,
-      author: REAL_AUTHOR,
-    },
+    where,
     select: {
       id: true,
       content: true,
       images: true,
       status: true,
+      origin: true,
       createdAt: true,
       parentId: true,
       upvotes: true,

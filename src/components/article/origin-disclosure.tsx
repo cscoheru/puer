@@ -13,7 +13,7 @@
  * javascript: 伪协议放进 href。
  */
 
-import { disclosureLabelFor, parseOrigin } from "@/lib/content-origin";
+import { commentDisclosureLabel, disclosureLabelFor, parseOrigin } from "@/lib/content-origin";
 
 /** 只接受 http/https 链接，且长度上限防畸形串。 */
 function safeSourceUrl(raw: string): string | null {
@@ -29,17 +29,39 @@ export default function OriginDisclosure({
   sourceUrls,
   className = "",
   translate,
+  variant = "article",
 }: {
   origin: string | null | undefined;
   sourceUrls?: readonly string[] | null;
   className?: string;
   /** 繁简转换函数（繁體树下需要把标注文案转成繁体）。 */
   translate?: (s: string) => string;
+  /**
+   * 文章徽章 / 评论徽章。两者的措辞不同（文章是「文章」，评论是「回复」），
+   * 评论版也更紧凑（行内小徽章，没有来源链接）。
+   */
+  variant?: "article" | "comment";
 }) {
   const parsed = parseOrigin(origin);
-  const raw = disclosureLabelFor(parsed);
+  const raw =
+    variant === "comment" ? commentDisclosureLabel(parsed) : disclosureLabelFor(parsed);
   if (!raw) return null;
   const label = translate ? translate(raw) : raw;
+
+  if (variant === "comment") {
+    return (
+      <span
+        className={
+          "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.65rem] font-medium " +
+          "bg-stone-100 text-stone-600 shrink-0 " + className
+        }
+        title="这条回复由 AI 生成，不是真人茶友"
+      >
+        <span aria-hidden="true">◇</span>
+        {label}
+      </span>
+    );
+  }
 
   const isAutonomous = parsed === "ai_autonomous";
   const links = (sourceUrls ?? [])

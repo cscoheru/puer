@@ -55,6 +55,10 @@ test("every script that writes votes or comments has a kill switch", () => {
   const writers = [];
   for (const name of readdirSync(SCRIPTS_DIR)) {
     if (!name.endsWith(".mjs")) continue;
+    // 测试文件不是脚本 —— 它们**断言** INSERT 语句长什么样，扫进去会把自己
+    // 当成「写评论的脚本」，然后要求测试文件也有停用开关（2026-11-03 加的
+    // comment-ai-label.test.mjs 就踩了这个）。
+    if (name.endsWith(".test.mjs")) continue;
     const src = readFileSync(path.join(SCRIPTS_DIR, name), "utf8");
     if (/INSERT INTO (votes|comments)/i.test(src)) writers.push(name);
   }

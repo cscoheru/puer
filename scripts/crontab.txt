@@ -48,6 +48,17 @@
 # 真实读者/用户指标基线（每日 12:17 北京时间）
 17 4 * * * /opt/puer-hub/scripts/cron-task.sh baseline-report >> /var/log/puer-baseline.log 2>&1
 
+# AI 回复（每日 20:37 北京时间 = 12:37 UTC）
+#
+# 2026-11-03 恢复运行：F0 的来源标注已经补到**评论**侧 —— `comments.origin`
+# 迁移（20261103_comment_origin），脚本写入 `ai_autonomous`，前台给这类评论打
+# 「AI 回复」徽章。读者分得清 AI 与真人，指标仍然只算真人（真实计数依旧按
+# REAL_AUTHOR 过滤，AI 评论不计入）。
+#
+# 开关：`AUTO_REPLY_ENABLED=1` 写在 /opt/puer-hub/.env，由 cron-task.sh 读出来
+# export —— **漏 export 开关就是死的，且不报错**（脚本会打印「已停用」后退出 0）。
+37 12 * * * /opt/puer-hub/scripts/cron-task.sh auto-reply >> /var/log/puer-auto.log 2>&1
+
 # ── F4 复饮提醒（PRD v0.3 §7 Phase 4）─────────────────────────────────────
 #
 # 给到期的茶仓条目发站内通知。默认 dry-run，要真发用 --apply —— cron 里
@@ -67,9 +78,11 @@
 
 # ── 已停用（保留行以便回溯，不要直接删）──────────────────────────────────
 #
-# auto-reply（13 条）—— DISABLED-20261021：PRD v0.3 §12 第 3 条，AI 回复待
-#   F0 标注上线；脚本内还有 AUTO_REPLY_ENABLED 开关兜底。
-# auto-vote —— R28-removed：F0 要求自动投票一律停止。
+# auto-reply —— **2026-11-03 恢复**（见上面「AI 回复」一节）：F0 标注已补到评论
+#   侧（comments.origin），AI 回复带「AI 回复」徽章对读者可见。
+# auto-vote —— R28-removed：**仍然停用**。PRD v0.3 §12 第 3 条「自动投票一律
+#   停止」是常设决策（不像 auto-reply 有「标注上线」这个前置条件），投票对象也
+#   没有可见的自动化标注 —— 读者看不出哪些赞是机器投的。
 # auto-boost-new —— DISABLED-20261021：同上（灌票 + AI 回复）。
 # auto-register —— DISABLED-20260811：PRD §12 决策 7，暂停建号。
 # auto-convert —— DISABLED-T8：旧发布管线，已废弃。

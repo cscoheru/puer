@@ -6,7 +6,7 @@ import { TeaGrid } from "@/components/tea/tea-list";
 import { LANDING_MIN_TEAS, PREFERRED_BRANDS, normalizeTeaType, teaListSelect } from "@/lib/tea-query";
 import { pageWindow } from "@/lib/pagination";
 import { can } from "@/lib/permissions";
-import { visibleTeaWhere } from "@/lib/tea-tier";
+import { visibleTeaWhere, visibleTeaWhereForViewer } from "@/lib/tea-tier";
 import { canManageTeas } from "@/lib/tea-permissions";
 
 export const metadata: Metadata = {
@@ -46,10 +46,12 @@ export default async function TeaListPage({ searchParams }: PageProps) {
   const parsedPage = Number.parseInt(params.page || "1", 10);
   const page = Math.min(Math.max(1, Number.isFinite(parsedPage) ? parsedPage : 1), 500);
 
-  // 「待整理」的茶品不在公开库里 —— 对所有人隐藏，包括管理员自己。
+  // 「待整理」的茶品：普通用户与匿名看不到（公开目录不混重复条目）；
+  // **管理员与站长能看到**（2026-11-02）—— 否则管理员在茶品库里新建一条茶品，
+  // 保存后回到列表**搜不到自己刚建的茶**（站长 2026-11-03 报的问题）。
   const where: Record<string, unknown> = {
     deletedAt: null,
-    ...visibleTeaWhere(),
+    ...visibleTeaWhereForViewer(session?.user),
   };
   if (classicOnly) where.isClassic = true;
   if (brand) where.brand = brand;

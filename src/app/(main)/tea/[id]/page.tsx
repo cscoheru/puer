@@ -210,7 +210,8 @@ export default async function TeaDetailPage({ params }: PageProps) {
           ),
         };
       }
-      // 未登录：摘要公开（完整），但**不带笔记图片** —— 图片 URL 不下发
+      // 未付费档（匿名与已登录）：摘要公开（完整），但**不带笔记图片** ——
+      // 图片 URL 不下发，图片墙另给前几张 + 锁定遮罩。
       return {
         id: n.id,
         title: n.title,
@@ -405,6 +406,13 @@ export default async function TeaDetailPage({ params }: PageProps) {
       {editorLine && (
         <EditorLineView
           tastings={editorLine.tastings}
+          // 匿名访客点不开站长线条目（点了提示登录）—— 2026-11-03 站长的口径
+          canOpenDetail={!!session?.user}
+          loginHref={
+            session?.user
+              ? undefined
+              : `/login?next=${encodeURIComponent(`/tea/${id}`)}`
+          }
           statement={editorLine.statement}
         />
       )}
@@ -461,12 +469,10 @@ export default async function TeaDetailPage({ params }: PageProps) {
                       )}
                       {!canViewFullArchive && (
                         <div className="mt-1.5 flex items-center justify-between">
-                          <span className="text-[0.65rem] text-stone-400">完整品鉴内容登录后可见</span>
-                          <LockedTip
-                            label="查看完整品鉴 →"
-                            href={loginHref}
-                            tip="登录后即可查看完整内容"
-                          />
+                          <span className="text-[0.65rem] text-stone-400">
+                            完整品鉴内容仅付费会员可见
+                          </span>
+                          <LockedTip label="查看完整品鉴 →" />
                         </div>
                       )}
                     </div>
@@ -507,12 +513,7 @@ export default async function TeaDetailPage({ params }: PageProps) {
               )}
             </div>
             {!canViewFullArchive && (
-              <LockedWallOverlay
-                hiddenCount={hiddenWallCount}
-                href={loginHref}
-                title="🔒 完整图片库登录后可见"
-                cta="登录查看"
-              />
+              <LockedWallOverlay hiddenCount={hiddenWallCount} />
             )}
           </div>
         </div>

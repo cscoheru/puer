@@ -9,6 +9,18 @@
  * Environment:
  *   DATABASE_URL   — PostgreSQL connection
  *   MINIMAX_API_KEY — MiniMax API key (R27, was DEEPSEEK_API_KEY)
+ *   AUTO_REPLY_ENABLED — 必须为 "1" 才运行（PRD v0.3 §12 第 3 条的开关；
+ *     由 scripts/cron-task.sh 从 .env 里读出来 export 下来）
+ *
+ * ## 2026-11-03：恢复运行（补 F0 来源标注）
+ *
+ * 恢复前置条件是「F0 标注上线」—— 文章侧早就有 `origin` 字段，但**评论侧**
+ * 一直没有：合成账号写的评论被评论列表的「只显示真人」过滤掉（REAL_AUTHOR），
+ * 读者根本看不到，于是这个任务就算跑起来也是白烧模型配额。
+ *
+ * 所以先给 `comments` 加了 `origin` 列（迁移 20261103_comment_origin），
+ * 本脚本写入 `ai_autonomous`，前台给这类评论打「AI 回复」徽章：
+ * 读者分得清 AI 与真人，指标仍然只算真人（真实计数依旧按 REAL_AUTHOR 过滤）。
  */
 
 import { randomUUID } from "node:crypto";
@@ -316,10 +328,12 @@ async function insertComment({ articleId, content, userId, parentId }) {
 
   await sql(`
     INSERT INTO comments (id, content, "articleId", "authorId", "parentId",
-                          "upvotes", "downvotes", "likesCount", images, "createdAt", "updatedAt")
+                          "upvotes", "downvotes", "likesCount", images, "createdAt", "updatedAt",
+                          origin)
     VALUES ('${id}', '${escapeSql(content)}', '${articleId}', '${userId}',
             ${parentId ? `'${parentId}'` : "NULL"},
-            0, 0, 0, ARRAY[]::text[], NOW(), NOW())
+            0, 0, 0, ARRAY[]::text[], NOW(), NOW(),
+            'ai_autonomous')
   `);
 
   // Increment article reply count

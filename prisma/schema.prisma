@@ -508,6 +508,17 @@ model Comment {
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
 
+  // F0 来源标注（2026-11-03）：评论也可能是 AI 写的（自动回复）。
+  //
+  // 合成账号写的**未标注**评论一律对读者隐藏（见 src/lib/real-content.ts 的
+  // REAL_AUTHOR 过滤）—— 但那样自动回复就等于白烧模型配额，读者什么也看不到。
+  // 所以给评论开一个标注位：AI 回复写 ai_autonomous，前台打上「AI 回复」徽章，
+  // 读者分得清，指标仍然只算真人（真实计数依旧按 REAL_AUTHOR 过滤）。
+  //
+  // 取值与 Article.origin 同一套词汇（human | ai_from_notes | ai_autonomous）；
+  // null = 真人写的（历史数据）。
+  origin String? @db.VarChar(20)
+
   likesCount Int @default(0)
   upvotes    Int @default(0)
   downvotes  Int @default(0)

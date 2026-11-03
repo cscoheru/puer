@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { uploadWithRetry } from "@/lib/upload-client";
+import OriginDisclosure from "@/components/article/origin-disclosure";
 import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
 import { MEDIA_ACCEPT } from "@/lib/upload-types";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -25,6 +26,8 @@ interface Comment {
   downvotes: number;
   author: CommentAuthor;
   initialVote: number;
+  /** F0 来源标注：ai_autonomous = AI 写的回复（前台打「AI 回复」徽章）。 */
+  origin?: string | null;
 }
 
 interface Props {
@@ -287,6 +290,7 @@ function CommentItem({ comment }: { comment: Comment }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-stone-700">{comment.author.username}</span>
+          <OriginDisclosure origin={comment.origin} variant="comment" />
           <span className="text-xs text-stone-400">{new Date(comment.createdAt).toLocaleDateString("zh-CN")}</span>
         </div>
         <div

@@ -43,6 +43,11 @@ CELLAR_REMINDERS_MAX_PER_USER=$(grep -E "^CELLAR_REMINDERS_MAX_PER_USER=" .env |
 # 站长在 .env 里写了却停不下来，而且没有任何报错。
 AUTO_DRAFT_PAUSED=$(grep -E "^AUTO_DRAFT_PAUSED=" .env | head -1 | cut -d= -f2- | tr -d '"')
 AUTO_NEWS_DRAFT_PAUSED=$(grep -E "^AUTO_NEWS_DRAFT_PAUSED=" .env | head -1 | cut -d= -f2- | tr -d '"')
+# AI 回复的开关（2026-11-03 恢复运行）。**同样必须由包装层传下去** ——
+# 脚本里读的是 `=== "1"`，没有默认值；不 export 的话，站长在 .env 里写了
+# AUTO_REPLY_ENABLED=1，脚本也看不到 —— 开关是死的，而且**没有任何报错**
+# （脚本会打印「已停用」然后退出 0，看起来像「它自己判断不用跑」）。
+AUTO_REPLY_ENABLED=$(grep -E "^AUTO_REPLY_ENABLED=" .env | head -1 | cut -d= -f2- | tr -d '"')
 
 # ── resolve postgres container IP (docker network) ───────────────────
 PG_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' puer-hub-postgres 2>/dev/null)
@@ -65,6 +70,7 @@ case "$TASK" in
     fi
     export DATABASE_URL="postgresql://puerhub:${DB_PWD}@${PG_IP}:5432/puerhub"
     export MINIMAX_API_KEY="${MINIMAX}"
+    export AUTO_REPLY_ENABLED="${AUTO_REPLY_ENABLED}"
 
     run() {
       "$@" || { log_alert "command failed: $*"; exit 1; }
@@ -84,7 +90,7 @@ case "$TASK" in
           -e AUTO_TEA_DRAFT_BOARD_ID="169748e7-123e-40f5-b283-b016c83f9c32" \
           puer-hub-app ./node_modules/.bin/tsx scripts/auto-post.mjs --apply
         ;;
-      auto-reply|auto-boost-new|rag-post)
+      auto-reply|auto-vote|auto-boost-new|rag-post)
         # 宿主机直跑(仅 DB+AI 调用,无 /app 文件路径依赖;pg 模块在宿主机 node_modules)
         # rag-post 额外读宿主机 rag-data 语料(茶问 /ask 同一份知识库)
         run node "scripts/${TASK}.mjs"

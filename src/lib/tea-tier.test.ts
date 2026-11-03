@@ -2,7 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { TEA_TIER_LABELS, canViewPendingTea, teaTier, visibleTeaWhere } from "./tea-tier.ts";
+import {
+  TEA_TIER_LABELS,
+  canViewPendingTea,
+  teaTier,
+  visibleTeaWhere,
+  visibleTeaWhereForViewer,
+} from "./tea-tier.ts";
 
 // ─── 分层判定 ─────────────────────────────────────────────────────────────
 
@@ -86,6 +92,27 @@ test("每个茶品读点/写点都碰到了 needsReview", () => {
     const src = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
     assert.match(src, pattern, `${file} 没有处理 needsReview`);
   }
+});
+
+test("我的目录：管理员与站长看得到待整理的，普通用户看不到", () => {
+  // 2026-11-03：站长报「新建了茶品，保存后在茶品库里搜不到」——
+  // 「待整理」对所有人隐藏（含管理员）是 2026-10-24 为「搜出来一堆重复」定的，
+  // 但那时任何 Lv.2 用户都能建茶；现在建茶口关给管理员与站长，那条规矩
+  // 不再适用 —— 管理员要能在自己的茶品库里找到刚建的条目。
+  assert.deepEqual(visibleTeaWhereForViewer(null), { needsReview: false });
+  assert.deepEqual(
+    visibleTeaWhereForViewer({ id: "u1", role: "user" }),
+    { needsReview: false },
+  );
+  // 管理员
+  assert.deepEqual(visibleTeaWhereForViewer({ id: "a1", role: "admin" }), {});
+  // editor 角色（站长级作者）
+  assert.deepEqual(visibleTeaWhereForViewer({ id: "e1", role: "editor" }), {});
+  // 站长线作者白名单里的 uid（渔夫，role 是 user）
+  assert.deepEqual(
+    visibleTeaWhereForViewer({ id: "o1", role: "user", uid: 1001 }),
+    {},
+  );
 });
 
 test("待整理的茶品不会被公开读点放行（写死的 needsReview: false 只能是「排除」）", () => {

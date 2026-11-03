@@ -9,6 +9,7 @@ import { uploadWithRetry } from "@/lib/upload-client";
 import { describeRejectedFiles, resolveUploadFile } from "@/lib/upload-mime";
 import { MEDIA_ACCEPT } from "@/lib/upload-types";
 import { sanitizeHtml } from "@/lib/sanitize";
+import OriginDisclosure from "@/components/article/origin-disclosure";
 
 interface Author {
   id: string;
@@ -28,6 +29,8 @@ interface CommentRaw {
   downvotes: number;
   initialVote: number;
   author: Author;
+  /** F0 来源标注：ai_autonomous = AI 写的回复（前台打「AI 回复」徽章）。 */
+  origin?: string | null;
 }
 
 interface CommentNode extends CommentRaw {
@@ -87,7 +90,18 @@ function timeAgo(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("zh-CN");
 }
 
-function AuthorPanel({ author, postNumber, isOP }: { author: Author; postNumber: number; isOP: boolean }) {
+function AuthorPanel({
+  author,
+  postNumber,
+  isOP,
+  origin,
+}: {
+  author: Author;
+  postNumber: number;
+  isOP: boolean;
+  /** F0 来源标注（AI 写的回复打「AI 回复」徽章）。 */
+  origin?: string | null;
+}) {
   return (
     <div className="md:w-40 lg:w-44 shrink-0 md:bg-stone-50 md:p-3 md:border-r md:border-stone-200 md:text-center">
       <div className="w-10 h-10 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-amber-100 flex items-center justify-center text-sm md:text-base text-amber-700 overflow-hidden mx-auto">
@@ -111,6 +125,9 @@ function AuthorPanel({ author, postNumber, isOP }: { author: Author; postNumber:
           楼主
         </span>
       )}
+      <div className="mt-1">
+        <OriginDisclosure origin={origin} variant="comment" />
+      </div>
     </div>
   );
 }
@@ -455,10 +472,11 @@ export default function CommentSection({ articleId, articleAuthorId }: CommentSe
             </Link>
             <span className="text-xs text-stone-400">Lv.{node.author.level}</span>
             {isOP && <span className="text-xs px-1 py-0.5 bg-amber-100 text-amber-700 rounded">楼主</span>}
+            <OriginDisclosure origin={node.origin} variant="comment" />
             <span className="text-xs text-stone-400 ml-auto">#{num}</span>
           </div>
           <div className="md:flex">
-            <AuthorPanel author={node.author} postNumber={num} isOP={isOP} />
+            <AuthorPanel author={node.author} postNumber={num} isOP={isOP} origin={node.origin} />
             <div className="flex-1 min-w-0 p-3 md:p-4">
               <div className="flex items-center gap-2 text-xs text-stone-400 mb-2">
                 <span className="font-mono">#{num}</span>

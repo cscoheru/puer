@@ -9,7 +9,7 @@ PRD v0.3 §12 第 3 条与 F0 要求：自动投票一律停止；AI 回复必�
 | `auto-vote.mjs` | `AUTO_VOTE_ENABLED=1` | F0：自动投票一律停止 | F0 标注上线，且投票对象有可见的自动化标注 |
 | `auto-boost-new.mjs` | `AUTO_BOOST_NEW_ENABLED=1` | 灌票 + AI 回复，标注未上线 | 同上 |
 | `boost-essence.mjs` | `BOOST_ESSENCE_ENABLED=1` | 同样往 `votes` 表灌票 | 同上 |
-| `auto-reply.mjs` | `AUTO_REPLY_ENABLED=1` | prompt 要求「绝对不要暴露你是AI」，读者无法区分 AI 回复 | F0 标注上线 |
+| `auto-reply.mjs` | `AUTO_REPLY_ENABLED=1` | prompt 要求「绝对不要暴露你是AI」，读者无法区分 AI 回复 | **2026-11-03 已满足**：F0 标注补到了评论侧（`comments.origin` 迁移 20261103_comment_origin，脚本写 `ai_autonomous`，前台打「AI 回复」徽章）→ 已在生产恢复运行 |
 | `auto-register.mjs` | `AUTO_REGISTER_ENABLED=1` | §12 决策 7：暂停建号 | 站长明确恢复 |
 
 ## 为什么开关在脚本里而不是只在 crontab 里
