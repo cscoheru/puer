@@ -82,7 +82,9 @@ services:
       # NEXT_PUBLIC_MINIO_URL 指向的 https://puer.im/minio 在 nginx 里也不存在
       # （无对应 location）。2026-10-22 起这些是纯死配置，删掉。
       NEXT_PUBLIC_WS_URL: wss://puer.im
-      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      # 2026-11-06:LLM 主力由 MiniMax 换成 DeepSeek,GLM 兜底(见 src/lib/llm-provider.ts)
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
       RAG_SERVICE_URL: http://rag-service:8000
       RAG_SERVICE_TOKEN: ${RAG_SERVICE_TOKEN:-}
       # F0 反滥用开关（PRD v0.3 §0）：透传进容器，站长改 .env 后
@@ -148,7 +150,9 @@ services:
       ANTHROPIC_TEACHER_TOKEN: ${ANTHROPIC_TEACHER_TOKEN:-}
       GLM_API_KEY: ${GLM_API_KEY:-}
       KIMI_API_KEY: ${KIMI_API_KEY:-}
+      # rag-service 的代码不在本仓库:保留 MINIMAX_* 以免它还在读;DeepSeek 主用、GLM 兜底
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     volumes:
       - ./rag-data:/data:ro
       - ./uploads:/host-uploads:ro

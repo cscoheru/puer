@@ -4,11 +4,11 @@
  * auto-reply.mjs — Auto-reply to forum posts with diverse user personas
  *
  * Picks posts (preferring low-reply ones) → generates contextual replies
- * via MiniMax (R27, was DeepSeek) → inserts as comments from random users
+ * via DeepSeek (2026-11-06, was MiniMax) → inserts as comments from random users
  *
  * Environment:
  *   DATABASE_URL   — PostgreSQL connection
- *   MINIMAX_API_KEY — MiniMax API key (R27, was DEEPSEEK_API_KEY)
+ *   DEEPSEEK_API_KEY — DeepSeek API key（GLM_API_KEY 为兜底）
  *   AUTO_REPLY_ENABLED — 必须为 "1" 才运行（PRD v0.3 §12 第 3 条的开关；
  *     由 scripts/cron-task.sh 从 .env 里读出来 export 下来）
  *
@@ -27,10 +27,9 @@ import { randomUUID } from "node:crypto";
 
 // ── Config ──────────────────────────────────────────────────────────
 const DB_URL = process.env.DATABASE_URL;
-// R27:DeepSeek(402 欠费)→ MiniMax M3,与 src/lib/moderation.ts(R25)同一兼容层与参数约定
-const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
-const MINIMAX_MODEL = "MiniMax-M3";
-const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
+// 2026-11-06:MiniMax 账号终止 → DeepSeek。
+// 供应商参数统一在 scripts/lib/llm.mjs（R27 规则 3）。
+import { llmChat, llmConfigured } from "./lib/llm.mjs";
 
 // ── 停用开关（PRD v0.3 §12 第3条 / F0）────────────────────────────────
 // 这个任务的 prompt 明确要求「绝对不要暴露你是AI」，回复以普通用户身份入库，
@@ -233,7 +232,7 @@ async function pickUser(excludeAuthorId, articleId) {
   return fallback[0];
 }
 
-// ── Step 4: Generate reply via MiniMax(R27) ─────────────────────────
+// ── Step 4: Generate reply via LLM(DeepSeek, 2026-11-06) ──────────────
 
 function pickWeightedReplyType() {
   const totalWeight = REPLY_TYPES.reduce((s, t) => s + t.weight, 0);
@@ -286,38 +285,18 @@ ${existingReplies.length > 0 ? "6. 针对已有回复中的观点进行回应或
 请严格按以下JSON格式返回（不要markdown代码块）：
 {"content": "回复内容HTML"}`;
 
-  const response = await fetch(MINIMAX_BASE, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${MINIMAX_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MINIMAX_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.9,
-      // MiniMax-M3: max_completion_tokens(非 max_tokens) + 显式关 thinking(默认 adaptive 太慢)
-      max_completion_tokens: 800,
-      thinking: { type: "disabled" },
-      response_format: { type: "json_object" },
-    }),
-    signal: AbortSignal.timeout(60_000),
+  const text = await llmChat(prompt, {
+    maxTokens: 800,
+    temperature: 0.9,
+    timeoutMs: 60_000,
+    json: true,
   });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`MiniMax API error ${response.status}: ${err}`);
-  }
-
-  const data = await response.json();
-  const text = data.choices?.[0]?.message?.content || "";
-
   try {
     return JSON.parse(text);
   } catch {
     const m = text.match(/\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
-    throw new Error("Failed to parse MiniMax response");
+    throw new Error("Failed to parse LLM response");
   }
 }
 
@@ -354,8 +333,8 @@ async function insertComment({ articleId, content, userId, parentId }) {
 async function main() {
   log("=== Auto-reply started ===");
 
-  if (!MINIMAX_API_KEY) {
-    console.error("ERROR: MINIMAX_API_KEY not set");
+  if (!llmConfigured()) {
+    console.error("ERROR: DEEPSEEK_API_KEY / GLM_API_KEY 均未设置");
     process.exit(1);
   }
 

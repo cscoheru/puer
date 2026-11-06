@@ -23,7 +23,7 @@
  *
  * Environment:
  *   DATABASE_URL                 — PostgreSQL 连接（cron-task.sh 提供）
- *   MINIMAX_API_KEY              — MiniMax key（cron-task.sh 提供）
+ *   DEEPSEEK_API_KEY                  — DeepSeek API key（cron-task.sh 提供；GLM 兜底）
  *   NEWS_AUTHOR_USERNAME         — 专用资讯账号 username（默认 puer-news）
  *   PENTAGI_ARTIFACT_HOST        — pentagi-vps SSH 目标（默认 pentagi-vps）
  *   PENTAGI_ARTIFACT_DIR         — 成果目录（默认 /opt/pentagi-artifacts）
@@ -418,7 +418,7 @@ async function main() {
   }
   // Fail fast on missing env before touching the network or the DB.
   required("DATABASE_URL");
-  required("MINIMAX_API_KEY");
+  if (!process.env.DEEPSEEK_API_KEY && !process.env.GLM_API_KEY) required("DEEPSEEK_API_KEY");
   const prisma = makePrisma();
 
   try {

@@ -66,8 +66,8 @@ function captureFetcher(json: unknown, sink: { body?: string }): FetchLike {
 }
 
 // Save/restore the key so this file never leaks env state (同 adapt.test.ts)。
-const PREV_KEY = process.env.MINIMAX_API_KEY;
-process.env.MINIMAX_API_KEY = "test-key";
+const PREV_KEY = process.env.DEEPSEEK_API_KEY;
+process.env.DEEPSEEK_API_KEY = "test-key";
 
 // ── 成功路径 ────────────────────────────────────────────────────────
 
@@ -293,8 +293,8 @@ test("rewriteNews: fetch 抛异常时失败但不抛", async () => {
   if (!r.ok) assert.ok(r.reason.includes("fetch error"), `原因不对: ${r.reason}`);
 });
 
-test("rewriteNews: 缺 MINIMAX_API_KEY 时 fail-fast 且不调模型", async () => {
-  delete process.env.MINIMAX_API_KEY;
+test("rewriteNews: 缺 DEEPSEEK_API_KEY 时 fail-fast 且不调模型", async () => {
+  delete process.env.DEEPSEEK_API_KEY;
   let called = false;
   const spy = (async () => {
     called = true;
@@ -303,10 +303,10 @@ test("rewriteNews: 缺 MINIMAX_API_KEY 时 fail-fast 且不调模型", async () 
   try {
     const r = await rewriteNews({ material: MARKET_MATERIAL, fetcher: spy });
     assert.equal(r.ok, false);
-    if (!r.ok) assert.ok(r.reason.includes("MINIMAX_API_KEY"), `原因不对: ${r.reason}`);
+    if (!r.ok) assert.ok(r.reason.includes("DEEPSEEK_API_KEY"), `原因不对: ${r.reason}`);
     assert.equal(called, false, "缺 key 时不应调模型");
   } finally {
-    process.env.MINIMAX_API_KEY = "test-key";
+    process.env.DEEPSEEK_API_KEY = "test-key";
   }
 });
 
@@ -463,8 +463,8 @@ test("materialNumbers: 提取素材里的数字串，小数点算整体（排障
 });
 
 // Restore the caller's env so this file never leaks state into other suites.
-test("restore MINIMAX_API_KEY after the suite", () => {
-  if (PREV_KEY === undefined) delete process.env.MINIMAX_API_KEY;
-  else process.env.MINIMAX_API_KEY = PREV_KEY;
+test("restore DEEPSEEK_API_KEY after the suite", () => {
+  if (PREV_KEY === undefined) delete process.env.DEEPSEEK_API_KEY;
+  else process.env.DEEPSEEK_API_KEY = PREV_KEY;
   assert.ok(true);
 });

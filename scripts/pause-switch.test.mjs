@@ -30,7 +30,8 @@ test("暂停开关：开启时退出码 0 且明确打印已暂停", () => {
         [env]: "1",
         // 指向一个死地址：若脚本仍去连库/连网，这里会超时或报错而非退出 0。
         DATABASE_URL: "postgresql://nobody:nobody@127.0.0.1:1/none",
-        MINIMAX_API_KEY: "",
+        DEEPSEEK_API_KEY: "",
+        GLM_API_KEY: "",
       },
       encoding: "utf8",
       timeout: 30_000,
@@ -51,7 +52,8 @@ test("暂停开关：未设置时不因开关本身失败（走后续正常校�
     const childEnv = { ...process.env };
     delete childEnv[env];
     childEnv.DATABASE_URL = "postgresql://nobody:nobody@127.0.0.1:1/none";
-    childEnv.MINIMAX_API_KEY = "";
+    childEnv.DEEPSEEK_API_KEY = "";
+    childEnv.GLM_API_KEY = "";
     const r = spawnSync(process.execPath, [path.join("scripts", file)], {
       cwd: REPO_ROOT,
       env: childEnv,

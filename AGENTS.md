@@ -168,3 +168,36 @@ auto-reply/auto-boost-new/publish 管线仍走 DeepSeek，402 欠费后 AI 回�
 > 机制：`.claude/settings.json` 的 PreToolUse hook 会在**每次**执行部署类命令前
 > 自动把这份清单注入上下文（脚本见 `.claude/hooks/predeploy-checklist.sh`），
 > 所以「必读」不靠自觉。
+
+## R30 追加：LLM 供应商再切换（2026-11-06 MiniMax → DeepSeek）
+
+**事故背景**：MiniMax 账号终止（11-03 余额耗尽后彻底停服），11-06 先在火山方舟
+coding plan 上落了半套改动，实测 `429 AccountQuotaExceeded`（月度额度重置
+2026-11-08 23:59:59 +0800）→ 按用户指示改回 **DeepSeek 主力 + GLM 兜底**。
+
+**这次切换动了什么**（可作为下次切换的清单）：
+`src/lib/llm-provider.ts`（参考实现）→ `src/lib/{moderation,xhs-content}`、
+`src/lib/{tasting-extract/extract,tea-drafts/adapt,news-draft/rewrite}` →
+`scripts/lib/llm.mjs`（脚本侧参考实现）→ 各 `scripts/*.mjs` 调用点 →
+`scripts/cron-task.sh` / `crontab.txt` / `fix-env-keys.sh` / 健康探针 →
+compose 三个文件的 env 映射 → 单测（env 名与错误串断言）→ `deploy-standby.sh`。
+
+**规则（R30）**
+
+1. **供应商痕迹要 grep 六类，缺一类就是半切换**：端点 URL、模型名、env 名、
+   专有参数（`max_completion_tokens` / `thinking`）、供应商 id 字面量（`"ark"`）、
+   **测试里的错误串断言**（`/MiniMax 500/` 这类）。本次 grep 漏掉的正是后两类。
+2. **改 env 名之后必须 `docker compose up -d app`**：`restart` 沿用旧容器 env，
+   compose 里改了 `MINIMAX_API_KEY` → `DEEPSEEK_API_KEY` 也不会生效，容器内
+   仍读不到新 key（静默 fail-closed 转人工 / 脚本直接 exit 1）。
+3. **`response_format` 跟着 prompt 走，不跟着供应商走**：DeepSeek/GLM 的
+   `json_object` 模式要求 prompt 里出现 "json" 字样，否则 400。所以
+   `scripts/lib/llm.mjs` 默认**不开** json 模式，只有明说「按 JSON 返回」的
+   调用点传 `json: true`；`rag-post` / `auto-boost-new` 那种「不要 JSON」的
+   标签式 prompt 必须留 false。
+4. **健康探针与 cron 任务名一起改**：`cron-task.sh` 的 case 分支名就是 crontab
+   调用的参数，改一半（如 `minimax-health` → `llm-health` 只改 shell 不改
+   crontab）会让 cron 每小时 `unknown task` 退出 64 —— 不写 alert，看起来像
+   「没跑」而不是「跑错」。
+5. **历史注释不用抹**：文件头写「2026-11-06: MiniMax 账号终止 → DeepSeek」
+   比把旧供应商抹干净更有用——下一个人（或下一次切换）能看懂为什么是现在这样。

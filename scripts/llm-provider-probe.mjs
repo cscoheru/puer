@@ -3,22 +3,14 @@
 /**
  * llm-provider-probe.mjs — 探测哪个 LLM 供应商当前可用（只发 5 token 的问候）。
  *
- * 背景：MiniMax 配额耗尽（429/2056）时，回填管线必须知道能不能切到别家。
- * 报告只证明「该 key 此刻能正常返回」，不评估质量。
+ * 背景：主力供应商额度打满/欠费时（MiniMax 已停服；DeepSeek 402、GLM 429），
+ * 回填管线必须知道此刻还能切到谁。报告只证明「该 key 此刻能正常返回」，不评估质量。
  *
  * Run:
  *   node scripts/llm-provider-probe.mjs
  */
 
 const PROVIDERS = [
-  {
-    name: "minimax",
-    env: "MINIMAX_API_KEY",
-    url: "https://api.minimax.cn/v1/chat/completions",
-    model: "MiniMax-M3",
-    maxKey: "max_completion_tokens",
-    extra: { thinking: { type: "disabled" } },
-  },
   {
     name: "deepseek",
     env: "DEEPSEEK_API_KEY",

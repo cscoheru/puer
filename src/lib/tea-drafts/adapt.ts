@@ -22,9 +22,9 @@
  *      sanitize violation) returns {ok:false,reason}; the caller keeps the
  *      already-created verbatim draft. This function NEVER throws.
  *
- * The DeepSeek call mirrors src/lib/moderation.ts (same endpoint, same env
- * key) but at temperature 0.4 (grounded), not the retired creative 0.9, with a
- * json_object response format and a 20s timeout.
+ * The model call mirrors src/lib/llm-provider.ts (same endpoint, same env
+ * key) but at temperature 0.4 (grounded), not the retired creative 0.9.
+ * 2026-11-06: MiniMax 账号终止 → DeepSeek（DEEPSEEK_API_KEY）。
  */
 import {
   extractParagraphs,
@@ -35,12 +35,11 @@ import { sanitizeNoteHtml, stripToContentTags } from "./sanitize.ts";
 import { escapeHtml, SUMMARY_MAX_LENGTH } from "./assemble.ts";
 import type { NormalizedNote } from "./normalize.ts";
 import { styleByKey, type StyleKey, type TeaDraftStyle } from "./styles.ts";
+import { deepseekTarget, buildChatBody } from "../llm-provider.ts";
 
-// DeepSeek config — mirrors src/lib/moderation.ts. Those consts are
-// module-private there, so they are re-declared here to keep the adapter free
-// of a runtime dependency on the moderation module's side effects.
-const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
-const MINIMAX_MODEL = "MiniMax-M3";
+// 供应商参数只有一份实现（AGENTS.md R27 规则 3）：端点 / 模型 / max_tokens /
+// 是否带 response_format 全部由 `src/lib/llm-provider.ts` 决定。
+const TARGET = deepseekTarget();
 
 // Adaptation knobs. The ratio band was 0.3–1.5 and is now 0.2–2.0: the prompt
 // explicitly tells the model to DISCARD the reference/provenance material that
@@ -355,23 +354,26 @@ async function runAdaptAttempt(
 
   let resp: Response;
   try {
-    resp = await fetcher(MINIMAX_URL, {
+    resp = await fetcher(TARGET.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`,
       },
-      body: JSON.stringify({
-        model: MINIMAX_MODEL,
-        messages: [
-          { role: "system", content: ADAPT_SYSTEM },
-          { role: "user", content: buildPrompt(source, style) },
-        ],
-        temperature: ADAPT_TEMPERATURE,
-        max_completion_tokens: ADAPT_MAX_TOKENS,
-        thinking: { type: "disabled" },
-        response_format: { type: "json_object" },
-      }),
+      body: JSON.stringify(
+        buildChatBody(
+          TARGET,
+          [
+            { role: "system", content: ADAPT_SYSTEM },
+            { role: "user", content: buildPrompt(source, style) },
+          ],
+          {
+            temperature: ADAPT_TEMPERATURE,
+            maxTokens: ADAPT_MAX_TOKENS,
+            json: true,
+          },
+        ),
+      ),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
@@ -380,14 +382,14 @@ async function runAdaptAttempt(
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    return { ok: false, reason: `MiniMax ${resp.status}: ${errText.slice(0, 200)}` };
+    return { ok: false, reason: `DeepSeek ${resp.status}: ${errText.slice(0, 200)}` };
   }
 
   let body: DeepSeekBody;
   try {
     body = (await resp.json()) as DeepSeekBody;
   } catch {
-    return { ok: false, reason: "MiniMax returned non-JSON body" };
+    return { ok: false, reason: "DeepSeek returned non-JSON body" };
   }
   const choice = body?.choices?.[0];
   const raw = choice?.message?.content ?? "";
@@ -400,7 +402,7 @@ async function runAdaptAttempt(
     // both were seen in production and need different treatment.
     const detail =
       finish === "length"
-        ? "truncated at max_completion_tokens"
+        ? "truncated at max_tokens"
         : !raw
           ? "empty model content"
           : "unparseable model JSON";
@@ -442,7 +444,7 @@ async function runAdaptAttempt(
 }
 
 /**
- * Call MiniMax (OpenAI-compatible) to adapt the draft body/summary. Fail-safe:
+ * Call the LLM (DeepSeek, OpenAI-compatible) to adapt the draft body/summary. Fail-safe:
  * any error or validation failure returns {ok:false,reason} and never throws.
  * On success the returned content has been sanitized, length-checked, and
  * numerically grounded against the source corpus.
@@ -451,16 +453,16 @@ async function runAdaptAttempt(
  * failure is the last one, tagged with the attempt count so a log line still
  * reads as "this was retried and still failed" rather than a single blip.
  *
- * P2-R25:DeepSeek → MiniMax 切换。函数名 deepSeekAdapt 为历史名,被
- * runner/测试引用,暂保留;内部已走 MINIMAX_API_KEY + MiniMax-M3。
+ * 2026-11-06: MiniMax → DeepSeek。函数名 deepSeekAdapt 为历史名,被
+ * runner/测试引用,暂保留;内部已走 DEEPSEEK_API_KEY。
  */
 export async function deepSeekAdapt(
   opts: DeepSeekAdaptOptions,
 ): Promise<AdaptResult> {
   const style = styleByKey(opts.style);
   if (!style) return { ok: false, reason: `unknown style: ${opts.style}` };
-  const key = process.env.MINIMAX_API_KEY;
-  if (!key) return { ok: false, reason: "MINIMAX_API_KEY missing" };
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) return { ok: false, reason: "DEEPSEEK_API_KEY missing" };
 
   let last: AdaptResult = { ok: false, reason: "no attempt ran" };
   for (let attempt = 1; attempt <= ADAPT_ATTEMPTS; attempt++) {

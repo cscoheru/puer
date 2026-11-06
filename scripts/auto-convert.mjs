@@ -22,14 +22,15 @@ if (process.env.AUTO_CONVERT_LEGACY_FORCE !== "1") {
   );
   process.exit(0);
 }
-console.warn("[auto-convert] LEGACY FORCE override active — running deprecated auto pipeline (MiniMax, R27).");
+console.warn("[auto-convert] LEGACY FORCE override active — running deprecated auto pipeline (LLM = DeepSeek).");
 
 
 import {
-  MINIMAX_API_KEY, BOARDS,
+  BOARDS,
   log, sqlSingle, pickRandom,
   generateVideo, generateContent, insertPost,
 } from "./lib/post-helpers.mjs";
+import { llmConfigured } from "./lib/llm.mjs";
 
 // ── Notes already converted → exclude ───────────────────────────────
 
@@ -100,8 +101,8 @@ async function pickUser() {
 
 async function main() {
   log("=== Auto-convert started ===");
-  if (!MINIMAX_API_KEY) {
-    console.error("ERROR: MINIMAX_API_KEY not set");
+  if (!llmConfigured()) {
+    console.error("ERROR: DEEPSEEK_API_KEY / GLM_API_KEY 均未设置");
     process.exit(1);
   }
 

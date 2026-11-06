@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { validateReply, extractTastingFields } from "./extract.ts";
 import { buildExtractionPrompt, MAX_CONTENT_CHARS } from "./prompt.ts";
 
-const reply = (raw: unknown) => ({ raw, model: "test", source: "minimax" as const });
+const reply = (raw: unknown) => ({ raw, model: "test", source: "deepseek" as const });
 
 const NOTE =
   "今天用盖碗冲泡，投茶8克。茶汤橙黄，蜜韵明显，回甘快。比上次更顺口，感觉已经进入适饮期了。";

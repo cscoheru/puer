@@ -9,21 +9,18 @@
  * never reach the hot ranking → never hit the essence threshold.
  *
  * This breaks the loop: each run gives 48h-old posts a small vote boost
- * (+3~5) and 1-2 MiniMax replies (R27, was DeepSeek) from the bot pool, so they enter the
+ * (+3~5) and 1-2 LLM replies (2026-11-06: DeepSeek) from the bot pool, so they enter the
  * hotScore algorithm's view. Posts already taking off (net>=15 or reply>=8)
  * are skipped — they don't need cold start.
  *
- * Run inside app container (has MiniMax + pg): node /app/scripts/auto-boost-new.mjs
+ * Run inside app container (has DeepSeek key + pg): node /app/scripts/auto-boost-new.mjs
  */
 
 import { randomUUID } from "node:crypto";
 import {
-  DB_URL, MINIMAX_API_KEY,
-  log, sql, sqlSingle, pickRandom, shuffleArray, escapeSql,
+  DB_URL, log, sql, sqlSingle, pickRandom, shuffleArray, escapeSql,
 } from "./lib/post-helpers.mjs";
-
-// R27:DeepSeek(402 欠费)→ MiniMax M3,与 src/lib/moderation.ts(R25)同一兼容层与参数约定
-const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
+import { llmChat, llmConfigured } from "./lib/llm.mjs";
 
 // ── 停用开关（PRD v0.3 §12 第3条 / F0）────────────────────────────────
 // 这个任务做两件事：给新帖灌票（+3~5 票）+ 用 7 套人设写 1-2 条 AI 回复。
@@ -104,22 +101,12 @@ async function generateReply(post) {
 帖子标题：${post.title}
 帖子内容：${plain}`;
 
-  const res = await fetch(MINIMAX_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${MINIMAX_API_KEY}` },
-    body: JSON.stringify({
-      model: "MiniMax-M3",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.9,
-      // MiniMax-M3: max_completion_tokens(非 max_tokens) + 显式关 thinking(默认 adaptive 太慢)
-      max_completion_tokens: 200,
-      thinking: { type: "disabled" },
-    }),
-    signal: AbortSignal.timeout(60_000),
+  const text = await llmChat(prompt, {
+    maxTokens: 200,
+    temperature: 0.9,
+    timeoutMs: 60_000,
   });
-  if (!res.ok) throw new Error(`MiniMax ${res.status}: ${(await res.text()).slice(0, 100)}`);
-  const text = (await res.json()).choices?.[0]?.message?.content?.trim();
-  return text || null;
+  return text.trim() || null;
 }
 
 async function insertComment({ articleId, content, userId }) {
@@ -136,8 +123,8 @@ async function insertComment({ articleId, content, userId }) {
 
 async function main() {
   log("=== Auto-boost-new started ===");
-  if (!MINIMAX_API_KEY) {
-    console.error("ERROR: MINIMAX_API_KEY not set");
+  if (!llmConfigured()) {
+    console.error("ERROR: DEEPSEEK_API_KEY / GLM_API_KEY 均未设置");
     process.exit(1);
   }
 
@@ -173,7 +160,7 @@ async function main() {
       }
     }
 
-    // Replies: 1-2 MiniMax replies from random old users
+    // Replies: 1-2 LLM replies from random old users
     const replyN = 1 + Math.floor(Math.random() * 2); // 1-2
     let postReplies = 0;
     for (let i = 0; i < replyN; i++) {

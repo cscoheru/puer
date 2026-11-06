@@ -21,7 +21,7 @@
  *
  * Environment:
  *   DATABASE_URL        — PostgreSQL connection (cron-task.sh 提供)
- *   MINIMAX_API_KEY     — MiniMax key (cron-task.sh 提供)
+ *   DEEPSEEK_API_KEY         — DeepSeek API key（GLM_API_KEY 兜底）
  *   RAG_CHUNKS_FILE     — knowledge-chunks.jsonl 路径 (默认 /opt/puer-hub/rag-data/knowledge-chunks.jsonl)
  *   RAG_POST_DAILY_CAP  — 每日草稿上限 (默认 2)
  *   DRY_RUN=1           — 只生成打印,不写库(验收用)
@@ -32,11 +32,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
-  MINIMAX_API_KEY, BOARDS, sql, sqlSingle, log, pickRandom, escapeSql,
+  BOARDS, sql, sqlSingle, log, pickRandom, escapeSql,
 } from "./lib/post-helpers.mjs";
-
-const MINIMAX_BASE = "https://api.minimax.cn/v1/chat/completions";
-const MINIMAX_MODEL = "MiniMax-M3";
+import { llmChat, llmConfigured } from "./lib/llm.mjs";
 const CHUNKS_FILE = process.env.RAG_CHUNKS_FILE || "/opt/puer-hub/rag-data/knowledge-chunks.jsonl";
 const DAILY_CAP = Number(process.env.RAG_POST_DAILY_CAP || 2);
 const DRY_RUN = process.env.DRY_RUN === "1";
@@ -131,21 +129,11 @@ TITLE:帖子标题
 CONTENT:帖子正文HTML(可含换行)
 QUESTION:结尾讨论问题一句话`;
 
-  const res = await fetch(MINIMAX_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${MINIMAX_API_KEY}` },
-    body: JSON.stringify({
-      model: MINIMAX_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.9,
-      // MiniMax-M3: max_completion_tokens(非 max_tokens) + 显式关 thinking(默认 adaptive 太慢)
-      max_completion_tokens: 1200,
-      thinking: { type: "disabled" },
-    }),
-    signal: AbortSignal.timeout(60_000),
+  const text = await llmChat(prompt, {
+    maxTokens: 1200,
+    temperature: 0.9,
+    timeoutMs: 60_000,
   });
-  if (!res.ok) throw new Error(`MiniMax ${res.status}: ${(await res.text()).slice(0, 120)}`);
-  const text = (await res.json()).choices?.[0]?.message?.content || "";
 
   // 分段标记解析(DRY 实测 JSON 模式会被内容里的裸引号炸掉,标记式永不 parse 失败)
   const grab = (tag) => {
@@ -164,7 +152,7 @@ QUESTION:结尾讨论问题一句话`;
 //
 // 旧管线 (R28): 用正则 /(\d{4})/g 抓标题年份+唛号去 SKU name 匹配。
 //   实测「熟茶老五样里的7262」命中 811 个 SKU 随机错配,生成的帖子无图。
-// 新管线 (R28d): 用 MiniMax 从 chunk 文本识别品牌+茶品 → 查 teas 表得 teaId
+// 新管线 (R28d): 用模型从 chunk 文本识别品牌+茶品 → 查 teas 表得 teaId
 //   → 按"加权综合分 = ln(正文长度)*2 + 图数*1.5 + 视频奖励5"选最优茶记
 //   → 直接拿该茶记的 images[] + videoUrl 写入帖子。
 //   图片路径直接用 tasting_notes.images 里的 /uploads/evernote/... 已是公网
@@ -184,20 +172,11 @@ TEA_NAME:茶品名(唛号或品名,如 7262/7572/7542/金大益/紫大益)
 - 如果素材讨论的是通用知识(无具体茶品),品牌/茶品名都写 NONE
 - 茶品名只取核心唛号或品名,不要带年份/批次`;
 
-  const res = await fetch(MINIMAX_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${MINIMAX_API_KEY}` },
-    body: JSON.stringify({
-      model: MINIMAX_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.3,
-      max_completion_tokens: 200,
-      thinking: { type: "disabled" },
-    }),
-    signal: AbortSignal.timeout(30_000),
+  const text = await llmChat(prompt, {
+    maxTokens: 200,
+    temperature: 0.3,
+    timeoutMs: 30_000,
   });
-  if (!res.ok) throw new Error(`identifyTea MiniMax ${res.status}`);
-  const text = (await res.json()).choices?.[0]?.message?.content || "";
   const grab = (tag) => {
     const m = text.match(new RegExp(`^${tag}:\\s*(.+?)$`, "m"));
     return m ? m[1].trim() : "";
@@ -301,7 +280,7 @@ function shuffle(arr) {
 }
 
 async function main() {
-  if (!MINIMAX_API_KEY) { console.error("ERROR: MINIMAX_API_KEY not set"); process.exit(1); }
+  if (!llmConfigured()) { console.error("ERROR: DEEPSEEK_API_KEY / GLM_API_KEY 均未设置"); process.exit(1); }
   log(`=== Rag-post started (cap=${DAILY_CAP}${DRY_RUN ? ", DRY_RUN" : ""}) ===`);
 
   const [chunks, used, todayCount] = await Promise.all([

@@ -92,8 +92,8 @@ function captureFetcher(json: unknown, sink: { body?: string }): FetchLike {
 }
 
 // Save/restore the key so this file never leaks env state.
-const PREV_KEY = process.env.MINIMAX_API_KEY;
-process.env.MINIMAX_API_KEY = "test-key";
+const PREV_KEY = process.env.DEEPSEEK_API_KEY;
+process.env.DEEPSEEK_API_KEY = "test-key";
 
 // ─── extractNumberTokens ────────────────────────────────────────────────
 
@@ -290,7 +290,7 @@ test("deepSeekAdapt: HTTP non-ok → rejected with status", async () => {
   const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
   const r = await deepSeekAdapt({ source, style: "veteran", fetcher: makeFetcher({}, 500) });
   assert.equal(r.ok, false);
-  assert.match((r as { reason: string }).reason, /MiniMax 500/);
+  assert.match((r as { reason: string }).reason, /DeepSeek 500/);
 });
 
 test("deepSeekAdapt: fetch throws → rejected, never throws", async () => {
@@ -305,7 +305,7 @@ test("deepSeekAdapt: fetch throws → rejected, never throws", async () => {
 
 test("deepSeekAdapt: missing API key → rejected (fail-closed)", async () => {
   const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
-  delete process.env.MINIMAX_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
   try {
     const r = await deepSeekAdapt({
       source,
@@ -313,9 +313,9 @@ test("deepSeekAdapt: missing API key → rejected (fail-closed)", async () => {
     fetcher: makeFetcher(okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY })),
     });
     assert.equal(r.ok, false);
-    assert.match((r as { reason: string }).reason, /MINIMAX_API_KEY missing/);
+    assert.match((r as { reason: string }).reason, /DEEPSEEK_API_KEY missing/);
   } finally {
-    process.env.MINIMAX_API_KEY = "test-key";
+    process.env.DEEPSEEK_API_KEY = "test-key";
   }
 });
 
@@ -381,7 +381,7 @@ test("deepSeekAdapt: a truncated completion is diagnosed as truncation, not bad 
   });
   assert.equal(r.ok, false);
   const reason = (r as { reason: string }).reason;
-  assert.match(reason, /truncated at max_completion_tokens/);
+  assert.match(reason, /truncated at max_tokens/);
   assert.match(reason, /finish=length/);
 });
 
@@ -407,13 +407,13 @@ test("deepSeekAdapt: the completion cap leaves room for a full rewrite", async (
     style: "veteran",
     fetcher: captureFetcher(okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY }), sink),
   });
-  const sent = JSON.parse(sink.body ?? "{}") as { max_completion_tokens?: number };
+  const sent = JSON.parse(sink.body ?? "{}") as { max_tokens?: number };
   // A FLOOR, not an exact value, so future tuning upward stays free. The
   // 800-token cap this replaces was observed hitting `finish_reason: "length"`
   // on a real 1600cp note, which truncates the JSON and loses the whole draft.
   assert.ok(
-    (sent.max_completion_tokens ?? 0) >= 1600,
-    `max_completion_tokens=${sent.max_completion_tokens} would truncate real rewrites`,
+    (sent.max_tokens ?? 0) >= 1600,
+    `max_tokens=${sent.max_tokens} would truncate real rewrites`,
   );
 });
 

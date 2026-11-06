@@ -95,7 +95,7 @@ MSG
 fi
 
 # ── 其它部署类命令：把清单注入上下文（不阻断）──────────────────────────
-DEPLOY_RE='(^|[^[:alnum:]_])(docker[[:space:]]+(build|compose|image|exec|tag|inspect)|crontab|prisma[[:space:]]+(migrate|generate)|psql[^|]*puerhub|app\.switch\.override|minimax-health)([^[:alnum:]_]|$)'
+DEPLOY_RE='(^|[^[:alnum:]_])(docker[[:space:]]+(build|compose|image|exec|tag|inspect)|crontab|prisma[[:space:]]+(migrate|generate)|psql[^|]*puerhub|app\.switch\.override|llm-health)([^[:alnum:]_]|$)'
 printf '%s' "$scan" | grep -qE "$DEPLOY_RE" || exit 0
 
 [ -f "$CHECKLIST_FILE" ] || exit 0

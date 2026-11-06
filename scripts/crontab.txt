@@ -73,8 +73,10 @@
 
 # ── 每小时探针 ────────────────────────────────────────────────────────────
 
-# MiniMax 余额/API 健康探针
-0 * * * * /opt/puer-hub/scripts/cron-task.sh minimax-health >> /var/log/minimax-health.log 2>&1
+# LLM 健康探针（DeepSeek 主力 + GLM 兜底，两家各 1 token）
+# 402 = DeepSeek 欠费（重试不会好，探针单独分类）；429 是限流。
+# 两家都挂才写 [ALERT]；只有主力挂时写 [HEARTBEAT] fallback —— 管线还活着。
+0 * * * * /opt/puer-hub/scripts/cron-task.sh llm-health >> /var/log/llm-health.log 2>&1
 
 # ── 已停用（保留行以便回溯，不要直接删）──────────────────────────────────
 #

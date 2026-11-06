@@ -2,8 +2,8 @@
  * F1 抽取执行器（PRD v0.3 §5 Phase 1）。
  *
  * 调用链与仓库既有 AI 调用保持一致（AGENTS.md R27 规则 3）：
- * MiniMax-M3（`max_completion_tokens` + `thinking:disabled`）→ 仅配额类错误
- * 才降级到 lilith tailnet 本地模型。参数组合照抄 `src/lib/moderation.ts`。
+ * DeepSeek（OpenAI 兼容 /v1/chat/completions）→ 仅配额类错误
+ * 才降级到 GLM / lilith tailnet 本地模型。参数组合照抄 `src/lib/llm-provider.ts`。
  *
  * 与审核链路的差别：这里**必须**让调用方区分「模型没写」与「模型写了但
  * 没通过接地校验」。因此返回值把 raw 与 grounded 分开，并带上原因，
@@ -27,34 +27,20 @@ import {
 } from "./vocab.ts";
 import { buildExtractionPrompt, PROMPT_VERSION } from "./prompt.ts";
 import {
+  deepseekTarget,
   callLLM,
   glmTarget,
-  minimaxTarget,
   type LLMTarget,
 } from "../llm-provider.ts";
 
 /**
- * 供应商链：MiniMax 主力（配额错误原地重试）→ GLM。
+ * 供应商链：DeepSeek主力（配额错误原地重试）→ GLM。
  *
- * 2026-10-22 实测：MiniMax 的 Token Plan 会打满（429/2056），DeepSeek 直接
- * 402 欠费，GLM 正常。所以默认链是 MiniMax → GLM；DeepSeek 只有在明确指定
- * 时才用（它现在欠费，配额恢复了才有意义）。
+ * 2026-11-06：MiniMax 账号终止，主力换成 DeepSeek；配额的兜底是 GLM。
  *
  * 重试由共享实现 `src/lib/llm-provider.ts` 负责，各管线不再各写一份 fetch。
  */
-const PROVIDERS = ["minimax", "glm"] as const;
-
-/**
- * DeepSeek：默认不参与，但保留定义以便配额恢复后显式启用。
- * 2026-10-22 实测 402 Insufficient Balance。
- */
-const DEEPSEEK_TARGET = {
-  id: "deepseek",
-  url: "https://api.deepseek.com/v1/chat/completions",
-  model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
-  maxKey: "max_tokens" as const,
-  apiKey: process.env.DEEPSEEK_API_KEY,
-};
+const PROVIDERS = ["deepseek", "glm"] as const;
 
 const LLM_TIMEOUT_MS = 45_000;
 
@@ -68,7 +54,7 @@ export interface ExtractedFields {
 
 export interface ExtractionMeta {
   model: string;
-  /** 实际使用的供应商 id（minimax / deepseek / glm）。 */
+  /** 实际使用的供应商 id（deepseek / glm）。 */
   source: string;
   promptVersion: string;
   extractedAt: string;
@@ -123,7 +109,7 @@ export interface ExtractArgs {
 export interface LLMReply {
   raw: unknown;
   model: string;
-  /** 实际使用的供应商 id（minimax / deepseek / glm）。 */
+  /** 实际使用的供应商 id（deepseek / glm）。 */
   source: string;
 }
 
@@ -340,9 +326,8 @@ async function callWithFallback(
   const fallbacks: LLMTarget[] = [];
 
   if (chain.includes("glm")) fallbacks.push(glmTarget());
-  if (chain.includes("deepseek")) fallbacks.push(DEEPSEEK_TARGET);
 
-  const res = await callLLM(minimaxTarget(), prompt, {
+  const res = await callLLM(deepseekTarget(), prompt, {
     maxTokens: 600,
     timeoutMs: LLM_TIMEOUT_MS,
     // 配额类错误原地重试：配额会恢复，换模型只会让同一个数据集混进两种判断。

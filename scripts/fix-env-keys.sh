@@ -4,8 +4,8 @@
 # ## 为什么需要它（2026-11-03 事故的后续）
 #
 # 一次 rsync 漏了 --files-from，把本地那份 5 键的 .env 覆盖到了生产 .env。
-# 用 .env.bak 恢复之后又发现：**备份里的 MiniMax key 已经是旧的**（402
-# insufficient_balance），现行的那把在**运行中容器的 env** 里 —— 容器是在
+# 用 .env.bak 恢复之后又发现：**备份里的 LLM key 已经是旧的**（402/429），
+# 现行的那把在**运行中容器的 env** 里 —— 容器是在
 # 覆盖之前 compose up 起来的，它烤进去的就是覆盖前 .env 的真值。
 #
 # 另有 5 个键在备份里也已过期（AUTH_SECRET / AUTH_URL / NEXT_PUBLIC_APP_URL /
@@ -23,7 +23,7 @@ set -uo pipefail
 
 cd /opt/puer-hub || { echo "找不到 /opt/puer-hub"; exit 1; }
 
-KEYS="MINIMAX_API_KEY AUTH_SECRET AUTH_URL NEXT_PUBLIC_APP_URL NEXT_PUBLIC_APP_NAME \
+KEYS="DEEPSEEK_API_KEY AUTH_SECRET AUTH_URL NEXT_PUBLIC_APP_URL NEXT_PUBLIC_APP_NAME \
 FEATURE_CELLAR CELLAR_UIDS FEATURE_ANTI_ABUSE_PAGINATION_CAP FEATURE_ANTI_ABUSE_RATE_LIMIT \
 RAG_SERVICE_URL NEXT_PUBLIC_WS_URL"
 
@@ -70,4 +70,4 @@ echo "已更新这些键：$changed"
 echo "现在 .env 共 $(grep -cE '^[A-Z_]+=' .env) 个键"
 
 # 独立验证（不看值）
-echo -n "MiniMax 探针: "; bash scripts/cron-task.sh minimax-health 2>&1 | tail -1
+echo -n "LLM 探针: "; bash scripts/cron-task.sh llm-health 2>&1 | tail -1

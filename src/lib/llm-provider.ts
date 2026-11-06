@@ -7,26 +7,40 @@
  * vs `max_tokens`、`thinking:disabled`、`response_format`）靠人肉记忆保持一致，
  * 结果就是「src/ 切了、scripts/ 没切」的半切换事故（R25）。
  *
- * 现在 MiniMax 的调用只有这一处，各管线只声明「我要这个 prompt、这个 token 上限」。
+ * 现在 LLM 的调用只有这一处，各管线只声明「我要这个 prompt、这个 token 上限」。
+ *
+ * ## 供应商（2026-11-06 起）
+ *
+ * 主力是 **DeepSeek**（MiniMax 账号已终止；火山 coding plan 额度打满不可用）。
+ * DeepSeek 是标准 OpenAI 兼容接口，所以整条链路保持 OpenAI 形状 ——
+ * 只换 base URL / model / env 名，参数面最小。
+ *
+ * MiniMax 的专有参数组合已删掉（`max_completion_tokens`、
+ * `thinking:{type:"disabled"}`）；DeepSeek 用 `max_tokens`，并支持
+ * `response_format: {type:"json_object"}`。
  *
  * ## 兜底顺序
  *
- *   MiniMax →（可选）GLM →（可选）lilith tailnet
+ *   DeepSeek →（可选）GLM →（可选）lilith tailnet
  *
- * MiniMax 是主力也是兜底：**配额类错误先原地重试**（配额会恢复，重试比换模型划算，
- * 也避免同一个数据集里混进不同模型的判断），重试仍失败才按需降级。
- * 非配额类错误（鉴权、格式）立刻抛出 —— 换家挨个试一遍只会把真问题埋掉。
+ * 主力是 DeepSeek：**配额类错误先原地重试**（402 欠费/429 限流会恢复，
+ * 重试比换模型划算，也避免同一个数据集里混进不同模型的判断），重试仍失败
+ * 才按需降级。非配额类错误（鉴权、格式）立刻抛出 —— 换家挨个试一遍只会把
+ * 真问题埋掉。
  */
 
-const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
-const MINIMAX_MODEL = process.env.MINIMAX_MODEL || "MiniMax-M3";
-const MINIMAX_TIMEOUT_MS = 45_000;
+const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+const DEEPSEEK_TIMEOUT_MS = 45_000;
 
 const GLM_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 const GLM_MODEL = process.env.GLM_MODEL || "glm-4-flash";
 
-/** 配额/限流类错误：值得重试或换家。 */
-const QUOTA_RE = /429|402|2056|quota|exceed|insufficient|rate.?limit/i;
+/** 配额/欠费/限流类错误：值得重试或换家。 */
+const QUOTA_RE =
+  /429|402|2056|quota|exceed|insufficient|rate.?limit|AccountQuotaExceeded/i;
+// `2056` / `AccountQuotaExceeded` 是 MiniMax / 火山方舟的历史错误码,留着无害:
+// 换供应商时旧码不会误伤新供应商,但新供应商的码必须在这里补齐。
 
 /**
  * 内容层面的错误（模型返回的不是合法 JSON）：同样值得重试 ——
@@ -102,12 +116,22 @@ export interface LLMTarget {
   id: string;
   url: string;
   model: string;
-  /** MiniMax 用 max_completion_tokens，Ollama/GLM 用 max_tokens。 */
+  /** 少数供应商用 max_completion_tokens；DeepSeek/GLM/Ollama 都是 max_tokens。 */
   maxKey: "max_tokens" | "max_completion_tokens";
   apiKey?: string;
   /** 无 Authorization 头的本地服务（lilith / Ollama）。 */
   noAuth?: boolean;
   extra?: Record<string, unknown>;
+  /**
+   * 是否支持 OpenAI 的 `response_format: {type:"json_object"}`。
+   * DeepSeek / GLM 为 true；本地 Ollama 为 false。
+   */
+  jsonMode?: boolean;
+}
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
 }
 
 export interface CallOptions {
@@ -118,11 +142,13 @@ export interface CallOptions {
   retries?: number;
   /** 重试间隔（毫秒），按次数递增。默认 [2000, 8000]。 */
   backoffMs?: number[];
-  /** MiniMax 之外可用的降级目标，按顺序尝试。 */
+  /** 主力之外可用的降级目标，按顺序尝试。 */
   fallbacks?: LLMTarget[];
   /** 强制 JSON 输出。默认 true。 */
   json?: boolean;
   temperature?: number;
+  /** 可选 system prompt；和 prompt 一起构成 messages。 */
+  system?: string;
 }
 
 export interface LLMRawResult {
@@ -133,14 +159,20 @@ export interface LLMRawResult {
   model: string;
 }
 
-export function minimaxTarget(apiKey = process.env.MINIMAX_API_KEY): LLMTarget {
+/**
+ * DeepSeek（OpenAI 兼容）。
+ *
+ * `DEEPSEEK_API_KEY` 是生产 `.env` 里既有的那把；`DEEPSEEK_MODEL` 默认
+ * `deepseek-chat`（也可显式设成 `deepseek-reasoner`，但结构化抽取用 chat 更稳）。
+ */
+export function deepseekTarget(apiKey = process.env.DEEPSEEK_API_KEY): LLMTarget {
   return {
-    id: "minimax",
-    url: MINIMAX_URL,
-    model: MINIMAX_MODEL,
-    maxKey: "max_completion_tokens",
+    id: "deepseek",
+    url: DEEPSEEK_URL,
+    model: DEEPSEEK_MODEL,
+    maxKey: "max_tokens",
     apiKey,
-    extra: { thinking: { type: "disabled" } },
+    jsonMode: true,
   };
 }
 
@@ -151,6 +183,7 @@ export function glmTarget(apiKey = process.env.GLM_API_KEY): LLMTarget {
     model: GLM_MODEL,
     maxKey: "max_tokens",
     apiKey,
+    jsonMode: true,
   };
 }
 
@@ -159,7 +192,28 @@ export function ollamaTarget(
   url: string,
   model: string,
 ): LLMTarget {
-  return { id, url, model, maxKey: "max_tokens", noAuth: true };
+  return { id, url, model, maxKey: "max_tokens", noAuth: true, jsonMode: false };
+}
+
+/**
+ * 构造 OpenAI 形状的请求体 —— 所有调用点（含 scripts 侧的 `scripts/lib/llm.mjs`）
+ * 必须用同一份参数组合，避免 R25/R27 那种「这处改了、那处没改」的漂移。
+ */
+export function buildChatBody(
+  target: LLMTarget,
+  messages: ChatMessage[],
+  opts: { maxTokens?: number; temperature?: number; json?: boolean } = {},
+): Record<string, unknown> {
+  return {
+    model: target.model,
+    messages,
+    temperature: opts.temperature ?? 0,
+    [target.maxKey]: opts.maxTokens ?? 600,
+    ...(opts.json === false || !target.jsonMode
+      ? {}
+      : { response_format: { type: "json_object" } }),
+    ...(target.extra ?? {}),
+  };
 }
 
 function isQuotaError(msg: string): boolean {
@@ -177,20 +231,21 @@ async function callOnce(
     headers.Authorization = `Bearer ${target.apiKey}`;
   }
 
-  const body: Record<string, unknown> = {
-    model: target.model,
-    messages: [{ role: "user", content: prompt }],
-    temperature: opts.temperature ?? 0,
-    [target.maxKey]: opts.maxTokens ?? 600,
-    ...(opts.json === false ? {} : { response_format: { type: "json_object" } }),
-    ...(target.extra ?? {}),
-  };
+  const messages: ChatMessage[] = [
+    ...(opts.system ? [{ role: "system" as const, content: opts.system }] : []),
+    { role: "user", content: prompt },
+  ];
+  const body = buildChatBody(target, messages, {
+    maxTokens: opts.maxTokens,
+    temperature: opts.temperature,
+    json: opts.json,
+  });
 
   const res = await fetch(target.url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? MINIMAX_TIMEOUT_MS),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? DEEPSEEK_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -209,9 +264,9 @@ async function callOnce(
 }
 
 /**
- * 调用 LLM。MiniMax 主力 + 重试 + 可选降级。
+ * 调用 LLM。DeepSeek 主力 + 重试 + 可选降级。
  *
- * @param target    主力目标（一般是 MiniMax）
+ * @param target    主力目标（一般是 deepseekTarget()）
  * @param prompt    提示词
  * @param opts      token 上限、重试、降级目标等
  */

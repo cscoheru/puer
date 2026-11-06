@@ -10,14 +10,14 @@
 # resolve dynamically here — replacing the fragile hardcoded 172.18.0.2 in
 # auto-post-cron.sh.
 #
-# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post|baseline-report|cellar-reminders>
+# Usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|llm-health|ai-news-draft|rag-post|baseline-report|cellar-reminders>
 # On failure an [ALERT] line is appended to backups/health-alerts.log
 # (same file the site-down check writes to).
 
 set -uo pipefail
 cd /opt/puer-hub
 
-TASK="${1:?usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|minimax-health|ai-news-draft|rag-post|baseline-report|cellar-reminders>}"
+TASK="${1:?usage: cron-task.sh <auto-reply|auto-vote|auto-boost-new|auto-post|llm-health|ai-news-draft|rag-post|baseline-report|cellar-reminders>}"
 
 log_alert() {
   echo "[ALERT] $(date -Is) cron-task($TASK): $1" >> /opt/puer-hub/backups/health-alerts.log
@@ -25,8 +25,11 @@ log_alert() {
 
 # ── env from .env ────────────────────────────────────────────────────
 DB_PWD=$(grep -E "^DB_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '"')
-# R27:AI 自动任务由 DeepSeek 切换到 MiniMax(与容器内 src/lib 同一 key)
-MINIMAX=$(grep -E "^MINIMAX_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
+# 2026-11-06:AI 自动任务由 MiniMax 切到 DeepSeek(与容器内 src/lib 同一 key)。
+# GLM 是兜底 —— DeepSeek 欠费(402)/限流(429)时管线靠它活着,
+# 所以两个 key 都必须读出来并 export,少传一个兜底就是死的。
+DEEPSEEK_KEY=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
+GLM_KEY=$(grep -E "^GLM_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
 # 茶仓可见性(与容器内同一份口径)。cellar-reminders 要用 cellarVisibleTo 判定
 # 「这个人能不能看见茶仓」—— 少了这三个变量,脚本会以为谁都看不见而一条不发。
 FEATURE_CELLAR=$(grep -E "^FEATURE_CELLAR=" .env | head -1 | cut -d= -f2- | tr -d '"')
@@ -53,15 +56,16 @@ AUTO_REPLY_ENABLED=$(grep -E "^AUTO_REPLY_ENABLED=" .env | head -1 | cut -d= -f2
 PG_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' puer-hub-postgres 2>/dev/null)
 
 case "$TASK" in
-  minimax-health)
-    # R28e: MiniMax 余额/API 健康探针 — 不需要 DB,只调 API 一次
-    if [ -z "${MINIMAX}" ]; then
-      log_alert "missing MINIMAX_API_KEY"
+  llm-health)
+    # LLM 健康探针 — 不需要 DB,DeepSeek + GLM 各调一次最低 token 探针。
+    # 探针自己处理 ok/alert 与 24h 去重;非零退出码视为「两家都不行」。
+    if [ -z "${DEEPSEEK_KEY}" ] && [ -z "${GLM_KEY}" ]; then
+      log_alert "missing DEEPSEEK_API_KEY and GLM_API_KEY"
       exit 1
     fi
-    export MINIMAX_API_KEY="${MINIMAX}"
-    # minimax-health-check 自己处理 ok/alert 状态;非零退出码视为探针异常
-    node scripts/minimax-health-check.mjs || log_alert "minimax-health probe exited $?"
+    export DEEPSEEK_API_KEY="${DEEPSEEK_KEY}"
+    export GLM_API_KEY="${GLM_KEY}"
+    node scripts/llm-health-check.mjs || log_alert "llm-health probe exited $?"
     ;;
   *)
     if [ -z "${PG_IP}" ] || [ -z "${DB_PWD}" ]; then
@@ -69,7 +73,8 @@ case "$TASK" in
       exit 1
     fi
     export DATABASE_URL="postgresql://puerhub:${DB_PWD}@${PG_IP}:5432/puerhub"
-    export MINIMAX_API_KEY="${MINIMAX}"
+    export DEEPSEEK_API_KEY="${DEEPSEEK_KEY}"
+    export GLM_API_KEY="${GLM_KEY}"
     export AUTO_REPLY_ENABLED="${AUTO_REPLY_ENABLED}"
 
     run() {
@@ -79,11 +84,11 @@ case "$TASK" in
     case "$TASK" in
       auto-post)
         # R26/R27:必须容器内跑 — slideshow 视频依赖容器 /app/public/uploads(宿主机无此路径)。
-        # AI(茶记 adapt)R25 起走 MiniMax,经 -e 透传 MINIMAX_API_KEY。
+        # AI(茶记 adapt)2026-11-06 起走DeepSeek,经 -e 透传 DEEPSEEK_API_KEY(+ GLM 兜底)。
         # AUTO_TEA_DRAFT_ADAPT=1 打开 Phase D 的 grounded 改写 —— 这个开关曾漏传,
         # 密钥透传了但 adaptOn 恒 false,于是每日草稿全是 assemble.ts 的逐字拼装,
         # 从未经模型改写。两个 env 必须成对出现,少一个改写路径就整条不跑。
-        run docker exec -e DATABASE_URL -e MINIMAX_API_KEY \
+        run docker exec -e DATABASE_URL -e DEEPSEEK_API_KEY -e GLM_API_KEY \
           -e AUTO_DRAFT_PAUSED="${AUTO_DRAFT_PAUSED:-}" \
           -e AUTO_TEA_DRAFT_ADAPT="1" \
           -e AUTO_TEA_DRAFT_AUTHOR_ID="cmpb7net1000001ocrss0o4de" \
@@ -116,7 +121,7 @@ case "$TASK" in
       ai-news-draft)
         # R29:PentAGI 每周检索成果 → AI 忠实改写 → 草稿箱(不直接发布)。
         # 宿主机直跑:脚本从 pentagi-vps 经 ssh+rsync 拉成果包到 rag-data/news-artifacts,
-        # 再查库+调 MiniMax 改写+写 status=draft。需要能免密 ssh 到 pentagi-vps
+        # 再查库+调DeepSeek改写+写 status=draft。需要能免密 ssh 到 pentagi-vps
         # (authorized_keys 一次性配置)。拉不到远端不致命:本地已有目录照常处理。
         # --apply 才写库;脚本默认 dry-run。
         export PENTAGI_ARTIFACT_HOST="${PENTAGI_ARTIFACT_HOST:-pentagi-vps}"

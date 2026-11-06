@@ -38,8 +38,9 @@
  *                                 created draft's body/summary (Phase D, opt-in;
  *                                 runs AFTER the tx commits, verbatim is the
  *                                 fallback). Unset / any other value = verbatim.
- *   MINIMAX_API_KEY             — required only when AUTO_TEA_DRAFT_ADAPT=1
- *                                 (R25 切换:adapt 内部走 MiniMax;moderation 复用同一 key).
+ *   DEEPSEEK_API_KEY            — required only when AUTO_TEA_DRAFT_ADAPT=1
+ *                                 (2026-11-06:adapt 内部走 DeepSeek,GLM 兜底;
+ *                                 moderation 复用同一组 key).
  */
 
 import { PrismaClient } from "../src/generated/prisma/client.js";

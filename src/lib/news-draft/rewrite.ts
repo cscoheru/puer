@@ -24,6 +24,7 @@ import { sanitizeNoteHtml, stripToContentTags } from "../tea-drafts/sanitize.ts"
 import { escapeHtml, SUMMARY_MAX_LENGTH } from "../tea-drafts/assemble.ts";
 import { extractPlainText, codepointLength } from "../tea-drafts/source-html.ts";
 import type { Material } from "./plan.ts";
+import { deepseekTarget, buildChatBody } from "../llm-provider.ts";
 
 /**
  * 资讯稿专用的数字 tokenization：**小数点算一个 token 的一部分**。
@@ -68,15 +69,14 @@ function isNewsGrounded(
 }
 
 /**
- * MiniMax 端点与模型。
+ * 模型端点与参数。
  *
- * 参数模式（R25/R27 沉淀的参考实现，与 `src/lib/moderation.ts`、`adapt.ts` 同款）：
- * `api.minimax.cn` + `MiniMax-M3` + `max_completion_tokens`（**不是** `max_tokens`）
- * + `thinking:{type:"disabled"}`（默认 adaptive 太慢）+ `response_format:{type:"json_object"}`
- * + `AbortSignal.timeout`。
+ * 2026-11-06：MiniMax 账号终止 → DeepSeek。
+ * 端点 / 模型 / `max_tokens` / 是否带 `response_format` 全部由
+ * `src/lib/llm-provider.ts` 的 `deepseekTarget()` + `buildChatBody()` 决定
+ *（R27 规则 3：供应商参数只有一份实现）。
  */
-const MINIMAX_URL = "https://api.minimax.cn/v1/chat/completions";
-const MINIMAX_MODEL = "MiniMax-M3";
+const TARGET = deepseekTarget();
 
 const REWRITE_TIMEOUT_MS = 45_000;
 const REWRITE_TEMPERATURE = 0.4;
@@ -292,23 +292,26 @@ async function runAttempt(
 
   let resp: Response;
   try {
-    resp = await fetcher(MINIMAX_URL, {
+    resp = await fetcher(TARGET.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`,
       },
-      body: JSON.stringify({
-        model: MINIMAX_MODEL,
-        messages: [
-          { role: "system", content: NEWS_SYSTEM },
-          { role: "user", content: buildPrompt(material, opts) },
-        ],
-        temperature: REWRITE_TEMPERATURE,
-        max_completion_tokens: REWRITE_MAX_TOKENS,
-        thinking: { type: "disabled" },
-        response_format: { type: "json_object" },
-      }),
+      body: JSON.stringify(
+        buildChatBody(
+          TARGET,
+          [
+            { role: "system", content: NEWS_SYSTEM },
+            { role: "user", content: buildPrompt(material, opts) },
+          ],
+          {
+            temperature: REWRITE_TEMPERATURE,
+            maxTokens: REWRITE_MAX_TOKENS,
+            json: true,
+          },
+        ),
+      ),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
@@ -317,14 +320,14 @@ async function runAttempt(
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    return { ok: false, reason: `MiniMax ${resp.status}: ${errText.slice(0, 200)}` };
+    return { ok: false, reason: `DeepSeek ${resp.status}: ${errText.slice(0, 200)}` };
   }
 
   let body: { choices?: { message?: { content?: string }; finish_reason?: string }[] };
   try {
     body = (await resp.json()) as typeof body;
   } catch {
-    return { ok: false, reason: "MiniMax returned non-JSON body" };
+    return { ok: false, reason: "DeepSeek returned non-JSON body" };
   }
 
   const choice = body?.choices?.[0];
@@ -334,7 +337,7 @@ async function runAttempt(
   if (!parsed) {
     const detail =
       finish === "length"
-        ? "truncated at max_completion_tokens"
+        ? "truncated at max_tokens"
         : !raw
           ? "empty model content"
           : "unparseable model JSON";
@@ -457,8 +460,8 @@ function moneyNumbers(text: string): Set<string> {
 export async function rewriteNews(
   opts: NewsRewriteOptions,
 ): Promise<NewsRewriteResult> {
-  const key = process.env.MINIMAX_API_KEY;
-  if (!key) return { ok: false, reason: "MINIMAX_API_KEY missing" };
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) return { ok: false, reason: "DEEPSEEK_API_KEY missing" };
 
   let last: NewsRewriteResult = { ok: false, reason: "no attempt ran" };
   for (let attempt = 1; attempt <= REWRITE_ATTEMPTS; attempt++) {

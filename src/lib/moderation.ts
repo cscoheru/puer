@@ -1,19 +1,20 @@
 import { prisma } from "@/lib/prisma";
 import {
+  deepseekTarget,
   callLLM,
-  minimaxTarget,
+  glmTarget,
   ollamaTarget,
 } from "@/lib/llm-provider";
 
 /**
- * 内容审核:本地敏感词 → AI(MiniMax)→ 故障转人工 三层闸。
+ * 内容审核:本地敏感词 → AI(DeepSeek)→ 故障转人工 三层闸。
  * 决策三种:publish(直接发布) / review(进待审队列) / reject(直接拒绝提交)。
  * 策略(用户锁定):
  *  - 命中本地敏感词 → 直接 reject(本站只做真实茶品茶器交流,违规词在源头拦死,不浪费人工审核)
  *  - AI 放行 + 可疑送审(AI 判定违规或把握不足 → review)
  *  - AI 故障/超时 → fail-closed 送人工
  *
- * P2-R25:DeepSeek(402 欠费故障)切换为 MiniMax OpenAI 兼容接口。
+ * 2026-11-06: MiniMax 账号终止 → DeepSeek（同一 OpenAI 兼容形状）。
  */
 
 export type ModDecision = "publish" | "review" | "reject";
@@ -77,13 +78,13 @@ export async function screenContent(text: string): Promise<ModResult> {
     // 关键词表读取失败不阻断 —— 继续交给 AI
   }
 
-  // 2) AI 层:MiniMax 分类。无 key 或任何错误 → fail-closed 送审
-  if (!process.env.MINIMAX_API_KEY) {
+  // 2) AI 层:DeepSeek分类(GLM 兜底)。无 key 或任何错误 → fail-closed 送审
+  if (!process.env.DEEPSEEK_API_KEY && !process.env.GLM_API_KEY) {
     return {
       decision: "review",
       categories: [],
       confidence: 0,
-      reason: "AI 未配置(MINIMAX_API_KEY 缺失),转人工",
+      reason: "AI 未配置(DEEPSEEK_API_KEY / GLM_API_KEY 均缺失),转人工",
       source: "fallback",
     };
   }
@@ -127,14 +128,15 @@ export async function screenContent(text: string): Promise<ModResult> {
   }
 }
 
-// ─── AI 调用(MiniMax 主力 + 重试, lilith tailnet LLM 最后兜底) ───────────────
-// MiniMax-M3 默认开 adaptive thinking(先思考再答),审核链路低延迟,
-// 显式 disabled 让其直接输出 JSON。调用参数统一在 src/lib/llm-provider.ts,
+// ─── AI 调用(DeepSeek主力 + 重试, GLM → lilith tailnet 逐级兜底) ────────────────
+// DeepSeek coding 端点不支持 response_format(见 src/lib/llm-provider.ts),
+// JSON 由 prompt 约束 + parseJsonLoose 兜底。调用参数统一在参考实现里,
 // 各管线不再各写一份 fetch(R25 半切换事故的根因)。
 //
-// 兜底顺序:MiniMax(配额错误原地重试) → lilith tailnet。
-// 2026-10-22 实测 MiniMax 配额会打满(429/2056),重试比换模型划算,
-// 也避免同一天不同审核结果来自不同模型。
+// 兜底顺序:DeepSeek(配额/限流原地重试) → GLM → lilith tailnet。
+// 2026-11-06 起主力是 DeepSeek:402 = 欠费,429 = 限流,两者都会发生;
+// 重试仍然划算(额度是周期性的),但必须留一条能用的降级链路,
+// 否则配额一到顶,审核链路整条转人工。
 async function classifyByAI(
   text: string
 ): Promise<{ category: string; confidence: number; reason: string }> {
@@ -151,12 +153,13 @@ ${text.slice(0, 4000)}
 
 只返回 JSON,不要任何解释:{"category":"normal|adult|gambling|drug|political|investment","confidence":0到1的小数,"reason":"不超过30字的中文理由"}`;
 
-  const res = await callLLM(minimaxTarget(), prompt, {
+  const res = await callLLM(deepseekTarget(), prompt, {
     maxTokens: 200,
     timeoutMs: AI_TIMEOUT_MS,
     retries: 2,
     backoffMs: [1500, 5000],
     fallbacks: [
+      glmTarget(),
       ollamaTarget("lilith", LILITH_URL, LILITH_MODEL),
     ],
   });
