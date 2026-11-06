@@ -71,6 +71,10 @@ export const ACTIONS = [
   "video:download",
   "xhs:publish",
   "keyword:manage",
+  // AI 发帖初稿（2026-11-06）。只加进 ACTIONS、**不加进 EDITOR_ACTIONS** ——
+  // 「role=editor」本身不构成资格，站长走 uid 白名单（见 src/lib/ai-compose.ts）。
+  // admin 通过 ADMIN_ACTIONS = [...ACTIONS] 自动拥有。
+  "ai:compose",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 

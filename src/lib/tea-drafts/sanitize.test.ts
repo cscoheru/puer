@@ -125,3 +125,39 @@ test("stripToContentTags: nested disallowed unwrapped without losing text", () =
   const out = stripToContentTags(`<div><div><p>核心</p></div></div>`);
   assert.equal(out, `<p>核心</p>`);
 });
+
+// ─── stripToContentTags: 危险元素必须整段删除（2026-11-06 回归） ──────────
+// cheerio 给 <script>/<style> 的 type 是 "script"/"style" 而不是 "tag"，
+// 旧实现的两道循环都把它们跳过 → 原样输出。这里钉住修好后的行为。
+
+test("stripToContentTags: <script> 整段删除，不留在正文里", () => {
+  const out = stripToContentTags(`<p>好茶</p><script>alert(1)</script>`);
+  assert.equal(out, `<p>好茶</p>`);
+  assert.ok(!/script|alert/i.test(out));
+});
+
+test("stripToContentTags: <style> 整段删除（不再漏出 img/onerror 载荷）", () => {
+  const out = stripToContentTags(`<p>好茶。</p><style><img/src=x/onerror=alert(1)></style>`);
+  assert.equal(out, `<p>好茶。</p>`);
+  assert.ok(!/style|onerror|<img/i.test(out));
+});
+
+test("stripToContentTags: <template> 里的子节点也会被清掉", () => {
+  const out = stripToContentTags(`<p>x</p><template><img src=x onerror=alert(1)></template>`);
+  assert.equal(out, `<p>x</p>`);
+});
+
+test("stripToContentTags: svg/math/iframe 整段删除", () => {
+  assert.equal(stripToContentTags(`<p>x</p><svg onload=alert(1)><circle/></svg>`), `<p>x</p>`);
+  assert.equal(stripToContentTags(`<p>x</p><math><mi>x</mi></math>`), `<p>x</p>`);
+  assert.equal(stripToContentTags(`<p>x</p><iframe src="https://evil.example"></iframe>`), `<p>x</p>`);
+});
+
+test("stripToContentTags: 输出里只剩下白名单标签且没有属性", () => {
+  const out = stripToContentTags(
+    `<div onclick="x()"><h2 id="a">标题</h2><p style="color:red">正文</p><script>x()</script></div>`,
+  );
+  assert.equal(out, `<h2>标题</h2><p>正文</p>`);
+  const tags = [...out.matchAll(/<\/?([a-z0-9]+)[^>]*>/gi)].map((m) => m[1].toLowerCase());
+  for (const t of tags) assert.ok(["h2", "p"].includes(t), `unexpected tag ${t}`);
+});

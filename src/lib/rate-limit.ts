@@ -101,6 +101,9 @@ export const LIMIT_REGISTER = { max: 3, windowMs: 60 * 60 * 1000 };   // 3 per h
 export const LIMIT_API_GENERAL = { max: 60, windowMs: 60 * 1000 };     // 60 per minute
 export const LIMIT_POST = { max: 10, windowMs: 60 * 60 * 1000 };       // 10 posts per hour
 export const LIMIT_QA = { max: 6, windowMs: 60 * 1000 };               // 6 Q&A per minute (LLM cost)
+// AI 发帖初稿（站长/admin 专用）。写一篇初稿是一次完整的 LLM 调用，
+// 20 次/小时够真实使用（改稿靠编辑器，不必反复重生成），同时给误点/脚本兜底。
+export const LIMIT_AI_COMPOSE = { max: 20, windowMs: 60 * 60 * 1000 };
 export const LIMIT_REVIEW = { max: 3, windowMs: 60 * 60 * 1000 };       // 3 manual review requests per hour
 export const LIMIT_FORGOT_PASSWORD = { max: 3, windowMs: 60 * 60 * 1000 }; // 3 password-reset requests per hour
 export const LIMIT_RESET_STATUS = { max: 10, windowMs: 60 * 60 * 1000 };  // 10 reset-status lookups per hour

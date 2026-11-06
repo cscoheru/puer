@@ -75,12 +75,24 @@ export function sanitizeNoteHtml(html: string | null | undefined): string {
 // allowed set (p/b/i/h2/ul/li) plus harmless text-level equivalents — strong/em
 // are just b/i, ol is just ul, br is a void line break. Every other tag is
 // unwrapped and every attribute is dropped, so adapted HTML can never carry a
-// URL, a tracking pixel, or an event handler. Run AFTER sanitizeNoteHtml: that
-// pass must first .remove() script/iframe/style entirely (unwrapping them would
-// spill their text into the page).
+// URL, a tracking pixel, or an event handler.
 const BODY_TAGS = new Set([
   "p", "b", "i", "strong", "em", "h2", "ul", "ol", "li", "br",
 ]);
+
+// Elements that must be deleted **with their subtree**, not unwrapped.
+//
+// 2026-11-06: <script>/<style> used to survive this function verbatim — cheerio
+// (htmlparser2) tags them with `type === "script"` / `"style"`, not `"tag"`, so
+// both loops below skipped them and `body.html()` serialized them back out.
+// The tea-drafts/news-draft call sites were only safe because they run
+// sanitizeNoteHtml first; a direct caller (AI 创作 route) got raw <script>.
+// <template> has the mirror-image bug: its parsed children are not part of the
+// `body *` snapshot, so they escaped the attribute scrub after unwrapping.
+// Anything whose content is executable or re-parsed is therefore purged whole.
+const PURGE_TAGS =
+  "script,style,template,noscript,xmp,plaintext,iframe,object,embed,svg,math," +
+  "form,input,button,select,textarea,option,audio,video,source,track";
 
 /**
  * Stricter pass for model-adapted body HTML. Keeps only `BODY_TAGS`, drops
@@ -90,10 +102,15 @@ const BODY_TAGS = new Set([
  * for note review), this enforces the adapter's "no links, no images, no
  * attributes" contract at the code level: a model that ignores the prompt still
  * cannot smuggle in a spam link or tracking pixel.
+ *
+ * Self-contained: PURGE_TAGS are removed here rather than relying on the caller
+ * having run sanitizeNoteHtml first.
  */
 export function stripToContentTags(html: string | null | undefined): string {
   if (!html) return "";
   const $ = cheerio.load(html);
+  // Executable / re-parsed elements go first — see PURGE_TAGS.
+  $(PURGE_TAGS).remove();
   // Scope to $("body *") so the html/head/body wrappers cheerio synthesizes for
   // a fragment are never matched — unwrapping <body> itself detaches the content
   // and makes body.html() return null. Unwrap each non-whitelisted descendant:
@@ -107,10 +124,12 @@ export function stripToContentTags(html: string | null | undefined): string {
     $el.before($el.contents());
     $el.remove();
   });
-  // Strip every remaining attribute — the body model carries none.
+  // Strip every remaining attribute — the body model carries none. Cover
+  // script/style element types too, in case a future PURGE_TAGS edit lets one
+  // through: they are the types the old `type !== "tag"` guard silently skipped.
   $("body *").each((_, el) => {
-    if (el.type !== "tag" || !el.attribs) return;
-    el.attribs = {};
+    if (el.type !== "tag" && el.type !== "script" && el.type !== "style") return;
+    if (el.attribs) el.attribs = {};
   });
   return $("body").html() ?? "";
 }

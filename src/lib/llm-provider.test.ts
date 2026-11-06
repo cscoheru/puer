@@ -123,3 +123,18 @@ test("没有 key 的目标直接跳过，不发请求", async () => {
     s.restore();
   }
 });
+
+test("供应商 5xx：算可重试，耗尽后降级到备用", async () => {
+  const s = stubFetch([fail(503, "upstream down"), ok('{"from":"backup"}')]);
+  try {
+    const r = await callLLM(target("t1"), "p", {
+      retries: 0,
+      fallbacks: [target("t2")],
+    });
+    assert.equal(r.source, "t2");
+    assert.deepEqual(r.content, { from: "backup" });
+    assert.equal(s.calls(), 2);
+  } finally {
+    s.restore();
+  }
+});

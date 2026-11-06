@@ -299,6 +299,9 @@ export async function callLLM(
         const retriable =
           quota ||
           e instanceof LLMOutputError ||
+          // 5xx 是供应商侧故障（错误串形如 `LLM deepseek 503: ...`），值得重试/降级；
+          // 4xx（鉴权、参数）仍旧立即失败，别拿错 key 挨家试。
+          /\b5\d{2}\b/.test(msg) ||
           /fetch failed|timeout|ETIMEDOUT|ECONNRESET/i.test(msg);
         if (!retriable) throw e;
         if (attempt < (i === 0 ? retries : 0)) {
