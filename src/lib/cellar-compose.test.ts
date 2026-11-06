@@ -82,3 +82,29 @@ test("compose 透传的 CELLAR_UIDS 能被白名单判定读到", () => {
   const injected = match[1].trim();
   assert.equal(injected, "", "仓库 compose 里 CELLAR_UIDS 默认应为空（名单由站长在 .env 里给）");
 });
+
+/**
+ * LLM 供应商的 key 同样必须三个源都声明（2026-11-06 MiniMax → DeepSeek 切换）。
+ *
+ * 切换前的教训：只改仓库 compose 的话，生产 / 备机 / 故障切换拿到的容器里
+ * 根本没有 `DEEPSEEK_API_KEY` —— 应用侧 fail-closed 转人工、脚本直接 exit 1，
+ * 而「容器起来了、站点 200」让人以为部署成功了。
+ */
+const LLM_ENV_VARS = ["DEEPSEEK_API_KEY", "GLM_API_KEY"] as const;
+
+test("每个 compose 来源的 app service 都透传 LLM 供应商 key", () => {
+  for (const source of COMPOSE_SOURCES) {
+    const app = appServiceBlock(composeText(source), source);
+    for (const name of LLM_ENV_VARS) {
+      assert.ok(
+        app.includes(`${name}: \${${name}:-`),
+        `${source} 的 app service 必须声明 "${name}" —— 少了它容器内 LLM 调用` +
+          ` fail-closed 转人工（应用）/ 直接退出（脚本），而站点看起来一切正常`,
+      );
+    }
+    assert.ok(
+      !app.includes("MINIMAX_API_KEY: "),
+      `${source} 的 app service 不该再注入 MINIMAX_API_KEY（账号已终止，2026-11-06）`,
+    );
+  }
+});

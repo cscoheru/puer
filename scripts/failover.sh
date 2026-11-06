@@ -60,6 +60,10 @@ services:
       # 漏在这里就等于「站长改了 .env 但开关打不开」。
       FEATURE_CELLAR: ${FEATURE_CELLAR:-0}
       CELLAR_UIDS: ${CELLAR_UIDS:-}
+      # LLM 供应商（2026-11-06：DeepSeek 主力 + GLM 兜底）。
+      # 同样必须在这里声明 —— app service 没有 env_file。
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
     volumes:
       - /opt/puer-hub/uploads:/app/public/uploads:ro
     ports:
