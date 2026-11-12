@@ -4,6 +4,9 @@
 #
 # Usage: ssh root@103.59.103.85 'bash -s' < failover.sh
 # Or:    ssh aliyun "ssh root@103.59.103.85 'bash -s'" < failover.sh
+#
+# 2026-11-12: main server IP migrated 207.57.134.99 -> 85.189.70.248
+# (upstream supplier revoked the 207.56.0.0/15 authorization)
 
 set -euo pipefail
 
@@ -16,8 +19,8 @@ echo -e "${GREEN}=== Puêr Failover — Promoting Standby ===${NC}"
 
 # ── Step 1: Check connectivity to main ────────────────
 echo -e "${YELLOW}[1/6] Checking main server...${NC}"
-if ping -c 1 -W 2 207.57.134.99 >/dev/null 2>&1; then
-  echo -e "${RED}Main server (207.57.134.99) is still reachable!${NC}"
+if ping -c 1 -W 2 85.189.70.248 >/dev/null 2>&1; then
+  echo -e "${RED}Main server (85.189.70.248) is still reachable!${NC}"
   echo "Use this script only when main is confirmed down."
   exit 1
 fi
@@ -33,7 +36,7 @@ echo -e "${GREEN}  Database promoted to primary${NC}"
 # ── Step 3: Sync uploads from main (best effort) ──────
 echo -e "${YELLOW}[3/6] Syncing uploads (if main is partially reachable)...${NC}"
 mkdir -p /opt/puer-hub/uploads/{forum,inventory,videos}
-rsync -avz --timeout=10 root@207.57.134.99:/opt/puer-hub/uploads/ /opt/puer-hub/uploads/ 2>/dev/null && \
+rsync -avz --timeout=10 root@85.189.70.248:/opt/puer-hub/uploads/ /opt/puer-hub/uploads/ 2>/dev/null && \
   echo -e "${GREEN}  Uploads synced${NC}" || \
   echo -e "${YELLOW}  Main unreachable, using last known state${NC}"
 
@@ -100,7 +103,7 @@ echo -e "${GREEN}=== App should be running at http://localhost:3002 ===${NC}"
 echo ""
 echo "To make the site live:"
 echo "1. Go to Cloudflare Dashboard → DNS → puer.im"
-echo "2. Change the A record from 207.57.134.99 to 103.59.103.85"
+echo "2. Change the A record from 85.189.70.248 to 103.59.103.85"
 echo "3. TTL: 60 seconds (or 5 min auto if orange cloud)"
 echo "4. Set up nginx + SSL: ssh into this server and run:"
 echo ""
@@ -128,6 +131,6 @@ echo "   certbot --nginx -d puer.im -d www.puer.im"
 echo ""
 echo -e "${YELLOW}Note: After main server recovers, you need to:${NC}"
 echo "1. Stop the app on the standby (docker compose down)"
-echo "2. Switch DNS back to 207.57.134.99"
+echo "2. Switch DNS back to 85.189.70.248"
 echo "3. Rebuild replication: rm -rf /var/lib/postgresql/16/main/* && pg_basebackup -h MAIN_IP -U replicator -D /var/lib/postgresql/16/main -P -R"
 echo "4. Start standby: systemctl start postgresql"

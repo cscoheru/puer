@@ -1,6 +1,15 @@
 # deploy/nginx/
 
 `puer.conf` 是 **puer.im 生产 nginx site 配置的逐字副本**（`/etc/nginx/sites-enabled/puer`）。
+`spike.conf` 是同机 **spike.rana.asia 的逐字副本**（`/etc/nginx/sites-enabled/spike`，
+2026-11-12 撤段迁移时补回仓库）。
+
+## spike.rana.asia 已知状态
+
+- 上游 `127.0.0.1:3111` 对应 `ai-en-spike` / `ai-jp-spike` 容器；两容器 2026-11-07
+  前后 Exited(137)（OOM），所以该站当前为 502，**与 nginx/网络迁移无关**，重启容器前不会恢复。
+- 监听为精确 IP 绑定（`85.189.70.248:443/80`），不能改成通配 `listen 443`：
+  tailscaled Funnel 占着 `tailscale0:443`，通配绑定会 emerg 98（Address already in use）。
 
 ## 为什么要放在仓库里
 
@@ -24,6 +33,18 @@
 - **systemd 单元处于 failed 且 master 是手工启动的**（PID 1066704，2026-09-16 起）。
   `systemctl reload nginx` 会报 `nginx.service is not active` —— 用
   `nginx -s reload` 代替。单元仍是 `enabled`，重启后 systemd 会正常拉起。
+
+## IP 迁移（2026-11-12，供应商撤段 207.56.0.0/15）
+
+- puer-hk：`207.57.134.99` → `85.189.70.248`（SSH 端口 16921 不变）。两个 vhost 的
+  `listen` 都是**精确 IP 绑定**，换 IP 后必须同步改，否则 nginx emerg 99
+  （Cannot assign requested address）且永不 reload；不要改成通配 `listen 443`，
+  会与 tailscaled Funnel 的 `tailscale0:443` 撞 emerg 98。
+- 同次事故服务器重启还冲掉了全部 docker 网桥网关 IP（容器全 Up 但发布口黑盒 504），
+  修复是按 `docker network inspect` 的登记值 `ip addr add` 补回；puer-hk 已部署
+  `docker-bridge-guard`（service + 5min timer 文件在 `/etc/systemd/system/`、
+  脚本在 `/usr/local/sbin/`，timer 的 enable 待授权后生效），newvps 自 2026-11-06
+  起已有同款且已启用。
 
 ## uploads 缓存策略
 

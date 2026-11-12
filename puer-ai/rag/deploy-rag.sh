@@ -14,7 +14,8 @@
 set -euo pipefail
 
 RELEASE_ID="${1:?usage: deploy-rag.sh <release-id>}"
-SERVER=root@207.57.134.99
+# 2026-11-12: supplier IP revocation migration 207.57.134.99 -> 85.189.70.248
+SERVER=root@85.189.70.248
 SSH="ssh -J aliyun -p 16921"
 SCP="scp -o ProxyJump=aliyun -P 16921"
 REMOTE_SRC=/opt/puer-hub/rag-src/$RELEASE_ID
