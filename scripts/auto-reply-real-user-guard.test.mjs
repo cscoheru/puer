@@ -15,9 +15,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
-const src = readFileSync(path.join(REPO_ROOT, "scripts/auto-reply.mjs"), "utf8");
+const read = (rel) => readFileSync(path.join(REPO_ROOT, rel), "utf8");
+const src = read("scripts/auto-reply.mjs");
 
 test("选帖门：自动化判据 = 合成作者 OR AI origin OR auto-post 内联标记", () => {
   const frag = src.match(/const AUTOMATED_POST_ONLY = `([\s\S]*?)`;/);
@@ -58,7 +60,82 @@ test("嵌套跟帖：parent 评论排除真人作者", () => {
 });
 
 test("KILL_SWITCHES.md 记录真实用户排除口径", () => {
-  const doc = readFileSync(path.join(REPO_ROOT, "scripts/KILL_SWITCHES.md"), "utf8");
+  const doc = read("scripts/KILL_SWITCHES.md");
   assert.ok(doc.includes("排除真实用户") || doc.includes("真实用户保护"),
     "开关文档要写清「回复只落在自动化内容」这条口径，否则下次没人知道有这道闸");
+});
+
+// ── 2026-11-13 追加：新帖优先 + 加量（站长反馈「新帖没回复、量太少」）──────
+
+test("新帖优先：三个分支都带 recency 插值，且近窗选不到会放宽到全库", () => {
+  assert.ok(src.includes("INTERVAL '7 days'"), "近窗是 7 天");
+  const uses = src.match(/\$\{recency\} \$\{exclusion\}/g) ?? [];
+  assert.equal(uses.length, 3, "三个选帖分支都要带 recency/exclusion 插值");
+  assert.match(src, /buildPickQuery\(rand, true, excludeIds\)/, "先查近 7 天");
+  assert.match(src, /buildPickQuery\(rand, false, excludeIds\)/,
+    "近窗为空时放宽全库 —— 注意自动化门在 buildPickQuery 内部，两次都带");
+});
+
+test("选中分支耗尽：继续查通用自动化帖，不提前结束整次运行", async () => {
+  const fn = src.match(/async function pickPost\(excludeIds = new Set\(\)\) \{[\s\S]*?\n\}/);
+  assert.ok(fn, "pickPost 保持可用 vm 单独加载的纯查询选择边界");
+  const calls = [];
+  const pickPost = vm.runInNewContext(`(${fn[0]})`, {
+    Math: { random: () => 0.5 }, // 固定落在低回复分支
+    buildPickQuery: (rand, recent, excludeIds) => ({ rand, recent, excludeIds }),
+    sqlRows: async (query) => {
+      calls.push(query);
+      // 原分支近窗/全库都空，通用分支近窗也空，只有通用全库还有帖子。
+      return query.rand === 1 && !query.recent ? [{ id: "fallback-post" }] : [];
+    },
+  });
+  const picked = new Set(["already-picked"]);
+  const post = await pickPost(picked);
+  assert.equal(post?.id, "fallback-post", "原分支为空不等于全库没有合规帖子");
+  assert.deepEqual(calls.map((q) => [q.rand, q.recent]), [
+    [0.5, true],
+    [0.5, false],
+    [1, true],
+    [1, false],
+  ]);
+  assert.ok(calls.every((q) => q.excludeIds === picked), "每次回退都保留同跑去重集合");
+});
+
+test("同一次运行内不重复回复同一帖", () => {
+  assert.match(src, /pickPost\(pickedIds\)/, "选帖要带上本次已选集合");
+  assert.match(src, /pickedIds\.add\(post\.id\)/, "选中的帖子要登记");
+  assert.ok(src.includes('a.id NOT IN'), "SQL 层排除已选帖子");
+});
+
+test("回复量：默认 12，AUTO_REPLY_PER_RUN 可覆盖且由 cron 包装层 export", () => {
+  assert.match(src, /parseReplyCount\(process\.env\.AUTO_REPLY_PER_RUN, log\)/,
+    "主循环使用有边界测试的统一解析函数");
+  const wrapper = read("scripts/cron-task.sh");
+  assert.match(wrapper, /AUTO_REPLY_PER_RUN=\$\(grep/, "从 .env 读覆盖值");
+  assert.match(wrapper, /export AUTO_REPLY_PER_RUN=/,
+    "必须 export —— 漏了 .env 覆盖就是死的且不报错");
+});
+
+test("回复量解析：空值默认 12，显式输入取整并夹到 1-50，非法值告警", () => {
+  const fn = src.match(/function parseReplyCount\(raw, warn[\s\S]*?\n\}/);
+  assert.ok(fn, "回复量解析要有可执行测试，而不只检查源码里有没有 || 12");
+  const parseReplyCount = vm.runInNewContext(`(${fn[0]})`);
+  const cases = [
+    [undefined, 12], ["", 12], ["   ", 12], ["bad", 12],
+    ["0", 1], ["-2", 1], ["1", 1], ["1.5", 1],
+    ["12", 12], ["50", 50], ["51", 50],
+  ];
+  for (const [raw, want] of cases) {
+    assert.equal(parseReplyCount(raw), want, `AUTO_REPLY_PER_RUN=${String(raw)}`);
+  }
+  let warnings = 0;
+  assert.equal(parseReplyCount("bad", () => { warnings++; }), 12);
+  assert.equal(warnings, 1, "非法覆盖值必须留可见日志，不能静默加量");
+});
+
+test("crontab 正本：自动回复每天 3 跑（北京 09:37 / 13:37 / 20:37）", () => {
+  const active = read("scripts/crontab.txt")
+    .split("\n")
+    .filter((l) => /^\d+ \d+ .*cron-task\.sh auto-reply/.test(l));
+  assert.equal(active.length, 3, "生效的 auto-reply 行应为 3 条");
 });

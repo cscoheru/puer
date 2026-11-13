@@ -29,6 +29,17 @@
  * 内容：作者是合成账号，或帖子本身是 AI 产物（articles.origin 为
  * ai_from_notes / ai_autonomous，或带 <!--auto-post--> 内联标记）。
  * 真人（非自动化）发的帖子一律不碰；嵌套跟帖也不会选真人的评论当 parent。
+ *
+ * ## 2026-11-13 追加：新帖优先 + 加量（站长反馈「最近的帖子都没回复，量太少」）
+ *
+ * 旧逻辑全库 ORDER BY RANDOM()，几千篇老帖把概率稀释光，新帖几乎轮不到；
+ * 且每天只跑 1 次、每次 4 条。现在：
+ *   - 每个选帖分支先在近 7 天（RECENT_WINDOW）里选，选不到才放宽到全库；
+ *     该分支仍为空再回退「任意自动化帖」，不让整次运行提前结束，
+ *     自动化门 AUTOMATED_POST_ONLY 每条路径都在；
+ *   - 每次运行默认 12 条（AUTO_REPLY_PER_RUN 可覆盖，取整并夹到 1-50，
+ *     非法值告警后回默认），cron 每天 3 跑；
+ *   - 同一次运行内已回复过的帖子不再重复选（pickedIds），避免 12 条全堆一帖。
  */
 
 import { randomUUID } from "node:crypto";
@@ -154,16 +165,24 @@ const AUTOMATED_POST_ONLY = `
       )
 `;
 
-async function pickPost() {
-  // 60% chance: reply to posts with 0-1 replies (boost engagement)
-  // 30% chance: reply to auto-generated posts (build discussion)
-  // 10% chance: reply to any post
-  const rand = Math.random();
+// 近 7 天优先（2026-11-13）：新帖先拿到回复；近窗选不到再放宽到全库，
+// 但自动化门 AUTOMATED_POST_ONLY 两次都带，绝不因放宽而碰真人帖子。
+const RECENT_WINDOW = `AND a."createdAt" > NOW() - INTERVAL '7 days'`;
 
-  let query;
+// 60% chance: reply to posts with 0-1 replies (boost engagement)
+// 30% chance: reply to auto-generated posts (build discussion)
+// 10% chance: reply to any post
+function buildPickQuery(rand, recent, excludeIds) {
+  const recency = recent ? RECENT_WINDOW : "";
+  // 同一次运行内不重复选同一帖 —— 12 条全堆在一个帖子下面比不回复还难看。
+  // id 都是本库查出来的 uuid，无注入面。
+  const exclusion = excludeIds.size
+    ? `AND a.id NOT IN ('${[...excludeIds].join("','")}')`
+    : "";
+
   if (rand < 0.6) {
     // Low-reply posts
-    query = `
+    return `
       SELECT a.id, a.title, a.content, a."videoUrl", a.images,
              a."replyCount", a."createdAt", a.flair,
              b.name as board_name,
@@ -174,11 +193,12 @@ async function pickPost() {
       WHERE a.status = 'published'
         AND a."replyCount" <= 1
         ${AUTOMATED_POST_ONLY}
+        ${recency} ${exclusion}
       ORDER BY RANDOM() LIMIT 1
     `;
   } else if (rand < 0.9) {
     // Auto-generated posts (build discussion threads)
-    query = `
+    return `
       SELECT a.id, a.title, a.content, a."videoUrl", a.images,
              a."replyCount", a."createdAt", a.flair,
              b.name as board_name,
@@ -190,11 +210,12 @@ async function pickPost() {
         AND a.content LIKE '%<!--auto-post-->%'
         AND a."replyCount" < 8
         ${AUTOMATED_POST_ONLY}
+        ${recency} ${exclusion}
       ORDER BY RANDOM() LIMIT 1
     `;
-  } else {
-    // Any post
-    query = `
+  }
+  // Any post
+  return `
       SELECT a.id, a.title, a.content, a."videoUrl", a.images,
              a."replyCount", a."createdAt", a.flair,
              b.name as board_name,
@@ -204,12 +225,25 @@ async function pickPost() {
       JOIN users u ON a."authorId" = u.id
       WHERE a.status = 'published'
         ${AUTOMATED_POST_ONLY}
+        ${recency} ${exclusion}
       ORDER BY RANDOM() LIMIT 1
-    `;
-  }
+  `;
+}
 
-  const rows = await sqlRows(query);
-  return rows[0] || null;
+async function pickPost(excludeIds = new Set()) {
+  // 先近 7 天，选不到再全库（rand 复用，两次落在同一分支，权重语义不变）。
+  const rand = Math.random();
+  const recent = await sqlRows(buildPickQuery(rand, true, excludeIds));
+  if (recent[0]) return recent[0];
+  const widened = await sqlRows(buildPickQuery(rand, false, excludeIds));
+  if (widened[0] || rand >= 0.9) return widened[0] || null;
+
+  // 加权分支为空不等于没有合规帖子。rand=1 走「任意自动化帖」分支，
+  // 同样先近窗再全库；否则主循环会在其他分支还有帖子时提前 break。
+  const recentAny = await sqlRows(buildPickQuery(1, true, excludeIds));
+  if (recentAny[0]) return recentAny[0];
+  const widenedAny = await sqlRows(buildPickQuery(1, false, excludeIds));
+  return widenedAny[0] || null;
 }
 
 // ── Step 2: Pick existing replies for context ──────────────────────
@@ -352,7 +386,19 @@ async function insertComment({ articleId, content, userId, parentId }) {
   return id;
 }
 
-// ── Main: Generate 2-3 replies per run ──────────────────────────────
+// 空/未设默认 12；显式值截断为整数并夹到 1-50。非法值回默认且留日志，
+// 不让 `Number(raw) || 12` 把显式 0 变成 12、或让 1.5 实际跑两轮。
+function parseReplyCount(raw, warn = () => {}) {
+  if (raw === undefined || raw.trim() === "") return 12;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    warn(`Invalid AUTO_REPLY_PER_RUN=${JSON.stringify(raw)}; using default 12`);
+    return 12;
+  }
+  return Math.min(Math.max(Math.trunc(parsed), 1), 50);
+}
+
+// ── Main: Generate AUTO_REPLY_PER_RUN replies per run (default 12) ──
 
 async function main() {
   log("=== Auto-reply started ===");
@@ -362,17 +408,21 @@ async function main() {
     process.exit(1);
   }
 
-  const replyCount = 4; // 4 replies per run
+  // 2026-11-13：默认 4 → 12（站长反馈回复量太少）。AUTO_REPLY_PER_RUN 可覆盖，
+  // 由 cron-task.sh 从 .env 读出 export（漏 export 覆盖值就是死的且不报错）。
+  const replyCount = parseReplyCount(process.env.AUTO_REPLY_PER_RUN, log);
+  const pickedIds = new Set(); // 本次运行内已选过的帖子，不重复回复
   let successCount = 0;
 
   for (let i = 0; i < replyCount; i++) {
     try {
       // Pick a post
-      const post = await pickPost();
+      const post = await pickPost(pickedIds);
       if (!post) {
         log("No suitable post found");
         break;
       }
+      pickedIds.add(post.id);
 
       // Pick a persona
       const persona = pickRandom(PERSONAS);

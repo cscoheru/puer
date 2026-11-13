@@ -48,15 +48,22 @@
 # 真实读者/用户指标基线（每日 12:17 北京时间）
 17 4 * * * /opt/puer-hub/scripts/cron-task.sh baseline-report >> /var/log/puer-baseline.log 2>&1
 
-# AI 回复（每日 20:37 北京时间 = 12:37 UTC）
+# AI 回复（每日 3 次，北京时间 09:37 / 13:37 / 20:37 = UTC 01:37 / 05:37 / 12:37）
 #
 # 2026-11-03 恢复运行：F0 的来源标注已经补到**评论**侧 —— `comments.origin`
 # 迁移（20261103_comment_origin），脚本写入 `ai_autonomous`，前台给这类评论打
 # 「AI 回复」徽章。读者分得清 AI 与真人，指标仍然只算真人（真实计数依旧按
 # REAL_AUTHOR 过滤，AI 评论不计入）。
 #
+# 2026-11-13：站长反馈「新帖没回复、量太少」→ 选帖近 7 天优先、每次默认
+# 12 条（.env 的 AUTO_REPLY_PER_RUN 可覆盖）、每天 1 跑加到 3 跑；
+# 同时加真实用户保护：只回自动化内容，真人帖子与真人评论不碰
+# （见 scripts/KILL_SWITCHES.md「auto-reply 的真实用户保护」）。
+#
 # 开关：`AUTO_REPLY_ENABLED=1` 写在 /opt/puer-hub/.env，由 cron-task.sh 读出来
 # export —— **漏 export 开关就是死的，且不报错**（脚本会打印「已停用」后退出 0）。
+37 1 * * * /opt/puer-hub/scripts/cron-task.sh auto-reply >> /var/log/puer-auto.log 2>&1
+37 5 * * * /opt/puer-hub/scripts/cron-task.sh auto-reply >> /var/log/puer-auto.log 2>&1
 37 12 * * * /opt/puer-hub/scripts/cron-task.sh auto-reply >> /var/log/puer-auto.log 2>&1
 
 # ── F4 复饮提醒（PRD v0.3 §7 Phase 4）─────────────────────────────────────

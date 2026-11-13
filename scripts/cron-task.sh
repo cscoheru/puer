@@ -53,6 +53,10 @@ AUTO_NEWS_DRAFT_PAUSED=$(grep -E "^AUTO_NEWS_DRAFT_PAUSED=" .env | head -1 | cut
 # AUTO_REPLY_ENABLED=1，脚本也看不到 —— 开关是死的，而且**没有任何报错**
 # （脚本会打印「已停用」然后退出 0，看起来像「它自己判断不用跑」）。
 AUTO_REPLY_ENABLED=$(grep -E "^AUTO_REPLY_ENABLED=" .env | head -1 | cut -d= -f2- | tr -d '"')
+# 每次运行的回复条数（2026-11-13，默认 12；站长反馈量太少后加的覆盖口）。
+# 与开关同理：脚本有默认值所以不传也能跑，但 .env 里的覆盖值必须 export
+# 下去才生效 —— 漏了就是「改了 .env 没反应」。
+AUTO_REPLY_PER_RUN=$(grep -E "^AUTO_REPLY_PER_RUN=" .env | head -1 | cut -d= -f2- | tr -d '"')
 
 # ── resolve postgres container IP (docker network) ───────────────────
 PG_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' puer-hub-postgres 2>/dev/null)
@@ -81,6 +85,7 @@ case "$TASK" in
     export ARK_API_KEY="${ARK_KEY}"
     [ -n "${ARK_MODEL_OVERRIDE}" ] && export ARK_MODEL="${ARK_MODEL_OVERRIDE}"
     export AUTO_REPLY_ENABLED="${AUTO_REPLY_ENABLED}"
+    export AUTO_REPLY_PER_RUN="${AUTO_REPLY_PER_RUN}"
 
     run() {
       "$@" || { log_alert "command failed: $*"; exit 1; }
