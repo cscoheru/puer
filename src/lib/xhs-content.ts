@@ -2,12 +2,13 @@
  * 小红书钩子文案生成:把论坛精华帖改写成小红书风格的「大白话钩子」。
  * 返回 {hookTitle, caption, tags} 供发布包后台一键复制 → 手动发小红书。
  *
- * 请求参数由 `src/lib/llm-provider.ts` 的 `buildChatBody` 统一构造
- *（AGENTS.md R27 规则 3：供应商参数只有一份实现）。
  * 2026-11-06: MiniMax 账号终止 → DeepSeek(同一 DEEPSEEK_API_KEY)。
+ * 2026-11-12: 接入规范降级链 DeepSeek → Ark Agent Plan（两家，GLM 已下线），
+ * DeepSeek 配额耗尽时文案功能不再直接失败。请求参数与重试/降级
+ * 全部由唯一参考实现 `src/lib/llm-provider.ts` 负责（AGENTS.md R27 规则 3）。
  */
 
-import { deepseekTarget, buildChatBody, parseJsonLoose } from "./llm-provider";
+import { callLLM, deepseekTarget, chatFallbackTargets } from "./llm-provider";
 
 export interface XhsCopy {
   hookTitle: string; // <20 字钩子标题(悬念/惊喜,不夸张)
@@ -15,22 +16,20 @@ export interface XhsCopy {
   tags: string[]; // 3-5 个标签关键词(不带 #)
 }
 
-const TIMEOUT_MS = 30_000; // 文案生成比审核慢(prompt 长 + 发散),8s 会误杀
+// 请求路径上的单次超时：本路由落进 nginx 60s proxy_read_timeout，后面还排着
+// ffmpeg 视频生成，LLM 段必须按两跳各 25s 收口（2×25=50s < 60s，与
+// /api/ai/compose 同口径）。文案 prompt 长且发散，8s 会误杀，25s 仍留足余量。
+const TIMEOUT_MS = 25_000;
 
 /**
  * @param title    原帖标题
  * @param htmlContent 原帖正文(HTML,会先剥标签再喂给模型)
- * @throws 无 DEEPSEEK_API_KEY 或 API 调用失败/超时/返回非 JSON
+ * @throws 两家供应商都没配 key，或整条链调用失败/超时/返回非 JSON
  */
 export async function generateXhsCopy(
   title: string,
   htmlContent: string
 ): Promise<XhsCopy> {
-  const target = deepseekTarget();
-  if (!target.apiKey) {
-    throw new Error("DEEPSEEK_API_KEY 未配置,无法生成小红书文案");
-  }
-
   const plain = (htmlContent || "").replace(/<[^>]*>/g, "").slice(0, 800);
 
   const prompt = `你是小红书爆款文案写手,擅长用大白话钩子吸引真实茶友点击(不标题党、不浮夸)。下面是一篇普洱茶论坛的精华帖子,请改写成小红书发布文案。
@@ -47,36 +46,23 @@ ${plain}
 严格按以下JSON返回(不要markdown代码块、不要任何解释):
 {"hookTitle":"标题","caption":"正文","tags":["标签1","标签2"]}`;
 
-  const res = await fetch(target.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${target.apiKey}`,
-    },
-    body: JSON.stringify(
-      buildChatBody(target, [{ role: "user", content: prompt }], {
-        maxTokens: 600,
-        temperature: 0.9,
-        json: true,
-      })
-    ),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+  // json 默认 true：callLLM 内部已用 parseJsonLoose 解析，返回的 content 即对象。
+  // Ark target 的 jsonMode=false 时不带 response_format，靠 prompt 约束 + 同一兜底解析。
+  // retries:0：主力只打 1 发，配额/5xx 秒回后直接降级 Ark，不在请求路径上做
+  // 原地重试 —— 否则 2×25s + 退避 + 25s 兜底会到 77s，撑爆 nginx 60s。
+  const result = await callLLM(deepseekTarget(), prompt, {
+    maxTokens: 600,
+    timeoutMs: TIMEOUT_MS,
+    temperature: 0.9,
+    retries: 0,
+    fallbacks: chatFallbackTargets(),
   });
 
-  if (!res.ok) {
-    const err = await res.text().catch(() => "");
-    throw new Error(`DeepSeek ${res.status}: ${err.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  const text: string = data?.choices?.[0]?.message?.content || "";
-
-  let parsed: { hookTitle?: unknown; caption?: unknown; tags?: unknown };
-  try {
-    parsed = parseJsonLoose(text) as typeof parsed;
-  } catch {
-    throw new Error("DeepSeek 返回非 JSON,无法解析文案");
-  }
+  const parsed = (result.content ?? {}) as {
+    hookTitle?: unknown;
+    caption?: unknown;
+    tags?: unknown;
+  };
 
   const tags = Array.isArray(parsed.tags)
     ? parsed.tags.filter((t) => typeof t === "string").slice(0, 5)

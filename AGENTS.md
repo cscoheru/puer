@@ -201,3 +201,28 @@ compose 三个文件的 env 映射 → 单测（env 名与错误串断言）→ 
    「没跑」而不是「跑错」。
 5. **历史注释不用抹**：文件头写「2026-11-06: MiniMax 账号终止 → DeepSeek」
    比把旧供应商抹干净更有用——下一个人（或下一次切换）能看懂为什么是现在这样。
+
+## R31 追加：降级链收敛为两家（2026-11-12 DeepSeek → Ark Agent Plan）
+
+**背景**：站长要求「不要太多降级」，app 侧 LLM 链从 DeepSeek → Ark → GLM
+（外加 lilith/ollama 本地兜底）收敛为 **DeepSeek 主力 → 火山方舟 Agent Plan
+唯一兜底**。GLM target、ollamaTarget、LLMTarget.noAuth 全部删除，无 key 的
+target 在链构建时过滤。
+
+**规则（R31）**
+
+1. **rag-service 是独立服务，不随 app 链收敛**：`docker-compose.yml` 的
+   rag-service block（以及 `rag-service.yml`、`rag-src/`、`puer-ai/rag/` 的
+   Python 代码）仍然用 `GLM_API_KEY` / `KIMI_API_KEY` / `MINIMAX_*`，
+   支撑 `/ask`。删 app block 的 GLM 映射时**不许动**这一组；生产 `.env` 的
+   `GLM_API_KEY` 也**不能删**。app block 的注释里已写明这个边界，防下次误删。
+2. **孪生参考实现必须同构**：`src/lib/llm-provider.ts` 与
+   `scripts/lib/llm.mjs` 是两份（宿主 cron 与容器 tsx 双跑，mjs 不能 import
+   .ts），任何 target 增删两边一起改；探针 `llm-provider-probe.mjs` 直接消费
+   `targets()`，不手抄供应商清单。
+3. **Ark Agent Plan 的两个硬形状**：base 是 `/api/plan/v3`（不是普通 ark 的
+   `/api/v3`）；该 lane 只接受 temperature 0.6，其他值 400 —— 实现为 target
+   级覆盖，调用方传的温度在 `buildChatBody` 被强制改写，单测钉住这条。
+4. **收敛供应商时测试要跟着删，不要留着断言尸体**：env 隔离（PREV_GLM_KEY）、
+   `LLM_ENV_VARS` 白名单、targetLabel 映射断言、import 列表四类都要 grep 到
+   零残留，否则 tsc 直接红（import 了已删除的 `glmTarget`）。

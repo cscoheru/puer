@@ -3,7 +3,7 @@
  *
  * 调用链与仓库既有 AI 调用保持一致（AGENTS.md R27 规则 3）：
  * DeepSeek（OpenAI 兼容 /v1/chat/completions）→ 仅配额类错误
- * 才降级到 GLM / lilith tailnet 本地模型。参数组合照抄 `src/lib/llm-provider.ts`。
+ * 才降级到 Ark Agent Plan。参数组合照抄 `src/lib/llm-provider.ts`。
  *
  * 与审核链路的差别：这里**必须**让调用方区分「模型没写」与「模型写了但
  * 没通过接地校验」。因此返回值把 raw 与 grounded 分开，并带上原因，
@@ -29,18 +29,19 @@ import { buildExtractionPrompt, PROMPT_VERSION } from "./prompt.ts";
 import {
   deepseekTarget,
   callLLM,
-  glmTarget,
+  arkAgentPlanTarget,
   type LLMTarget,
 } from "../llm-provider.ts";
 
 /**
- * 供应商链：DeepSeek主力（配额错误原地重试）→ GLM。
+ * 供应商链：DeepSeek主力（配额错误原地重试）→ Ark Agent Plan。
  *
- * 2026-11-06：MiniMax 账号终止，主力换成 DeepSeek；配额的兜底是 GLM。
+ * 2026-11-12：新增火山方舟 Agent Plan 作为第二供应商（套餐订阅制），
+ * 同日按站长要求收敛为两家，GLM 与本地兜底下线。
  *
  * 重试由共享实现 `src/lib/llm-provider.ts` 负责，各管线不再各写一份 fetch。
  */
-const PROVIDERS = ["deepseek", "glm"] as const;
+const PROVIDERS = ["deepseek", "ark"] as const;
 
 const LLM_TIMEOUT_MS = 45_000;
 
@@ -54,7 +55,7 @@ export interface ExtractedFields {
 
 export interface ExtractionMeta {
   model: string;
-  /** 实际使用的供应商 id（deepseek / glm）。 */
+  /** 实际使用的供应商 id（deepseek / ark）。 */
   source: string;
   promptVersion: string;
   extractedAt: string;
@@ -109,7 +110,7 @@ export interface ExtractArgs {
 export interface LLMReply {
   raw: unknown;
   model: string;
-  /** 实际使用的供应商 id（deepseek / glm）。 */
+  /** 实际使用的供应商 id（deepseek / ark）。 */
   source: string;
 }
 
@@ -322,10 +323,24 @@ async function callWithFallback(
   prompt: string,
   only?: string[],
 ): Promise<LLMReply> {
+  // 显式白名单必须是现役供应商：退役 id（如 "glm"）若静默退成 DS-only，
+  // 整批评测会挂错模型归属而日志还写着旧名字。直接大声失败（R28 规则 2）。
+  if (only?.length) {
+    const unknown = only.filter(
+      (p) => !(PROVIDERS as readonly string[]).includes(p),
+    );
+    if (unknown.length) {
+      throw new Error(
+        `未知 LLM 供应商: ${unknown.join(",")}（可选：${PROVIDERS.join("/")}）`,
+      );
+    }
+  }
   const chain = only?.length ? only : [...PROVIDERS];
-  const fallbacks: LLMTarget[] = [];
-
-  if (chain.includes("glm")) fallbacks.push(glmTarget());
+  // 顺序即规范降级链（与 llm-provider.chatFallbackTargets 同序），
+  // providers 白名单可在「整批必须同一家模型」时裁掉 Ark 这一段。
+  const fallbacks: LLMTarget[] = chain.includes("ark")
+    ? [arkAgentPlanTarget()]
+    : [];
 
   const res = await callLLM(deepseekTarget(), prompt, {
     maxTokens: 600,

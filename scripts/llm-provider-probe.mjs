@@ -1,65 +1,50 @@
 #!/usr/bin/env node
 
 /**
- * llm-provider-probe.mjs — 探测哪个 LLM 供应商当前可用（只发 5 token 的问候）。
+ * llm-provider-probe.mjs — 探测当前配了 key 的 LLM 供应商谁能正常返回。
  *
- * 背景：主力供应商额度打满/欠费时（MiniMax 已停服；DeepSeek 402、GLM 429），
- * 回填管线必须知道此刻还能切到谁。报告只证明「该 key 此刻能正常返回」，不评估质量。
+ * 背景：主力供应商额度打满/欠费时（MiniMax 已停服；DeepSeek 402/429、
+ * Ark 套餐限流），回填管线必须知道此刻还能切到谁。报告只证明「该 key 此刻
+ * 能正常返回」，不评估质量。
+ *
+ * 2026-11-12：供应商清单不再在本文件手抄 —— 直接消费 scripts/lib/llm.mjs 的
+ * targets() 与 buildChatBody()，新增/下线供应商只改参考实现一处（R30 纪律：
+ * 探针手抄的 temperature 漏了 Ark 的 0.6 限制就会报假警）。
  *
  * Run:
  *   node scripts/llm-provider-probe.mjs
  */
 
-const PROVIDERS = [
-  {
-    name: "deepseek",
-    env: "DEEPSEEK_API_KEY",
-    url: "https://api.deepseek.com/v1/chat/completions",
-    model: "deepseek-chat",
-    maxKey: "max_tokens",
-  },
-  {
-    name: "glm",
-    env: "GLM_API_KEY",
-    url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    model: "glm-4-flash",
-    maxKey: "max_tokens",
-  },
-  {
-    name: "kimi",
-    env: "KIMI_API_KEY",
-    url: "https://api.moonshot.cn/v1/chat/completions",
-    model: "moonshot-v1-8k",
-    maxKey: "max_tokens",
-  },
-];
+import { targets, buildChatBody } from "./lib/llm.mjs";
 
-for (const p of PROVIDERS) {
-  const key = process.env[p.env];
-  if (!key) {
-    console.log(`${p.name.padEnd(9)} 跳过（${p.env} 未设置）`);
-    continue;
-  }
+const chain = targets();
+if (!chain.length) {
+  console.error("没有配置任何 LLM key（DEEPSEEK_API_KEY / ARK_API_KEY）");
+  process.exit(1);
+}
+
+for (const t of chain) {
+  const label = t.id.padEnd(9);
   try {
-    const res = await fetch(p.url, {
+    const res = await fetch(t.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: p.model,
-        messages: [{ role: "user", content: "回复ok" }],
-        temperature: 0,
-        [p.maxKey]: 8,
-        ...(p.extra ?? {}),
-      }),
-      signal: AbortSignal.timeout(20000),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${t.apiKey}`,
+      },
+      // 每个 target 的 temperature（Ark 固定 0.6）与 jsonMode 都在统一构造里。
+      body: JSON.stringify(
+        buildChatBody(t, [{ role: "user", content: "回复ok" }], { maxTokens: 8 }),
+      ),
+      signal: AbortSignal.timeout(20_000),
     });
     const text = await res.text();
     if (res.ok) {
-      console.log(`${p.name.padEnd(9)} ✅ ${res.status}  ${text.slice(0, 80).replace(/\s+/g, " ")}`);
+      console.log(`${label} ✅ ${res.status}  ${text.slice(0, 80).replace(/\s+/g, " ")}`);
     } else {
-      console.log(`${p.name.padEnd(9)} ❌ ${res.status}  ${text.slice(0, 160).replace(/\s+/g, " ")}`);
+      console.log(`${label} ❌ ${res.status}  ${text.slice(0, 160).replace(/\s+/g, " ")}`);
     }
   } catch (e) {
-    console.log(`${p.name.padEnd(9)} ❌ 网络/超时  ${e.message} ${e.cause?.code ?? ""}`);
+    console.log(`${label} ❌ 网络/超时  ${e.message} ${e.cause?.code ?? ""}`);
   }
 }

@@ -6,7 +6,7 @@ import {
   canUseAiCompose,
   stripCodeFence,
 } from "@/lib/ai-compose";
-import { callLLM, deepseekTarget, glmTarget } from "@/lib/llm-provider";
+import { callLLM, deepseekTarget, chatFallbackTargets } from "@/lib/llm-provider";
 import { sanitizeNoteHtml, stripToContentTags } from "@/lib/tea-drafts/sanitize";
 import {
   checkRateLimit,
@@ -17,7 +17,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// 一次完整生成（DeepSeek → GLM 兜底），与 llm-provider 的 45s 超时留出余量。
+// 一次完整生成（DeepSeek → Ark 兜底，两家），单家 25s 超时 × 2 跳 = 50s < nginx 60s。
 export const maxDuration = 60;
 
 const schema = z.object({
@@ -84,12 +84,16 @@ export async function POST(req: NextRequest) {
       maxTokens: 1200,
       temperature: 0.8,
       // 交互式生成，超时必须自己兜住：callLLM 默认 retries=2，配上 45s 单次超时
-      // 最坏是 3×45s + 10s 退避，再加 GLM 兜底 45s ≈ 190s。而 /api/ai/compose
+      // 最坏是 3×45s + 10s 退避，再加兜底 45s ≈ 190s。而 /api/ai/compose
       // 落进 nginx 的 `location /`（默认 proxy_read_timeout 60s）→ 用户先拿到
-      // 一个 HTML 的 504，模型那边还在烧 token。25s + 25s 兜底 = 最坏 50s。
+      // 一个 HTML 的 504，模型那边还在烧 token。
+      // retries:0 让主力只打 1 发，fallback 也只试 1 次且无退避；两跳
+      // (DeepSeek/Ark) 全超时的最坏情况 = 2×25s = 50s < 60s，留 10s 余量
+      //（429/402/鉴权类失败都是秒回，真实耗时远低于此）。
       retries: 0,
       timeoutMs: 25_000,
-      fallbacks: [glmTarget()],
+      // 规范降级链：只剩 Ark Agent Plan（没配 key 时是空数组，callLLM 自动跳过）。
+      fallbacks: chatFallbackTargets(),
     });
 
     // 模型产出属于不可信 HTML：先去掉偶发代码围栏，再按内容标签白名单收口。

@@ -24,7 +24,12 @@ import { sanitizeNoteHtml, stripToContentTags } from "../tea-drafts/sanitize.ts"
 import { escapeHtml, SUMMARY_MAX_LENGTH } from "../tea-drafts/assemble.ts";
 import { extractPlainText, codepointLength } from "../tea-drafts/source-html.ts";
 import type { Material } from "./plan.ts";
-import { deepseekTarget, buildChatBody } from "../llm-provider.ts";
+import {
+  buildChatBody,
+  chatTargetChain,
+  targetLabel,
+  type LLMTarget,
+} from "../llm-provider.ts";
 
 /**
  * 资讯稿专用的数字 tokenization：**小数点算一个 token 的一部分**。
@@ -72,16 +77,33 @@ function isNewsGrounded(
  * 模型端点与参数。
  *
  * 2026-11-06：MiniMax 账号终止 → DeepSeek。
- * 端点 / 模型 / `max_tokens` / 是否带 `response_format` 全部由
- * `src/lib/llm-provider.ts` 的 `deepseekTarget()` + `buildChatBody()` 决定
- *（R27 规则 3：供应商参数只有一份实现）。
+ * 2026-11-12：接入规范链 DeepSeek → Ark Agent Plan（chatTargetChain），
+ * 同日收敛为两家，GLM 兜底下线。
+ * 端点 / 模型 / `max_tokens` / 是否带 `response_format` / target 级
+ * temperature 全部由 `src/lib/llm-provider.ts` 决定（R27 规则 3：供应商参数
+ * 只有一份实现）。链在 rewriteNews 调用时构建，不放在模块级，使测试对
+ * process.env 的增删当次生效。
  */
-const TARGET = deepseekTarget();
 
 const REWRITE_TIMEOUT_MS = 45_000;
 const REWRITE_TEMPERATURE = 0.4;
 const REWRITE_MAX_TOKENS = 2000;
 const REWRITE_ATTEMPTS = 2;
+
+/**
+ * 配额/限流/欠费判据。scripts/ai-news-draft.mjs 的整批熔断通过
+ * {@link isQuotaError} 共用这一份口径（R28 规则 1：正则不许两边各抄一份）。
+ * 命中即熔断：重试只会更快烧额度、拖长整批时间。`402 Insufficient Balance`
+ * 是 DeepSeek 欠费的英文回包（健康探针把它单列为 exit 2），必须认得，
+ * 否则欠费时整批素材逐条打必败请求。
+ */
+const QUOTA_RE =
+  /\b429\b|\b402\b|rate_limit|insufficient|balance|余额|用量上限|额度|积分/i;
+
+/** 失败 reason 是否属于配额/欠费类（脚本侧整批熔断复用此判据，避免正则双份漂移）。 */
+export function isQuotaError(reason: string): boolean {
+  return QUOTA_RE.test(reason);
+}
 
 /** 资讯稿的绝对长度区间（码点）。 */
 const NEWS_MIN_CODEPOINTS = 80;
@@ -281,26 +303,51 @@ function clipTitle(title: string): string {
   return Array.from(escaped).slice(0, 200).join("");
 }
 
-/** 单次模型调用。失败返回原因，不抛。 */
+/**
+ * 单次采样：按链顺序 DeepSeek → Ark 遍历，第一个成功的 target 胜出。
+ * 无 key 的 target 不会进链。外层 REWRITE_ATTEMPTS 采样重试不变，因此只配
+ * DeepSeek 时调用次数与接入 Ark 之前完全一致。
+ *
+ * 返回值额外带 quotaReason：链上任一 target 命中配额错误时，记下**第一条**
+ * 配额原因。不能只回最后一个 target 的失败 —— DeepSeek 429 之后 Ark 再 500，
+ * 最后一条 reason 不含 429，外层采样熔断与 ai-news-draft 的整批熔断会双双
+ * 失效（配额耗尽后整批素材逐条打必败请求）。
+ */
 async function runAttempt(
   opts: NewsRewriteOptions,
-  key: string,
+  chain: LLMTarget[],
+): Promise<{ result: NewsRewriteResult; quotaReason: string | null }> {
+  let last: NewsRewriteResult = { ok: false, reason: "no target ran" };
+  let quotaReason: string | null = null;
+  for (const target of chain) {
+    last = await callRewriteTarget(opts, target);
+    if (last.ok) return { result: last, quotaReason };
+    if (!quotaReason && isQuotaError(last.reason)) quotaReason = last.reason;
+  }
+  return { result: last, quotaReason };
+}
+
+/** 单个供应商的一次模型调用。失败返回原因，不抛。 */
+async function callRewriteTarget(
+  opts: NewsRewriteOptions,
+  target: LLMTarget,
 ): Promise<NewsRewriteResult> {
   const { material } = opts;
   const fetcher = opts.fetcher ?? fetch;
   const timeoutMs = opts.timeoutMs ?? REWRITE_TIMEOUT_MS;
+  const label = targetLabel(target.id);
 
   let resp: Response;
   try {
-    resp = await fetcher(TARGET.url, {
+    resp = await fetcher(target.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
+        Authorization: `Bearer ${target.apiKey}`,
       },
       body: JSON.stringify(
         buildChatBody(
-          TARGET,
+          target,
           [
             { role: "system", content: NEWS_SYSTEM },
             { role: "user", content: buildPrompt(material, opts) },
@@ -320,14 +367,14 @@ async function runAttempt(
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    return { ok: false, reason: `DeepSeek ${resp.status}: ${errText.slice(0, 200)}` };
+    return { ok: false, reason: `${label} ${resp.status}: ${errText.slice(0, 200)}` };
   }
 
   let body: { choices?: { message?: { content?: string }; finish_reason?: string }[] };
   try {
     body = (await resp.json()) as typeof body;
   } catch {
-    return { ok: false, reason: "DeepSeek returned non-JSON body" };
+    return { ok: false, reason: `${label} returned non-JSON body` };
   }
 
   const choice = body?.choices?.[0];
@@ -456,21 +503,39 @@ function moneyNumbers(text: string): Set<string> {
  * 把一条素材改写成资讯帖。
  *
  * 与 `deepSeekAdapt` 同契约：返回结果，不抛异常；内部重试 `REWRITE_ATTEMPTS` 次。
+ * 2026-11-12 起链上任一供应商配了 key 都能跑（DeepSeek → Ark Agent Plan），
+ * 两家全缺才 fail-closed，reason 保留历史前缀 DEEPSEEK_API_KEY。
  */
 export async function rewriteNews(
   opts: NewsRewriteOptions,
 ): Promise<NewsRewriteResult> {
-  const key = process.env.DEEPSEEK_API_KEY;
-  if (!key) return { ok: false, reason: "DEEPSEEK_API_KEY missing" };
+  // 每次调用现建链：工厂在调用时读 process.env，模块级缓存会让测试/运行时
+  // 补 env 不生效。
+  const chain = chatTargetChain();
+  if (!chain.length) {
+    return {
+      ok: false,
+      reason: "DEEPSEEK_API_KEY missing (ARK_API_KEY 也未配置)",
+    };
+  }
 
   let last: NewsRewriteResult = { ok: false, reason: "no attempt ran" };
   for (let attempt = 1; attempt <= REWRITE_ATTEMPTS; attempt++) {
-    last = await runAttempt(opts, key);
+    const { result, quotaReason } = await runAttempt(opts, chain);
+    last = result;
     if (last.ok) return last;
     // 配额/限流类错误不可重试：重试只会更快烧额度、拖长整批时间。
-    // 立即返回（reason 里保留 429，调用方据此熔断整批）。
-    if (!last.ok && /\b429\b|rate_limit|用量上限|额度|积分/.test(last.reason)) {
-      return last;
+    // 配额信号以链上第一条配额原因为准 —— 后续 target 的非配额失败不能盖掉它，
+    // reason 里必须保留 429，调用方（ai-news-draft.mjs）据此熔断整批。
+    // 注意：DeepSeek 429 但 Ark 成功时 last.ok 已在上面返回，走不到这里。
+    if (quotaReason) {
+      return {
+        ok: false,
+        reason:
+          quotaReason === last.reason
+            ? last.reason
+            : `${quotaReason} → 降级后仍失败: ${last.reason}`,
+      };
     }
   }
   return {

@@ -84,13 +84,15 @@ test("compose 透传的 CELLAR_UIDS 能被白名单判定读到", () => {
 });
 
 /**
- * LLM 供应商的 key 同样必须三个源都声明（2026-11-06 MiniMax → DeepSeek 切换）。
+ * LLM 供应商的 key 同样必须三个源都声明（2026-11-06 MiniMax → DeepSeek 切换；
+ * 2026-11-12 加入火山方舟 Agent Plan 作为第二供应商，同日 GLM 兜底下线，
+ * app 链收敛为 DeepSeek → Ark 两家；rag-service 仍单独用 GLM，不在本断言范围）。
  *
  * 切换前的教训：只改仓库 compose 的话，生产 / 备机 / 故障切换拿到的容器里
  * 根本没有 `DEEPSEEK_API_KEY` —— 应用侧 fail-closed 转人工、脚本直接 exit 1，
  * 而「容器起来了、站点 200」让人以为部署成功了。
  */
-const LLM_ENV_VARS = ["DEEPSEEK_API_KEY", "GLM_API_KEY"] as const;
+const LLM_ENV_VARS = ["DEEPSEEK_API_KEY", "ARK_API_KEY", "ARK_MODEL"] as const;
 
 test("每个 compose 来源的 app service 都透传 LLM 供应商 key", () => {
   for (const source of COMPOSE_SOURCES) {

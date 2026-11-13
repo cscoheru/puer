@@ -7,34 +7,49 @@
  * 为什么不直接 import 那个 .ts：脚本在宿主机直跑（cron-task.sh），也要在
  * app 容器里经 tsx 跑，两边的加载方式不同；一个纯 .mjs 对两边都成立。
  *
- * ## 供应商（2026-11-06 起）
+ * ## 供应商（2026-11-12 起）
  *
- * 主力是 DeepSeek（MiniMax 账号已终止；火山 coding plan 额度打满不可用）。
+ * 主力是 DeepSeek（MiniMax 账号已终止）。第二供应商是火山方舟 Agent Plan
+ *（/api/plan/v3 OpenAI 兼容面，专属 ARK_API_KEY，套餐订阅制不按量计费），
+ * DeepSeek 402 欠费/429 限流时落到 Ark。只有这两家（GLM 与本地兜底已下线），
+ * 两家都不可用时自动回复/草稿整条停摆并由调用方记日志。
+ *
  * DeepSeek 是标准 OpenAI 兼容接口：`max_tokens`（不是 max_completion_tokens），
- * 支持 `response_format: {type:"json_object"}`。
- *
- * 兜底：GLM（`glm-4-flash`）。DeepSeek 402 欠费/429 限流时管线靠它活着，
- * 没有兜底链路的话自动回复/草稿会整条停摆。
+ * 支持 `response_format: {type:"json_object"}`。Ark 的 jsonMode 刻意关闭
+ *（套餐 lane 的 response_format 支持待真 key 验证，prompt 都已要求纯 JSON）。
  */
 
-export const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+// env 读取边界统一 trim：纯空白 key 视为未配置，避免 targets() 放行后
+// 发出 `Bearer  ` 空头（与 src/lib/llm-provider.ts 同构，R31 孪生规则）。
+export const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY?.trim() || undefined;
 export const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 export const DEEPSEEK_CHAT_URL = "https://api.deepseek.com/v1/chat/completions";
 
-const GLM_API_KEY = process.env.GLM_API_KEY;
-const GLM_MODEL = process.env.GLM_MODEL || "glm-4-flash";
-const GLM_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+// 火山方舟 Agent Plan（与 src/lib/llm-provider.ts::arkAgentPlanTarget 同构）。
+export const ARK_API_KEY = process.env.ARK_API_KEY?.trim() || undefined;
+const ARK_BASE_URL =
+  process.env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/plan/v3";
+const ARK_CHAT_URL = `${ARK_BASE_URL.replace(/\/+$/, "")}/chat/completions`;
+const ARK_MODEL = process.env.ARK_MODEL || "doubao-seed-2-0-pro";
+// Agent Plan lane 实测只接受 0.6，其他温度直接 400。
+const ARK_TEMPERATURE = process.env.ARK_TEMPERATURE
+  ? Number(process.env.ARK_TEMPERATURE)
+  : 0.6;
 
 /** 是否至少配置了一家可用的供应商。 */
 export function llmConfigured() {
-  return Boolean(DEEPSEEK_API_KEY || GLM_API_KEY);
+  return Boolean(DEEPSEEK_API_KEY || ARK_API_KEY);
 }
 
 /**
  * 按优先级返回可用的目标。没配 key 的直接跳过 —— 让「哪家能用」由环境决定，
- * 而不是在调用点写死。
+ * 而不是在调用点写死。顺序与 src 侧 chatTargetChain() 一致：
+ * DeepSeek → Ark Agent Plan。
+ *
+ * 探针脚本（llm-health-check / llm-provider-probe）也消费这一份，
+ * 不许再手抄 URL/模型/temperature（R30：半切换事故就是漏了脚本侧）。
  */
-function targets() {
+export function targets() {
   const list = [];
   if (DEEPSEEK_API_KEY) {
     list.push({
@@ -44,8 +59,17 @@ function targets() {
       apiKey: DEEPSEEK_API_KEY,
     });
   }
-  if (GLM_API_KEY) {
-    list.push({ id: "glm", url: GLM_URL, model: GLM_MODEL, apiKey: GLM_API_KEY });
+  if (ARK_API_KEY) {
+    list.push({
+      id: "ark",
+      url: ARK_CHAT_URL,
+      model: ARK_MODEL,
+      apiKey: ARK_API_KEY,
+      // target 级温度覆盖：buildChatBody 优先取它。
+      temperature: Number.isFinite(ARK_TEMPERATURE) ? ARK_TEMPERATURE : 0.6,
+      // 套餐 lane 的 response_format 支持未验证，先关，靠 prompt + parseJsonLoose。
+      jsonMode: false,
+    });
   }
   return list;
 }
@@ -54,19 +78,23 @@ function targets() {
  * 与 src/lib/llm-provider.ts::buildChatBody 同款，但 `response_format` **默认不开**。
  *
  * 原因：脚本里有一半 prompt 是**标签式**的（`rag-post` 的 TITLE:/CONTENT:、
- * `auto-boost-new` 的纯文本回复），而 DeepSeek / GLM 的 `json_object` 模式
+ * `auto-boost-new` 的纯文本回复），而 DeepSeek 的 `json_object` 模式
  * 要求 prompt 里出现 "json" 字样，否则直接 400。所以由调用方显式传
  * `json: true` 才加这个字段 —— 让「我想不想要 JSON」跟着 prompt 走，而不是
- * 跟着供应商走。
+ * 跟着供应商走。target 显式 `jsonMode: false`（Ark Agent Plan）时同样不加。
+ *
+ * `target.temperature` 是供应商级覆盖（Ark 固定 0.6），优先于调用方温度。
  */
 export function buildChatBody(target, messages, opts = {}) {
   const { maxTokens = 600, temperature = 0, json = false } = opts;
   return {
     model: target.model,
     messages,
-    temperature,
+    temperature: target.temperature ?? temperature,
     max_tokens: maxTokens,
-    ...(json ? { response_format: { type: "json_object" } } : {}),
+    ...(json && target.jsonMode !== false
+      ? { response_format: { type: "json_object" } }
+      : {}),
   };
 }
 
@@ -88,7 +116,9 @@ export async function llmChat(promptOrMessages, opts = {}) {
 
   const all = targets();
   if (all.length === 0) {
-    throw new Error("没有可用的 LLM 供应商（DEEPSEEK_API_KEY / GLM_API_KEY 均未设置）");
+    throw new Error(
+      "没有可用的 LLM 供应商（DEEPSEEK_API_KEY / ARK_API_KEY 均未设置）",
+    );
   }
 
   const failures = [];

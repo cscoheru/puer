@@ -21,7 +21,7 @@
  *
  * Environment:
  *   DATABASE_URL        — PostgreSQL connection (cron-task.sh 提供)
- *   DEEPSEEK_API_KEY         — DeepSeek API key（GLM_API_KEY 兜底）
+ *   DEEPSEEK_API_KEY         — DeepSeek API key（Ark ARK_API_KEY 为第二供应商，两把任一即可）
  *   RAG_CHUNKS_FILE     — knowledge-chunks.jsonl 路径 (默认 /opt/puer-hub/rag-data/knowledge-chunks.jsonl)
  *   RAG_POST_DAILY_CAP  — 每日草稿上限 (默认 2)
  *   DRY_RUN=1           — 只生成打印,不写库(验收用)
@@ -280,7 +280,7 @@ function shuffle(arr) {
 }
 
 async function main() {
-  if (!llmConfigured()) { console.error("ERROR: DEEPSEEK_API_KEY / GLM_API_KEY 均未设置"); process.exit(1); }
+  if (!llmConfigured()) { console.error("ERROR: DEEPSEEK_API_KEY / ARK_API_KEY 均未设置"); process.exit(1); }
   log(`=== Rag-post started (cap=${DAILY_CAP}${DRY_RUN ? ", DRY_RUN" : ""}) ===`);
 
   const [chunks, used, todayCount] = await Promise.all([

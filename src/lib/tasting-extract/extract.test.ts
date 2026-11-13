@@ -182,3 +182,15 @@ test("extractTastingFields：注入注入器后不触网", async () => {
   assert.equal(r.ok, true);
   assert.equal(r.fields.stage, "drinking");
 });
+
+test("extractTastingFields：退役/未知 provider id 显式报错，不静默退成 DeepSeek-only", async () => {
+  // glm 已随 R31 下线；旧命令行 --provider-only=glm 必须大声失败，
+  // 否则整批评测会挂错模型归属而日志仍写着 glm。
+  const r = await extractTastingFields({
+    content: NOTE,
+    providers: ["glm"],
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /未知 LLM 供应商/);
+  assert.match(r.reason ?? "", /glm/);
+});

@@ -39,7 +39,8 @@
  *                                 runs AFTER the tx commits, verbatim is the
  *                                 fallback). Unset / any other value = verbatim.
  *   DEEPSEEK_API_KEY            — required only when AUTO_TEA_DRAFT_ADAPT=1
- *                                 (2026-11-06:adapt 内部走 DeepSeek,GLM 兜底;
+ *                                 (2026-11-12:adapt 内部走 DeepSeek → Ark
+ *                                 降级链,两把 key 任一可用即可;
  *                                 moderation 复用同一组 key).
  */
 

@@ -82,9 +82,16 @@ services:
       # NEXT_PUBLIC_MINIO_URL 指向的 https://puer.im/minio 在 nginx 里也不存在
       # （无对应 location）。2026-10-22 起这些是纯死配置，删掉。
       NEXT_PUBLIC_WS_URL: wss://puer.im
-      # 2026-11-06:LLM 主力由 MiniMax 换成 DeepSeek,GLM 兜底(见 src/lib/llm-provider.ts)
+      # 2026-11-06:LLM 主力由 MiniMax 换成 DeepSeek(见 src/lib/llm-provider.ts)
+      # 2026-11-12:火山方舟 Agent Plan 成为第二供应商(DeepSeek → Ark)，
+      # 同日按站长要求收敛为两家,GLM 与本地兜底下线(rag-service 仍单独用 GLM,见下方该服务 block)。
+      # 改 env 名后必须 docker compose up -d app,restart 不会刷新容器 env(R30 规则 2)。
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      GLM_API_KEY: ${GLM_API_KEY:-}
+      ARK_API_KEY: ${ARK_API_KEY:-}
+      # 套餐内 output_name 与代码默认值不同时才需要。注意：ARK_BASE_URL /
+      # ARK_TEMPERATURE 未映射进容器（compose 与 cron-task 都只传这三个），
+      # 仅在本地 shell 直跑脚本时生效；容器内要改默认值得走代码。
+      ARK_MODEL: ${ARK_MODEL:-}
       RAG_SERVICE_URL: http://rag-service:8000
       RAG_SERVICE_TOKEN: ${RAG_SERVICE_TOKEN:-}
       # F0 反滥用开关（PRD v0.3 §0）：透传进容器，站长改 .env 后

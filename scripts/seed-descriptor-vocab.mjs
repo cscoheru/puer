@@ -37,7 +37,7 @@
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { callLLM, deepseekTarget, glmTarget } from "../src/lib/llm-provider.ts";
+import { callLLM, deepseekTarget, chatFallbackTargets } from "../src/lib/llm-provider.ts";
 import { editorAuthorUids } from "../src/lib/editor-line.ts";
 import {
   buildVocabRows,
@@ -125,7 +125,7 @@ ${list}`;
   const result = await callLLM(target, prompt, {
     maxTokens: 4000,
     retries: 2,
-    fallbacks: [glmTarget()],
+    fallbacks: chatFallbackTargets(),
     temperature: 0,
   });
 

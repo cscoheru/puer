@@ -23,7 +23,9 @@
  *
  * Environment:
  *   DATABASE_URL                 — PostgreSQL 连接（cron-task.sh 提供）
- *   DEEPSEEK_API_KEY                  — DeepSeek API key（cron-task.sh 提供；GLM 兜底）
+ *   DEEPSEEK_API_KEY                  — DeepSeek API key（cron-task.sh 提供；
+ *                                       Ark ARK_API_KEY 为第二供应商，
+ *                                       两把 key 任一可用即可）
  *   NEWS_AUTHOR_USERNAME         — 专用资讯账号 username（默认 puer-news）
  *   PENTAGI_ARTIFACT_HOST        — pentagi-vps SSH 目标（默认 pentagi-vps）
  *   PENTAGI_ARTIFACT_DIR         — 成果目录（默认 /opt/pentagi-artifacts）
@@ -47,7 +49,7 @@ import {
   isPublishable,
   draftId,
 } from "../src/lib/news-draft/plan.ts";
-import { rewriteNews } from "../src/lib/news-draft/rewrite.ts";
+import { rewriteNews, isQuotaError } from "../src/lib/news-draft/rewrite.ts";
 // 注意：这是 .mjs，Node 不做类型剥离——不能写 `import { type X }`（语法错）。
 // 纯类型的东西用 JSDoc 标注即可。
 import {
@@ -418,7 +420,17 @@ async function main() {
   }
   // Fail fast on missing env before touching the network or the DB.
   required("DATABASE_URL");
-  if (!process.env.DEEPSEEK_API_KEY && !process.env.GLM_API_KEY) required("DEEPSEEK_API_KEY");
+  // 2026-11-12：链上任一供应商配了 key 都能跑（DeepSeek → Ark Agent Plan），
+  // 两家全缺才退出。旧判断只看 DEEPSEEK_API_KEY，只配 ARK_API_KEY 时会被误杀。
+  if (
+    !process.env.DEEPSEEK_API_KEY &&
+    !process.env.ARK_API_KEY
+  ) {
+    console.error(
+      "ERROR: DEEPSEEK_API_KEY / ARK_API_KEY 均未设置，Set one before running.",
+    );
+    process.exit(1);
+  }
   const prisma = makePrisma();
 
   try {
@@ -594,7 +606,9 @@ async function main() {
         rewriteFailed++;
         failures.push({ title: m.title.slice(0, 30), reason: rewritten.reason });
         log(`改写失败，跳过: ${m.title.slice(0, 30)} — ${rewritten.reason}`);
-        if (/\b429\b|rate_limit|用量上限|额度|积分/.test(rewritten.reason)) {
+        // 判据只有一份：rewrite.ts 的 isQuotaError（含 429/402/insufficient
+        // balance/中文额度词），本脚本不再手抄正则（R28 规则 1）。
+        if (isQuotaError(rewritten.reason)) {
           quotaExhausted = true;
           log("检测到配额/限流错误，熔断本轮后续模型调用（已抽取的素材保留，恢复后重跑即可）");
         }

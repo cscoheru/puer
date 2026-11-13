@@ -46,7 +46,7 @@ export async function pickCandidate(platform) {
 
 // ---- 发布文案生成（2026-11-06: MiniMax → DeepSeek；与 src/lib/xhs-content.ts 同款） ----
 async function generateCopy(prompt) {
-  if (!llmConfigured()) throw new Error("没有可用的 LLM 供应商（DEEPSEEK_API_KEY / GLM_API_KEY）");
+  if (!llmConfigured()) throw new Error("没有可用的 LLM 供应商（DEEPSEEK_API_KEY / ARK_API_KEY 均未设置）");
   const text = await llmChat(prompt, {
     maxTokens: 900,
     temperature: 0.9,

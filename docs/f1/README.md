@@ -62,8 +62,11 @@ node --import tsx scripts/f1-extract.mjs --apply           # 写库
 
 ## 模型供应商
 
-按序尝试 MiniMax → DeepSeek → GLM，只有配额/限流类错误才降级。
-2026-10-22 实测 MiniMax Token Plan 打满（429/2056），DeepSeek 与 GLM 正常。
+2026-11-12 起只有两家：DeepSeek 主力 → 火山方舟 Agent Plan 兜底（GLM 与本地
+兜底已按站长要求下线，统一参考实现见 `src/lib/llm-provider.ts`）。只有配额/
+限流类错误才降级。
+历史：2026-10-22 时链为 MiniMax → DeepSeek → GLM，当日 MiniMax Token Plan
+打满（429/2056），DeepSeek 与 GLM 正常。
 
 ## 旧路径（如需评测闸）
 

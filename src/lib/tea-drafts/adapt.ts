@@ -25,6 +25,10 @@
  * The model call mirrors src/lib/llm-provider.ts (same endpoint, same env
  * key) but at temperature 0.4 (grounded), not the retired creative 0.9.
  * 2026-11-06: MiniMax 账号终止 → DeepSeek（DEEPSEEK_API_KEY）。
+ * 2026-11-12: 单次 attempt 内部按规范链 DeepSeek → Ark Agent Plan
+ * 遍历（chatTargetChain，已过滤无 key 的 target）；外层 ADAPT_ATTEMPTS
+ * 采样重试语义不变。不直接复用 callLLM：它对 5xx/LLMOutputError 的自动
+ * 重试会与采样重试相乘，且会丢掉 finish_reason 诊断与注入 fetcher 测试点。
  */
 import {
   extractParagraphs,
@@ -35,11 +39,17 @@ import { sanitizeNoteHtml, stripToContentTags } from "./sanitize.ts";
 import { escapeHtml, SUMMARY_MAX_LENGTH } from "./assemble.ts";
 import type { NormalizedNote } from "./normalize.ts";
 import { styleByKey, type StyleKey, type TeaDraftStyle } from "./styles.ts";
-import { deepseekTarget, buildChatBody } from "../llm-provider.ts";
+import {
+  buildChatBody,
+  chatTargetChain,
+  targetLabel,
+  type LLMTarget,
+} from "../llm-provider.ts";
 
 // 供应商参数只有一份实现（AGENTS.md R27 规则 3）：端点 / 模型 / max_tokens /
-// 是否带 response_format 全部由 `src/lib/llm-provider.ts` 决定。
-const TARGET = deepseekTarget();
+// 是否带 response_format / target 级 temperature 全部由
+// `src/lib/llm-provider.ts` 决定。链在 deepSeekAdapt 调用时构建（不放在模块
+// 级），这样测试对 process.env 的增删能被当次调用看到。
 
 // Adaptation knobs. The ratio band was 0.3–1.5 and is now 0.2–2.0: the prompt
 // explicitly tells the model to DISCARD the reference/provenance material that
@@ -342,27 +352,46 @@ export interface DeepSeekAdaptOptions {
  * every failure mode below is either transient (transport) or sampling-dependent
  * (the model's JSON), and the caller has no reason to care which attempt landed.
  * Same fail-safe contract as the public entry point — returns, never throws.
+ *
+ * Inside one sample the whole configured chain (DeepSeek → Ark) is walked
+ * in order: the first target that answers wins; a target without a key is never
+ * in the chain. Sampling retries (ADAPT_ATTEMPTS) stay in the outer function, so
+ * with only DeepSeek configured the call count is identical to the pre-Ark code.
  */
 async function runAdaptAttempt(
   opts: DeepSeekAdaptOptions,
   style: TeaDraftStyle,
-  key: string,
+  chain: LLMTarget[],
+): Promise<AdaptResult> {
+  let last: AdaptResult = { ok: false, reason: "no target ran" };
+  for (const target of chain) {
+    last = await callAdaptTarget(opts, style, target);
+    if (last.ok) return last;
+  }
+  return last;
+}
+
+async function callAdaptTarget(
+  opts: DeepSeekAdaptOptions,
+  style: TeaDraftStyle,
+  target: LLMTarget,
 ): Promise<AdaptResult> {
   const { source } = opts;
   const fetcher = opts.fetcher ?? fetch;
   const timeoutMs = opts.timeoutMs ?? ADAPT_TIMEOUT_MS;
+  const label = targetLabel(target.id);
 
   let resp: Response;
   try {
-    resp = await fetcher(TARGET.url, {
+    resp = await fetcher(target.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
+        Authorization: `Bearer ${target.apiKey}`,
       },
       body: JSON.stringify(
         buildChatBody(
-          TARGET,
+          target,
           [
             { role: "system", content: ADAPT_SYSTEM },
             { role: "user", content: buildPrompt(source, style) },
@@ -382,14 +411,14 @@ async function runAdaptAttempt(
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
-    return { ok: false, reason: `DeepSeek ${resp.status}: ${errText.slice(0, 200)}` };
+    return { ok: false, reason: `${label} ${resp.status}: ${errText.slice(0, 200)}` };
   }
 
   let body: DeepSeekBody;
   try {
     body = (await resp.json()) as DeepSeekBody;
   } catch {
-    return { ok: false, reason: "DeepSeek returned non-JSON body" };
+    return { ok: false, reason: `${label} returned non-JSON body` };
   }
   const choice = body?.choices?.[0];
   const raw = choice?.message?.content ?? "";
@@ -455,18 +484,27 @@ async function runAdaptAttempt(
  *
  * 2026-11-06: MiniMax → DeepSeek。函数名 deepSeekAdapt 为历史名,被
  * runner/测试引用,暂保留;内部已走 DEEPSEEK_API_KEY。
+ * 2026-11-12: 链上任一供应商配了 key 都能跑（DeepSeek → Ark Agent Plan）；
+ * 两家全缺时才 fail-closed，reason 保留历史前缀 DEEPSEEK_API_KEY missing。
  */
 export async function deepSeekAdapt(
   opts: DeepSeekAdaptOptions,
 ): Promise<AdaptResult> {
   const style = styleByKey(opts.style);
   if (!style) return { ok: false, reason: `unknown style: ${opts.style}` };
-  const key = process.env.DEEPSEEK_API_KEY;
-  if (!key) return { ok: false, reason: "DEEPSEEK_API_KEY missing" };
+  // 每次调用现建链：target 在工厂调用时读 process.env，模块级缓存会让
+  // 测试（以及运行时补 env）看不到 key 的增删。
+  const chain = chatTargetChain();
+  if (!chain.length) {
+    return {
+      ok: false,
+      reason: "DEEPSEEK_API_KEY missing (ARK_API_KEY 也未配置)",
+    };
+  }
 
   let last: AdaptResult = { ok: false, reason: "no attempt ran" };
   for (let attempt = 1; attempt <= ADAPT_ATTEMPTS; attempt++) {
-    last = await runAdaptAttempt(opts, style, key);
+    last = await runAdaptAttempt(opts, style, chain);
     if (last.ok) return last;
   }
   return {

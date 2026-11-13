@@ -2,8 +2,7 @@ import { prisma } from "@/lib/prisma";
 import {
   deepseekTarget,
   callLLM,
-  glmTarget,
-  ollamaTarget,
+  chatFallbackTargets,
 } from "@/lib/llm-provider";
 
 /**
@@ -29,10 +28,6 @@ export interface ModResult {
 
 const AI_TIMEOUT_MS = 8000;
 const PUBLISH_CONFIDENCE = 0.7;
-// lilith tailnet LLM fallback: MiniMax quota 打满时切本地 GPU
-const LILITH_URL = process.env.LILITH_LLM_URL || "http://lilith:11434/v1/chat/completions";
-const LILITH_MODEL = process.env.LILITH_LLM_MODEL || "qwen2.5:7b";
-const LILITH_TIMEOUT_MS = 15_000; // tailnet DERP 转发有延迟，给足余量
 
 // ─── 本地敏感词缓存(60s)── 调用方在提交链路,需低延迟、低 DB 压力 ───────────────
 let keywordCache: { rows: { keyword: string; category: string }[]; ts: number } = {
@@ -78,13 +73,14 @@ export async function screenContent(text: string): Promise<ModResult> {
     // 关键词表读取失败不阻断 —— 继续交给 AI
   }
 
-  // 2) AI 层:DeepSeek分类(GLM 兜底)。无 key 或任何错误 → fail-closed 送审
-  if (!process.env.DEEPSEEK_API_KEY && !process.env.GLM_API_KEY) {
+  // 2) AI 层:DeepSeek 分类(Ark Agent Plan 兜底)。无 key 或任何错误 → fail-closed 送审。
+  // trim 与 target 工厂同口径：纯空白 key 不算配置，否则会在 callLLM 里被当无 key 跳过。
+  if (!process.env.DEEPSEEK_API_KEY?.trim() && !process.env.ARK_API_KEY?.trim()) {
     return {
       decision: "review",
       categories: [],
       confidence: 0,
-      reason: "AI 未配置(DEEPSEEK_API_KEY / GLM_API_KEY 均缺失),转人工",
+      reason: "AI 未配置(DEEPSEEK_API_KEY / ARK_API_KEY 均缺失),转人工",
       source: "fallback",
     };
   }
@@ -128,15 +124,14 @@ export async function screenContent(text: string): Promise<ModResult> {
   }
 }
 
-// ─── AI 调用(DeepSeek主力 + 重试, GLM → lilith tailnet 逐级兜底) ────────────────
-// DeepSeek coding 端点不支持 response_format(见 src/lib/llm-provider.ts),
+// ─── AI 调用(DeepSeek主力 + 重试, Ark Agent Plan 兜底) ───────────────────────
 // JSON 由 prompt 约束 + parseJsonLoose 兜底。调用参数统一在参考实现里,
 // 各管线不再各写一份 fetch(R25 半切换事故的根因)。
 //
-// 兜底顺序:DeepSeek(配额/限流原地重试) → GLM → lilith tailnet。
-// 2026-11-06 起主力是 DeepSeek:402 = 欠费,429 = 限流,两者都会发生;
-// 重试仍然划算(额度是周期性的),但必须留一条能用的降级链路,
-// 否则配额一到顶,审核链路整条转人工。
+// 兜底顺序:DeepSeek(配额/限流原地重试) → Ark Agent Plan。
+// 2026-11-12 按站长要求收敛为两家:GLM 与 lilith 本地兜底已下线,
+// 两家都不可用时直接 fail-closed 转人工(本函数抛错由 screenContent 接住)。
+// Ark 没配 key 时 chatFallbackTargets() 返回空数组,callLLM 自动只打主力。
 async function classifyByAI(
   text: string
 ): Promise<{ category: string; confidence: number; reason: string }> {
@@ -158,10 +153,8 @@ ${text.slice(0, 4000)}
     timeoutMs: AI_TIMEOUT_MS,
     retries: 2,
     backoffMs: [1500, 5000],
-    fallbacks: [
-      glmTarget(),
-      ollamaTarget("lilith", LILITH_URL, LILITH_MODEL),
-    ],
+    // 规范降级链的唯一来源（R28 规则 1）：配了 Ark key 就是 [ark]，没配就是 []。
+    fallbacks: chatFallbackTargets(),
   });
 
   const parsed = (res.content ?? {}) as Record<string, unknown>;

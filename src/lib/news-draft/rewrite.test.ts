@@ -13,7 +13,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rewriteNews, materialNumbers } from "./rewrite.ts";
+import { rewriteNews, materialNumbers, isQuotaError } from "./rewrite.ts";
 import type { Material } from "./plan.ts";
 
 // ── fixtures ────────────────────────────────────────────────────────
@@ -66,8 +66,12 @@ function captureFetcher(json: unknown, sink: { body?: string }): FetchLike {
 }
 
 // Save/restore the key so this file never leaks env state (同 adapt.test.ts)。
+// ARK 强制清空：否则宿主 shell 里的 key 会让 chatTargetChain() 变长，
+// 破坏 429 不重试（calls===1）与采样重试（calls===2）的计数断言。
 const PREV_KEY = process.env.DEEPSEEK_API_KEY;
+const PREV_ARK_KEY = process.env.ARK_API_KEY;
 process.env.DEEPSEEK_API_KEY = "test-key";
+delete process.env.ARK_API_KEY;
 
 // ── 成功路径 ────────────────────────────────────────────────────────
 
@@ -339,6 +343,69 @@ test("rewriteNews: 429 配额错误不重试（重试只会更快烧额度）", 
   if (!r.ok) assert.ok(r.reason.includes("429"), `原因应保留 429 供调用方熔断: ${r.reason}`);
 });
 
+test("rewriteNews: 402 Insufficient Balance 同属配额熔断，不重试且 reason 可识别", async () => {
+  let calls = 0;
+  const arrears = (async () => {
+    calls++;
+    return makeFetcher(
+      { error: { type: "insufficient_balance", message: "Insufficient Balance" } },
+      402,
+    )("http://local.invalid/");
+  }) as unknown as typeof fetch;
+  const r = await rewriteNews({ material: MARKET_MATERIAL, fetcher: arrears });
+  assert.equal(r.ok, false);
+  assert.equal(calls, 1, "402 欠费重试不会好，不应二次采样");
+  if (!r.ok) {
+    assert.ok(r.reason.includes("402"), `原因应保留 402: ${r.reason}`);
+    assert.ok(isQuotaError(r.reason), "isQuotaError 必须认得欠费原因，整批熔断靠它");
+  }
+});
+
+test("rewriteNews: DeepSeek 500 在同一次采样内降级到 Ark 并成功", async () => {
+  process.env.ARK_API_KEY = "ark-test-key";
+  try {
+    let calls = 0;
+    const failover = (async () => {
+      calls++;
+      if (calls === 1) return makeFetcher({}, 500)("http://local.invalid/");
+      return makeFetcher(
+        okModelJson({ title: OK_TITLE, content: OK_CONTENT, summary: OK_SUMMARY }),
+      )("http://local.invalid/");
+    }) as unknown as typeof fetch;
+    const r = await rewriteNews({ material: MARKET_MATERIAL, fetcher: failover });
+    assert.equal(r.ok, true, r.ok ? "" : r.reason);
+    assert.equal(calls, 2, "DS 失败后应在同一采样内调用 Ark");
+  } finally {
+    delete process.env.ARK_API_KEY;
+  }
+});
+
+test("rewriteNews: DeepSeek 429 后 Ark 非配额失败，配额信号不被盖掉且不二次采样", async () => {
+  // 回归：runAttempt 原先只回最后一个 target 的 reason，DS 429 + Ark 500 时
+  // reason 里的 429 被盖掉 → 外层采样熔断与 ai-news-draft 整批熔断双双失效。
+  process.env.ARK_API_KEY = "ark-test-key";
+  try {
+    let calls = 0;
+    const mixed = (async () => {
+      calls++;
+      if (calls === 1)
+        return makeFetcher(
+          { error: { type: "rate_limit_error", message: "已达到用量上限" } },
+          429,
+        )("http://local.invalid/");
+      return makeFetcher({}, 500)("http://local.invalid/");
+    }) as unknown as typeof fetch;
+    const r = await rewriteNews({ material: MARKET_MATERIAL, fetcher: mixed });
+    assert.equal(r.ok, false);
+    // 一次采样 = DS 429 + Ark 500 共两发；配额熔断后不许开第二次采样（否则 4 发）。
+    assert.equal(calls, 2, "配额命中后应熔断，不应二次采样");
+    if (!r.ok)
+      assert.ok(/429/.test(r.reason), `reason 必须保留 429 供整批熔断: ${r.reason}`);
+  } finally {
+    delete process.env.ARK_API_KEY;
+  }
+});
+
 // ── 品牌白名单与退回负例 ────────────────────────────────────────────
 
 test("rewriteNews: prompt 带上站内品牌白名单与经典茶品名（声明为名称数据而非指令）", async () => {
@@ -466,5 +533,7 @@ test("materialNumbers: 提取素材里的数字串，小数点算整体（排障
 test("restore DEEPSEEK_API_KEY after the suite", () => {
   if (PREV_KEY === undefined) delete process.env.DEEPSEEK_API_KEY;
   else process.env.DEEPSEEK_API_KEY = PREV_KEY;
+  if (PREV_ARK_KEY === undefined) delete process.env.ARK_API_KEY;
+  else process.env.ARK_API_KEY = PREV_ARK_KEY;
   assert.ok(true);
 });

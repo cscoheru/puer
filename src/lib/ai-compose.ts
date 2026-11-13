@@ -81,7 +81,7 @@ const SYSTEM_PROMPT = `你是普洱茶论坛的写作助手，替站长起草一
  * 构造提示词。`title` / `boardName` / `tea` 都只是**上下文**，不是要求模型复述的内容。
  *
  * ⚠️ 这里不许出现 "json" 字样：`buildChatBody` 在 `json !== false` 时会加
- * `response_format: {type:"json_object"}`，而 DeepSeek/GLM 的该模式要求 prompt 里
+ * `response_format: {type:"json_object"}`，而 DeepSeek 的该模式要求 prompt 里
  * 明确要求按 JSON 返回。本功能要的是自由文本 HTML，调用方必须传 `json: false`，
  * 提示词也不该暗示结构化输出（R30 第 3 条）。
  */

@@ -9,9 +9,13 @@
  *
  * 现在 LLM 的调用只有这一处，各管线只声明「我要这个 prompt、这个 token 上限」。
  *
- * ## 供应商（2026-11-06 起）
+ * ## 供应商（2026-11-12 起）
  *
- * 主力是 **DeepSeek**（MiniMax 账号已终止；火山 coding plan 额度打满不可用）。
+ * 主力是 **DeepSeek**（MiniMax 账号已终止）。第二供应商是**火山方舟
+ * Agent Plan**（`/api/plan/v3` OpenAI 兼容面，专属 ARK_API_KEY）：
+ * DeepSeek 配额耗尽时按链降级到它。Agent Plan 是套餐订阅制，
+ * 不按量计费，适合当配额缓冲。
+ *
  * DeepSeek 是标准 OpenAI 兼容接口，所以整条链路保持 OpenAI 形状 ——
  * 只换 base URL / model / env 名，参数面最小。
  *
@@ -21,11 +25,12 @@
  *
  * ## 兜底顺序
  *
- *   DeepSeek →（可选）GLM →（可选）lilith tailnet
+ *   DeepSeek → Ark Agent Plan（可选）
  *
- * 主力是 DeepSeek：**配额类错误先原地重试**（402 欠费/429 限流会恢复，
- * 重试比换模型划算，也避免同一个数据集里混进不同模型的判断），重试仍失败
- * 才按需降级。非配额类错误（鉴权、格式）立刻抛出 —— 换家挨个试一遍只会把
+ * 只有两家（2026-11-12 按站长要求收敛，GLM 与 lilith 本地兜底已下线）：
+ * 主力 **配额类错误先原地重试**（402 欠费/429 限流会恢复，重试比换模型
+ * 划算，也避免同一个数据集里混进不同模型的判断），重试仍失败才降级到
+ * Ark。非配额类错误（鉴权、格式）立刻抛出 —— 换家挨个试一遍只会把
  * 真问题埋掉。
  */
 
@@ -33,8 +38,22 @@ const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const DEEPSEEK_TIMEOUT_MS = 45_000;
 
-const GLM_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-const GLM_MODEL = process.env.GLM_MODEL || "glm-4-flash";
+// ── 火山方舟 Agent Plan（2026-11-12 新增，DeepSeek 配额耗尽时的第二供应商）──
+// Agent Plan 的 OpenAI 兼容数据面是 /api/plan/v3（普通按量计费才是 /api/v3），
+// 依据本机 arkcli-plans 技能的套餐矩阵；chat 路径与标准 OpenAI 一致。
+const ARK_DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/plan/v3";
+const ARK_CHAT_URL =
+  (process.env.ARK_BASE_URL || ARK_DEFAULT_BASE_URL).replace(/\/+$/, "") +
+  "/chat/completions";
+// 套餐内模型名是账号相关的 output_name（控制台「Agent Plan」页可查），
+// doubao-seed-2-0-pro 是当前套餐文档示例中的默认路由模型，可用 ARK_MODEL 覆盖。
+const ARK_MODEL = process.env.ARK_MODEL || "doubao-seed-2-0-pro";
+// 实测该 lane 的模型会以 400 拒绝 0.6 以外的 temperature
+//（"temperature only 0.6 is allowed for this model"）。target 级默认值
+// 在 buildChatBody 里覆盖调用方传入值；真 key 验证放宽后可用 ARK_TEMPERATURE 改。
+const ARK_TEMPERATURE = process.env.ARK_TEMPERATURE
+  ? Number(process.env.ARK_TEMPERATURE)
+  : 0.6;
 
 /** 配额/欠费/限流类错误：值得重试或换家。 */
 const QUOTA_RE =
@@ -116,17 +135,21 @@ export interface LLMTarget {
   id: string;
   url: string;
   model: string;
-  /** 少数供应商用 max_completion_tokens；DeepSeek/GLM/Ollama 都是 max_tokens。 */
+  /** 少数供应商用 max_completion_tokens；DeepSeek/Ark 都是 max_tokens。 */
   maxKey: "max_tokens" | "max_completion_tokens";
   apiKey?: string;
-  /** 无 Authorization 头的本地服务（lilith / Ollama）。 */
-  noAuth?: boolean;
   extra?: Record<string, unknown>;
   /**
    * 是否支持 OpenAI 的 `response_format: {type:"json_object"}`。
-   * DeepSeek / GLM 为 true；本地 Ollama 为 false。
+   * DeepSeek 为 true；Ark Agent Plan 为 false。
    */
   jsonMode?: boolean;
+  /**
+   * target 级 temperature 覆盖，优先级高于调用方传入值。
+   * 给 Ark Agent Plan 这种「只接受固定采样参数」的套餐 lane 用 —— 调用点
+   * 继续按自己的场景传 0/0.4/0.9，发到 Ark 时在这里被统一改写。
+   */
+  temperature?: number;
 }
 
 export interface ChatMessage {
@@ -171,28 +194,66 @@ export function deepseekTarget(apiKey = process.env.DEEPSEEK_API_KEY): LLMTarget
     url: DEEPSEEK_URL,
     model: DEEPSEEK_MODEL,
     maxKey: "max_tokens",
-    apiKey,
+    // env 读取边界归一：纯空白 key 当未配置，绝不发出 `Bearer  ` 这种头。
+    apiKey: apiKey?.trim() || undefined,
     jsonMode: true,
   };
 }
 
-export function glmTarget(apiKey = process.env.GLM_API_KEY): LLMTarget {
-  return {
-    id: "glm",
-    url: GLM_URL,
-    model: GLM_MODEL,
-    maxKey: "max_tokens",
-    apiKey,
-    jsonMode: true,
-  };
-}
-
-export function ollamaTarget(
-  id: string,
-  url: string,
-  model: string,
+/**
+ * 火山方舟 Agent Plan（OpenAI 兼容 `/api/plan/v3`，Bearer 专属 Key）。
+ *
+ * 没有 `ARK_API_KEY` 时返回的 target 不带 key，`callLLM` 会自动跳过，
+ * 所以把它放进 fallback 数组是安全的。
+ *
+ * `jsonMode: false` 是刻意的：套餐 lane 是否接受 `response_format` 尚未用
+ * 真 key 验证过，而所有 JSON 调用点的 prompt 都明文要求 JSON 且外面有
+ * `parseJsonLoose()` 兜底；等 `llm-provider-probe` 验证支持后再打开。
+ */
+export function arkAgentPlanTarget(
+  apiKey = process.env.ARK_API_KEY,
 ): LLMTarget {
-  return { id, url, model, maxKey: "max_tokens", noAuth: true, jsonMode: false };
+  return {
+    id: "ark",
+    url: ARK_CHAT_URL,
+    model: ARK_MODEL,
+    maxKey: "max_tokens",
+    // 与 deepseekTarget 同一道 env 归一：空白 key = 未配置。
+    apiKey: apiKey?.trim() || undefined,
+    jsonMode: false,
+    temperature: Number.isFinite(ARK_TEMPERATURE) ? ARK_TEMPERATURE : 0.6,
+  };
+}
+
+/**
+ * 规范的降级链（已过滤掉没配 key 的 target）：
+ * 完整链 DeepSeek → Ark Agent Plan；fallback 数组只用 Ark。
+ * 各调用点不许再手抄一份顺序（R28 规则 1：白名单/常量只有一份实现）。
+ */
+export function chatTargetChain(): LLMTarget[] {
+  return [deepseekTarget(), arkAgentPlanTarget()].filter((t) => t.apiKey);
+}
+
+export function chatFallbackTargets(): LLMTarget[] {
+  return [arkAgentPlanTarget()].filter((t) => t.apiKey);
+}
+
+/**
+ * target id → 面向日志/错误文案的显示名。
+ *
+ * 手工 fetch 链路（tea-drafts/adapt、news-draft/rewrite）的失败原因
+ * 长期带 `DeepSeek <status>` 前缀且被单测钉住，新增供应商时不许各文件
+ * 再手抄一份 id→名称映射（R28 规则 1）。
+ */
+export function targetLabel(id: string): string {
+  switch (id) {
+    case "deepseek":
+      return "DeepSeek";
+    case "ark":
+      return "Ark";
+    default:
+      return id;
+  }
 }
 
 /**
@@ -207,7 +268,8 @@ export function buildChatBody(
   return {
     model: target.model,
     messages,
-    temperature: opts.temperature ?? 0,
+    // target 级覆盖（Ark 固定 0.6）优先于调用方按场景给的温度。
+    temperature: target.temperature ?? opts.temperature ?? 0,
     [target.maxKey]: opts.maxTokens ?? 600,
     ...(opts.json === false || !target.jsonMode
       ? {}
@@ -227,7 +289,7 @@ async function callOnce(
   opts: CallOptions,
 ): Promise<unknown> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (!target.noAuth && target.apiKey) {
+  if (target.apiKey) {
     headers.Authorization = `Bearer ${target.apiKey}`;
   }
 
@@ -282,7 +344,7 @@ export async function callLLM(
 
   for (let i = 0; i < chain.length; i++) {
     const t = chain[i];
-    if (!t.noAuth && !t.apiKey) {
+    if (!t.apiKey) {
       failures.push(`${t.id}:未配置 key`);
       continue;
     }

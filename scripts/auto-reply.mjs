@@ -8,7 +8,7 @@
  *
  * Environment:
  *   DATABASE_URL   — PostgreSQL connection
- *   DEEPSEEK_API_KEY — DeepSeek API key（GLM_API_KEY 为兜底）
+ *   DEEPSEEK_API_KEY — DeepSeek API key（Ark ARK_API_KEY 为第二供应商，两把任一即可）
  *   AUTO_REPLY_ENABLED — 必须为 "1" 才运行（PRD v0.3 §12 第 3 条的开关；
  *     由 scripts/cron-task.sh 从 .env 里读出来 export 下来）
  *
@@ -334,7 +334,7 @@ async function main() {
   log("=== Auto-reply started ===");
 
   if (!llmConfigured()) {
-    console.error("ERROR: DEEPSEEK_API_KEY / GLM_API_KEY 均未设置");
+    console.error("ERROR: DEEPSEEK_API_KEY / ARK_API_KEY 均未设置");
     process.exit(1);
   }
 

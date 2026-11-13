@@ -169,7 +169,7 @@ PUER_REMOTE_COMPOSE_FILES=/opt/puer-hub/docker-compose.yml:/opt/puer-hub/docker-
 - [ ] `git branch` 是 `frontend` 或 `main`,**不是**临时分支
 - [ ] 服务器 `.env` 已 grep 确认 `RAG_SERVICE_TOKEN` 等关键变量已设
   ```bash
-  ssh puer-hk 'grep -E "RAG_SERVICE_TOKEN|GLM_API_KEY|KIMI_API_KEY|DEEPSEEK_API_KEY" /opt/puer-hub/.env'
+  ssh puer-hk 'grep -E "RAG_SERVICE_TOKEN|GLM_API_KEY|KIMI_API_KEY|DEEPSEEK_API_KEY|ARK_API_KEY|ARK_MODEL" /opt/puer-hub/.env'
   ```
 - [ ] 容器清单预期:**不要意外重启 puer-hub-rag-service**
   ```bash

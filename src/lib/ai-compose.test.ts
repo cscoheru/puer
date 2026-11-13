@@ -87,7 +87,7 @@ test("提示词带上标题 / 版块 / 茶品作为上下文", () => {
   assert.doesNotMatch(user, /价格/);
 });
 
-test("提示词里不出现 json —— 否则 DeepSeek/GLM 会走 json_object 模式", () => {
+test("提示词里不出现 json —— 否则 DeepSeek 会走 json_object 模式", () => {
   const { system, user } = buildAiComposePrompt({
     prompt: "随便写点喝茶的感受",
     title: "",

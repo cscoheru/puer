@@ -91,9 +91,13 @@ function captureFetcher(json: unknown, sink: { body?: string }): FetchLike {
   }) as FetchLike;
 }
 
-// Save/restore the key so this file never leaks env state.
+// Save/restore the keys so this file never leaks env state. ARK is
+// force-cleared: chatTargetChain() would otherwise pick up a host shell key
+// and lengthen the chain, breaking call-count assertions (sink.calls === 2).
 const PREV_KEY = process.env.DEEPSEEK_API_KEY;
+const PREV_ARK_KEY = process.env.ARK_API_KEY;
 process.env.DEEPSEEK_API_KEY = "test-key";
+delete process.env.ARK_API_KEY;
 
 // ─── extractNumberTokens ────────────────────────────────────────────────
 
@@ -371,6 +375,28 @@ test("deepSeekAdapt: when every attempt fails the reason carries the attempt cou
   assert.match((r as { reason: string }).reason, /\(after \d+ attempts\)$/);
 });
 
+test("deepSeekAdapt: DeepSeek 500 在同一次采样内降级到 Ark 并成功", async () => {
+  // 临时配 Ark key：链变成 [deepseek, ark]。注入 fetcher 第一次给 500（DS），
+  // 第二次给合法响应（Ark）——证明单次 attempt 内部会走完降级链。
+  process.env.ARK_API_KEY = "ark-test-key";
+  try {
+    const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
+    let calls = 0;
+    const failover: FetchLike = (async () => {
+      calls++;
+      if (calls === 1) return makeFetcher({}, 500)("http://local.invalid/");
+      return makeFetcher(okModelJson({ content: OK_BODY_HTML, summary: OK_SUMMARY }))(
+        "http://local.invalid/",
+      );
+    }) as FetchLike;
+    const r = await deepSeekAdapt({ source, style: "veteran", fetcher: failover });
+    assert.equal(r.ok, true, r.ok ? "" : (r as { reason: string }).reason);
+    assert.equal(calls, 2, "DS 失败后应在同一采样内调用 Ark，而不是开第二次采样");
+  } finally {
+    delete process.env.ARK_API_KEY;
+  }
+});
+
 test("deepSeekAdapt: a truncated completion is diagnosed as truncation, not bad JSON", async () => {
   const source = toAdaptSource(nn({ waterTemp: 100, steepCount: 7 }));
   const sink = { calls: 0 };
@@ -417,8 +443,11 @@ test("deepSeekAdapt: the completion cap leaves room for a full rewrite", async (
   );
 });
 
-// Restore whatever was there before the suite ran.
-process.env.DEEPSEEK_API_KEY = PREV_KEY;
+// NOTE: env restore used to be top-level code here. That ran at module load —
+// before every test callback — so a shell-exported ARK_API_KEY was restored
+// into env for the whole suite and silently grew chatTargetChain() to two
+// targets, breaking the calls===1 count assertions. It is now a registered
+// test at the end of the file (same pattern as rewrite.test.ts).
 
 // A model body that smuggles in a tracking pixel and a spam link the prompt
 // forbids. It introduces no new arabic digits, so it still passes numeric
@@ -686,4 +715,15 @@ test("deepSeekAdapt: styleFor(noteId) is accepted for every style in the set", a
     assert.equal(r.ok, true, `style ${s.key} was rejected`);
   }
   assert.equal(seen.size, 5, `only ${seen.size} styles exercised`);
+});
+
+// Restore the caller's env after the suite. Registered as a test on purpose:
+// top-level code executes at module load, before any test callback, which would
+// re-export a shell ARK_API_KEY into every test above and change chain length.
+test("restore env after the suite", () => {
+  if (PREV_KEY === undefined) delete process.env.DEEPSEEK_API_KEY;
+  else process.env.DEEPSEEK_API_KEY = PREV_KEY;
+  if (PREV_ARK_KEY === undefined) delete process.env.ARK_API_KEY;
+  else process.env.ARK_API_KEY = PREV_ARK_KEY;
+  assert.ok(true);
 });

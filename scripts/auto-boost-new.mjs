@@ -124,7 +124,7 @@ async function insertComment({ articleId, content, userId }) {
 async function main() {
   log("=== Auto-boost-new started ===");
   if (!llmConfigured()) {
-    console.error("ERROR: DEEPSEEK_API_KEY / GLM_API_KEY 均未设置");
+    console.error("ERROR: DEEPSEEK_API_KEY / ARK_API_KEY 均未设置");
     process.exit(1);
   }
 

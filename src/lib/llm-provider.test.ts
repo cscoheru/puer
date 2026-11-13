@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callLLM, type LLMTarget } from "./llm-provider.ts";
+import {
+  callLLM,
+  arkAgentPlanTarget,
+  deepseekTarget,
+  chatTargetChain,
+  chatFallbackTargets,
+  buildChatBody,
+  targetLabel,
+  type LLMTarget,
+} from "./llm-provider.ts";
 
 const target = (id: string): LLMTarget => ({
   id,
@@ -138,3 +147,102 @@ test("供应商 5xx：算可重试，耗尽后降级到备用", async () => {
     s.restore();
   }
 });
+
+// ─── 火山方舟 Agent Plan（2026-11-12 接入）────────────────────────────────
+
+test("arkAgentPlanTarget：Agent Plan lane 的 URL / 温度 / jsonMode 形状", () => {
+  const ark = arkAgentPlanTarget("ark-key");
+  assert.equal(ark.id, "ark");
+  assert.equal(
+    ark.url,
+    "https://ark.cn-beijing.volces.com/api/plan/v3/chat/completions",
+  );
+  assert.equal(ark.apiKey, "ark-key");
+  // 该 lane 实测只接受 0.6，其他温度直接 400。
+  assert.equal(ark.temperature, 0.6);
+  // response_format 支持未用真 key 验证，先关，靠 prompt + parseJsonLoose。
+  assert.equal(ark.jsonMode, false);
+});
+
+test("target 工厂：纯空白 key 归一为 undefined，绝不发出 Bearer 空头", () => {
+  assert.equal(deepseekTarget("   ").apiKey, undefined);
+  assert.equal(deepseekTarget("").apiKey, undefined);
+  assert.equal(arkAgentPlanTarget("  ").apiKey, undefined);
+  // 正常 key 去周边空白但保留本体。
+  assert.equal(deepseekTarget("  real-key  ").apiKey, "real-key");
+});
+
+test("buildChatBody：Ark target 强制温度 0.6 且不带 response_format", () => {
+  const ark = arkAgentPlanTarget("ark-key");
+  const body = buildChatBody(
+    ark,
+    [{ role: "user", content: "p" }],
+    { maxTokens: 100, temperature: 0.9, json: true },
+  ) as Record<string, unknown>;
+  assert.equal(body.temperature, 0.6, "调用方的 0.9 必须被 target 级 0.6 覆盖");
+  assert.equal("response_format" in body, false, "Ark 初始不支持 json_object 模式");
+  assert.equal(body.max_tokens, 100);
+});
+
+test("buildChatBody：DeepSeek target 保留调用方温度并带 json_object", () => {
+  const ds = deepseekTarget("ds-key");
+  const body = buildChatBody(
+    ds,
+    [{ role: "user", content: "p" }],
+    { maxTokens: 100, temperature: 0.4, json: true },
+  ) as Record<string, unknown>;
+  assert.equal(body.temperature, 0.4);
+  assert.deepEqual(body.response_format, { type: "json_object" });
+});
+
+test("chatTargetChain：按 DeepSeek → Ark 顺序并过滤无 key 的 target", () => {
+  const prev = {
+    ds: process.env.DEEPSEEK_API_KEY,
+    ark: process.env.ARK_API_KEY,
+  };
+  process.env.DEEPSEEK_API_KEY = "ds";
+  process.env.ARK_API_KEY = "ark";
+  try {
+    const chain = chatTargetChain().map((t) => t.id);
+    assert.deepEqual(chain, ["deepseek", "ark"]);
+    // fallback 链不含主力自身。
+    assert.deepEqual(
+      chatFallbackTargets().map((t) => t.id),
+      ["ark"],
+    );
+  } finally {
+    restoreEnv(prev);
+  }
+});
+
+test("chatTargetChain：两家 key 全缺时返回空链（调用方据此 fail-closed）", () => {
+  const prev = {
+    ds: process.env.DEEPSEEK_API_KEY,
+    ark: process.env.ARK_API_KEY,
+  };
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.ARK_API_KEY;
+  try {
+    assert.equal(chatTargetChain().length, 0);
+    assert.equal(chatFallbackTargets().length, 0);
+    // 显式传 key 仍可构造（测试与特殊调用点不受 env 缺失影响）。
+    assert.equal(arkAgentPlanTarget("explicit").apiKey, "explicit");
+    assert.equal(deepseekTarget("explicit").apiKey, "explicit");
+  } finally {
+    restoreEnv(prev);
+  }
+});
+
+test("targetLabel：id 到日志显示名的映射只有这一份", () => {
+  assert.equal(targetLabel("deepseek"), "DeepSeek");
+  assert.equal(targetLabel("ark"), "Ark");
+  // 未知 id 原样返回，不凭空造名字。
+  assert.equal(targetLabel("lilith"), "lilith");
+});
+
+function restoreEnv(prev: { ds?: string; ark?: string }) {
+  if (prev.ds === undefined) delete process.env.DEEPSEEK_API_KEY;
+  else process.env.DEEPSEEK_API_KEY = prev.ds;
+  if (prev.ark === undefined) delete process.env.ARK_API_KEY;
+  else process.env.ARK_API_KEY = prev.ark;
+}

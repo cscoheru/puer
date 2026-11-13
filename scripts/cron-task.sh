@@ -26,10 +26,12 @@ log_alert() {
 # ── env from .env ────────────────────────────────────────────────────
 DB_PWD=$(grep -E "^DB_PASSWORD=" .env | head -1 | cut -d= -f2- | tr -d '"')
 # 2026-11-06:AI 自动任务由 MiniMax 切到 DeepSeek(与容器内 src/lib 同一 key)。
-# GLM 是兜底 —— DeepSeek 欠费(402)/限流(429)时管线靠它活着,
-# 所以两个 key 都必须读出来并 export,少传一个兜底就是死的。
+# 2026-11-12:Ark Agent Plan 成为第二供应商(DeepSeek → Ark)，
+# 两把 key 同等待遇;ARK_MODEL 可选(套餐内 output_name 与默认值不同才需要)。
+# 同日按站长要求收敛为两家，GLM 兜底下线。
 DEEPSEEK_KEY=$(grep -E "^DEEPSEEK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
-GLM_KEY=$(grep -E "^GLM_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
+ARK_KEY=$(grep -E "^ARK_API_KEY=" .env | head -1 | cut -d= -f2- | tr -d '"')
+ARK_MODEL_OVERRIDE=$(grep -E "^ARK_MODEL=" .env | head -1 | cut -d= -f2- | tr -d '"')
 # 茶仓可见性(与容器内同一份口径)。cellar-reminders 要用 cellarVisibleTo 判定
 # 「这个人能不能看见茶仓」—— 少了这三个变量,脚本会以为谁都看不见而一条不发。
 FEATURE_CELLAR=$(grep -E "^FEATURE_CELLAR=" .env | head -1 | cut -d= -f2- | tr -d '"')
@@ -57,14 +59,16 @@ PG_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{en
 
 case "$TASK" in
   llm-health)
-    # LLM 健康探针 — 不需要 DB,DeepSeek + GLM 各调一次最低 token 探针。
-    # 探针自己处理 ok/alert 与 24h 去重;非零退出码视为「两家都不行」。
-    if [ -z "${DEEPSEEK_KEY}" ] && [ -z "${GLM_KEY}" ]; then
-      log_alert "missing DEEPSEEK_API_KEY and GLM_API_KEY"
+    # LLM 健康探针 — 不需要 DB,对配了 key 的整条链(DeepSeek/Ark)各发一次
+    # 最低 token 探针。探针自己处理 ok/fallback/alert 与 24h 去重;
+    # 非零退出码视为「配了 key 的供应商全不行」。
+    if [ -z "${DEEPSEEK_KEY}" ] && [ -z "${ARK_KEY}" ]; then
+      log_alert "missing DEEPSEEK_API_KEY and ARK_API_KEY"
       exit 1
     fi
     export DEEPSEEK_API_KEY="${DEEPSEEK_KEY}"
-    export GLM_API_KEY="${GLM_KEY}"
+    export ARK_API_KEY="${ARK_KEY}"
+    [ -n "${ARK_MODEL_OVERRIDE}" ] && export ARK_MODEL="${ARK_MODEL_OVERRIDE}"
     node scripts/llm-health-check.mjs || log_alert "llm-health probe exited $?"
     ;;
   *)
@@ -74,7 +78,8 @@ case "$TASK" in
     fi
     export DATABASE_URL="postgresql://puerhub:${DB_PWD}@${PG_IP}:5432/puerhub"
     export DEEPSEEK_API_KEY="${DEEPSEEK_KEY}"
-    export GLM_API_KEY="${GLM_KEY}"
+    export ARK_API_KEY="${ARK_KEY}"
+    [ -n "${ARK_MODEL_OVERRIDE}" ] && export ARK_MODEL="${ARK_MODEL_OVERRIDE}"
     export AUTO_REPLY_ENABLED="${AUTO_REPLY_ENABLED}"
 
     run() {
@@ -84,11 +89,14 @@ case "$TASK" in
     case "$TASK" in
       auto-post)
         # R26/R27:必须容器内跑 — slideshow 视频依赖容器 /app/public/uploads(宿主机无此路径)。
-        # AI(茶记 adapt)2026-11-06 起走DeepSeek,经 -e 透传 DEEPSEEK_API_KEY(+ GLM 兜底)。
+        # AI(茶记 adapt)2026-11-06 起走 DeepSeek,经 -e 透传两把 key
+        #（DeepSeek 主力 / Ark 第二供应商，少传一个降级就是死的）。
         # AUTO_TEA_DRAFT_ADAPT=1 打开 Phase D 的 grounded 改写 —— 这个开关曾漏传,
         # 密钥透传了但 adaptOn 恒 false,于是每日草稿全是 assemble.ts 的逐字拼装,
         # 从未经模型改写。两个 env 必须成对出现,少一个改写路径就整条不跑。
-        run docker exec -e DATABASE_URL -e DEEPSEEK_API_KEY -e GLM_API_KEY \
+        run docker exec -e DATABASE_URL -e DEEPSEEK_API_KEY \
+          -e ARK_API_KEY="${ARK_KEY:-}" \
+          -e ARK_MODEL="${ARK_MODEL_OVERRIDE:-}" \
           -e AUTO_DRAFT_PAUSED="${AUTO_DRAFT_PAUSED:-}" \
           -e AUTO_TEA_DRAFT_ADAPT="1" \
           -e AUTO_TEA_DRAFT_AUTHOR_ID="cmpb7net1000001ocrss0o4de" \
