@@ -21,6 +21,14 @@
  * 所以先给 `comments` 加了 `origin` 列（迁移 20261103_comment_origin），
  * 本脚本写入 `ai_autonomous`，前台给这类评论打「AI 回复」徽章：
  * 读者分得清 AI 与真人，指标仍然只算真人（真实计数依旧按 REAL_AUTHOR 过滤）。
+ *
+ * ## 2026-11-13：选帖排除真实用户（站长要求）
+ *
+ * 回复**作者**本来就只会是合成账号（pickUser 的 isSynthetic=true），但选帖
+ * 三个分支此前都不看作者 —— 真人写的帖子也会被 AI 回复。现在只回自动化
+ * 内容：作者是合成账号，或帖子本身是 AI 产物（articles.origin 为
+ * ai_from_notes / ai_autonomous，或带 <!--auto-post--> 内联标记）。
+ * 真人（非自动化）发的帖子一律不碰；嵌套跟帖也不会选真人的评论当 parent。
  */
 
 import { randomUUID } from "node:crypto";
@@ -133,6 +141,19 @@ function escapeSql(str) {
 
 // ── Step 1: Pick a post to reply to ─────────────────────────────────
 
+// 真实用户保护（2026-11-13）：三个选帖分支都必须带上这一段。
+// 自动化内容的判据 = 作者合成账号（与 REAL_AUTHOR 同一份 isSynthetic 口径）
+// ∪ 帖子自身是 AI 产物（origin 词汇与 src/lib/content-origin.ts 一致，
+// <!--auto-post--> 是 origin 回填前的历史内联标记，两条都留）。
+// 注意是 OR 不是 AND：站长线账号是真人，但它名下的自动茶记帖该被回复。
+const AUTOMATED_POST_ONLY = `
+      AND (
+        u."isSynthetic" = true
+        OR a.origin IN ('ai_from_notes', 'ai_autonomous')
+        OR a.content LIKE '%<!--auto-post-->%'
+      )
+`;
+
 async function pickPost() {
   // 60% chance: reply to posts with 0-1 replies (boost engagement)
   // 30% chance: reply to auto-generated posts (build discussion)
@@ -152,6 +173,7 @@ async function pickPost() {
       JOIN users u ON a."authorId" = u.id
       WHERE a.status = 'published'
         AND a."replyCount" <= 1
+        ${AUTOMATED_POST_ONLY}
       ORDER BY RANDOM() LIMIT 1
     `;
   } else if (rand < 0.9) {
@@ -167,6 +189,7 @@ async function pickPost() {
       WHERE a.status = 'published'
         AND a.content LIKE '%<!--auto-post-->%'
         AND a."replyCount" < 8
+        ${AUTOMATED_POST_ONLY}
       ORDER BY RANDOM() LIMIT 1
     `;
   } else {
@@ -180,6 +203,7 @@ async function pickPost() {
       LEFT JOIN boards b ON a."boardId" = b.id
       JOIN users u ON a."authorId" = u.id
       WHERE a.status = 'published'
+        ${AUTOMATED_POST_ONLY}
       ORDER BY RANDOM() LIMIT 1
     `;
   }
@@ -379,8 +403,10 @@ async function main() {
       if (existingReplies.length > 0 && Math.random() < 0.3) {
         const parentComment = pickRandom(existingReplies);
         const parentRow = await sqlRows(`
-          SELECT id FROM comments
-          WHERE "articleId" = '${post.id}'
+          SELECT c.id FROM comments c
+          JOIN users u ON c."authorId" = u.id
+          WHERE c."articleId" = '${post.id}'
+            AND (u."isSynthetic" = true OR c.origin = 'ai_autonomous')
           ORDER BY RANDOM() LIMIT 1
         `);
         if (parentRow.length > 0) parentId = parentRow[0].id;

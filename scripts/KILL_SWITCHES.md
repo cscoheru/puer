@@ -12,6 +12,18 @@ PRD v0.3 §12 第 3 条与 F0 要求：自动投票一律停止；AI 回复必�
 | `auto-reply.mjs` | `AUTO_REPLY_ENABLED=1` | prompt 要求「绝对不要暴露你是AI」，读者无法区分 AI 回复 | **2026-11-03 已满足**：F0 标注补到了评论侧（`comments.origin` 迁移 20261103_comment_origin，脚本写 `ai_autonomous`，前台打「AI 回复」徽章）→ 已在生产恢复运行 |
 | `auto-register.mjs` | `AUTO_REGISTER_ENABLED=1` | §12 决策 7：暂停建号 | 站长明确恢复 |
 
+## auto-reply 的真实用户保护（2026-11-13）
+
+站长要求：自动回复打开，但**排除真实用户（非自动化）**。口径分两层：
+
+- **回复作者**：只会是合成账号（`users.isSynthetic = true`），真人账号不会被
+  冒用发言（F0 起就是这样）。
+- **被回复的帖子**：只落在自动化内容上 —— 作者是合成账号，或帖子是 AI 产物
+  （`articles.origin ∈ {ai_from_notes, ai_autonomous}` 或带 `<!--auto-post-->`
+  内联标记）。真人（非自动化）发的帖子一律不回复；自动化帖子下的**真人评论**
+  也不会被选为嵌套跟帖的 parent。三个选帖分支共用 `AUTOMATED_POST_ONLY`
+  片段，守卫测试：`scripts/auto-reply-real-user-guard.test.mjs`。
+
 ## 为什么开关在脚本里而不是只在 crontab 里
 
 crontab 停用只解决「不调度」，解决不了「有人手动跑」或「有人把它挂回去」。
