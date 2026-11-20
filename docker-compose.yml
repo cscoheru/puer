@@ -109,6 +109,10 @@ services:
       # `docker compose up -d app` 即可，不必重建镜像）。
       # 留空时回落到站长线作者白名单 EDITOR_AUTHOR_UIDS（默认 1001,1002）。
       CELLAR_UIDS: ${CELLAR_UIDS:-}
+      # 2026-11-20 首页内联回复 P0。默认关；关着时前台卡片不变，
+      # surface="feed" 的写请求返回 404 comment.feed_disabled。
+      # 开：在 .env 写 FEED_INLINE_REPLIES=1 再 docker compose up -d app。
+      FEED_INLINE_REPLIES: ${FEED_INLINE_REPLIES:-0}
     volumes:
       - ./uploads/forum:/app/public/uploads/forum
       - ./uploads/videos:/app/public/uploads/videos

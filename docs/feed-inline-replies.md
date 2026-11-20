@@ -93,7 +93,7 @@ node --import tsx scripts/qa-feed-inline-perf.mjs
 - 读取失败只记录 load ID、preview/count、卡片数和错误类别，不记录正文或凭据。
 - 写入日志只记录 request ID、路由、surface、状态、目标类型、gate、是否嵌套、稳定错误类别，以及已创建评论 ID/父作者是否合成账号（存在时）。AI-only 预览量可由发布后的单独效果切片观察；不能拿真人互动指标替代。
 
-## 发布顺序（本任务不执行部署）
+## 发布顺序
 
 功能开关是 `FEED_INLINE_REPLIES=1`，默认关闭。
 
@@ -102,7 +102,22 @@ node --import tsx scripts/qa-feed-inline-perf.mjs
 3. 确认所有实例都是新代码后，才逐实例开启开关。检查匿名/登录/本人待审、繁体、懒加载 `private, no-store`、错误日志与 AI-only 切片。
 4. 若需要回滚，**先在所有新实例关闭开关**，再回滚代码。不要让新客户端的 feed 写请求落到不理解该 surface 的旧二进制上。
 
-这里只提供手册；不得在本 P0 验证中修改生产 env、执行 cron/迁移、写生产业务数据或做生产盘点查询。
+### 2026-11-20 生产发布记录（puer.im，单实例）
+
+镜像 `puer-hub-app:20261120T1045Z-feedinline` 在服务器上构建（`next build` 含类型检查），容器按
+`docker-compose.yml + docker-compose.override.yml + /tmp/app.switch.override.yml` 三件套重建。
+发布时只同步了本功能的 19 个源码文件，未同步 R31（Ark Agent Plan）相关文件——镜像内
+`/api/plan/v3` 命中数为 0，GLM/DeepSeek 兜底链保持 R30 原样。
+
+- 关闭态实测：`/forum`、`/tw/forum` 均 200；`/api/forum/feed?offset=0` 返回 10 条且不含
+  `commentPreview`/`visibleReplyCount`/`commentLoadId`；匿名 `surface="feed"` POST 返回
+  404 `application/problem+json` + `comment.feed_disabled` + requestId；legacy 详情 POST 仍 401。
+- 开启态实测（`.env` 追加 `FEED_INLINE_REPLIES=1` 后重建）：上述三字段齐全，10 张卡 9 张有预览、
+  单卡 ≤2 条、整页共用一个 `commentLoadId`、无 `null`（无读取失败）；懒加载响应头为
+  `Cache-Control: private, no-store`、`Vary: Cookie`、`X-Comment-Load-ID`；匿名 feed POST 转为
+  401 `comment.unauthenticated`；legacy 详情 POST 仍 401；容器日志无错误。
+- 回滚：把 `/tmp/app.switch.override.yml` 的 image 指回 `20261106T0748Z-aicompose`
+  再 `up -d --no-build --no-deps app`；若要连功能一起停，先 `FEED_INLINE_REPLIES=0` 重建。
 
 ## 失败语义速查
 
