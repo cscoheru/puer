@@ -157,6 +157,24 @@ node --import tsx scripts/qa-feed-inline-perf.mjs
 - 隔离 QA 的种子数据会写入 `feed.aiReplies = '1'`（`scripts/qa-feed-inline-seed.mjs`），
   好让浏览器矩阵继续覆盖 AI 兜底与含 AI 的整树计数；关闭态由 unit 与 integration 测试覆盖。
 
+#### 2026-11-20 `feed.aiReplies` 上线（镜像 `puer-hub-app:20261120T1158Z-feedflag`）
+
+- 迁移 `20261120_site_settings` 用裸 psql + `ON_ERROR_STOP=1` 执行，随后用
+  `information_schema` 独立确认 4 列与 `updatedAt` 的 `CURRENT_TIMESTAMP` 默认值，
+  表内 0 行 → 开关默认关闭。
+- 只同步本次提交的 12 个文件（`rsync --files-from`，清单由 `git show --name-only` 生成）；
+  同步前后生产 `.env` sha256 一致（`307f46fa…c44f`）。
+- 镜像在服务器 `docker build --no-cache` 构建（schema 变了，必须重烤 Prisma client），
+  构建后 `docker builder prune -f` 把磁盘从 80% 降到 65%。
+- 线上验证：`/forum`、`/tw/forum`、帖子详情均 200；匿名 `GET /api/admin/settings/feed-ai-replies`
+  返回 403「无权执行此操作」；feed 10 张卡中 0 张含 AI 预览，真人预览保留（2 张卡）。
+  最能说明口径的一条：帖子 `ce968828…` 库里是 **3 条 AI 顶层评论 + 1 条真人嵌套评论**，
+  线上显示 `visibleReplyCount=1`、`commentPreview=[]` —— AI 既不进预览也不进计数，
+  真人嵌套仍计入整树。
+- 回滚：把 `/tmp/app.switch.override.yml` 指回 `20261120T1045Z-feedinline` 再
+  `up -d --no-build --no-deps app`。**回滚等于恢复 AI 预览**（旧镜像不读 `site_settings`）。
+
+
 ## 失败语义速查
 
 | code | HTTP | 用户恢复 |
