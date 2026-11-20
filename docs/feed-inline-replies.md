@@ -5,7 +5,10 @@
 ## 用户行为
 
 - 有可见讨论的卡片默认展开预览；用户可收起，刷新后重新默认展开，不保存偏好。
-- 最多显示两条最新真人顶层评论，按时间正序展示。只有零条可见真人顶层评论时，才最多显示一条带来源标注的 AI 评论。
+- 最多显示两条最新真人顶层评论，按时间正序展示。AI 评论**默认不出现**，只有后台把站点开关
+  `feed.aiReplies` 打开、且该帖零条可见真人顶层评论时，才最多显示一条带来源标注的 AI 评论。
+- 关闭 `feed.aiReplies`（默认）时，`visibleReplyCount` 也**只算真人**：预览与计数必须同一口径，
+  否则卡片会出现「查看全部 5 条回复」+「当前没有可预览的顶层回复」的自相矛盾。
 - 每条初始预览评论和本次新创建的子评论都有“回复”，目标始终是它自己的真实评论 ID。
 - “查看全部”进入帖子详情 `#comments`。首页不是完整评论树，但计数覆盖当前 GET 可见的整棵树。
 - 本人待审评论只对自己可见并明确标注；匿名读者看到“登录后回复”。
@@ -22,6 +25,33 @@ commentLoadId: string;
 ```
 
 `[]` 是成功读到的空预览，`null` 是读取失败，绝不能把失败渲染成“没有评论”。预览与计数分别通过 `Promise.allSettled` 降级。每个非空页面只有候选预览与分组计数两次数据读取，没有逐卡片 HTTP 或逐卡片 SQL。
+
+### 站点级开关：`feed.aiReplies`
+
+首页要不要露 AI 评论是运营决策，不是部署决策，所以放在数据库而不是 `.env`：
+
+| 项 | 值 |
+|---|---|
+| 存储 | `site_settings` 表，`key = 'feed.aiReplies'`，`value` 取 `'1'` / `'0'` |
+| 后台入口 | `/admin/settings` → 功能开关 →「首页内联回复 · 展示 AI 评论」 |
+| 接口 | `GET/PUT /api/admin/settings/feed-ai-replies`（`admin:settings` 权限） |
+| 生效 | 保存后本进程立即失效缓存；只影响 `/forum`、`/tw/forum` 的预览与计数 |
+| 默认 | 关闭。表里没有这行、值为 `'0'`、读取失败，一律按关闭处理 |
+
+读路径在 `src/lib/site-settings.ts`：30 秒进程内缓存 + 失败不缓存（一次数据库抖动不会把错误
+状态锁半分钟），后台保存时主动失效并带版本号防回写（在途查询不会把刚关掉的旧值重新钉回缓存）。
+关闭时 AI 分支**根本不进 SQL**（不是读完再丢），计数也同步收窄。详情页的评论树
+不受该开关影响——那里本来就带来源标注。
+
+不在后台改也行（应急，裸 psql 即可；`updatedAt` 有 DB 默认值）：
+
+```sql
+INSERT INTO site_settings(key, value) VALUES ('feed.aiReplies', '0')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+```
+
+psql 改完最多 30 秒生效（进程内缓存 TTL）。注意：`20261120_site_settings` 之前的旧镜像
+**不读这张表**，回滚镜像 = AI 预览回来。
 
 候选上限为 `3N`，最终预览上限为 `2N`，评论正文最多 1024 个 Unicode code point。读取使用局部 `statement_timeout=1500ms`。懒加载 `/api/forum/feed` 返回 `Cache-Control: private, no-store`、`Vary: Cookie` 和同一个 `X-Comment-Load-ID`；它是关联 ID，不是幂等键。
 
@@ -97,6 +127,10 @@ node --import tsx scripts/qa-feed-inline-perf.mjs
 
 功能开关是 `FEED_INLINE_REPLIES=1`，默认关闭。
 
+2026-11-20 起还有第二个开关 `feed.aiReplies`（见上节），默认关闭，存在数据库里、后台可改。
+带上它的版本需要先跑迁移 `20261120_site_settings`（只建 `site_settings` 一张空表，幂等），
+否则读开关会走失败分支 → 按关闭处理（功能不坏，但后台改不动它）。
+
 1. **关闭开关部署新代码**。旧卡片行为不变，`surface="feed"` 返回 404 `comment.feed_disabled`。
 2. **逐实例验证**：SSR/lazy 不含 comment 字段，旧详情 POST 的媒体、内容阈值和成功响应不变；匿名与登录态都确认 feed surface 404。
 3. 确认所有实例都是新代码后，才逐实例开启开关。检查匿名/登录/本人待审、繁体、懒加载 `private, no-store`、错误日志与 AI-only 切片。
@@ -118,6 +152,10 @@ node --import tsx scripts/qa-feed-inline-perf.mjs
   401 `comment.unauthenticated`；legacy 详情 POST 仍 401；容器日志无错误。
 - 回滚：把 `/tmp/app.switch.override.yml` 的 image 指回 `20261106T0748Z-aicompose`
   再 `up -d --no-build --no-deps app`；若要连功能一起停，先 `FEED_INLINE_REPLIES=0` 重建。
+  **回滚镜像会同时撤销 `feed.aiReplies`**：旧镜像不读 `site_settings`，想保留「不展示 AI
+  评论」这个决定就不能回滚镜像，只能停 `FEED_INLINE_REPLIES`。
+- 隔离 QA 的种子数据会写入 `feed.aiReplies = '1'`（`scripts/qa-feed-inline-seed.mjs`），
+  好让浏览器矩阵继续覆盖 AI 兜底与含 AI 的整树计数；关闭态由 unit 与 integration 测试覆盖。
 
 ## 失败语义速查
 

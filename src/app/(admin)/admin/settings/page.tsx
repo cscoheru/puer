@@ -65,6 +65,24 @@ const ANNOUNCEMENT_TYPE: Record<string, { label: string; className: string }> = 
   maintenance: { label: "维护", className: "bg-red-100 text-red-700" },
 };
 
+/**
+ * 读取 `feed.aiReplies` 站点开关。成功返回布尔值，失败返回 null——null 表示
+ * "状态未知"，调用方不得把它当 false 用（那会把"后台改不动"伪装成"已关闭"）。
+ *
+ * 放在组件外，是为了不在 mount effect 里同步调用一个 setState 函数：
+ * react-hooks/set-state-in-effect 只放行"await 之后再落 state"的形状。
+ */
+async function loadFeedAiReplies(): Promise<boolean | null> {
+  try {
+    const res = await fetch("/api/admin/settings/feed-ai-replies");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.enabled === true;
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -100,10 +118,42 @@ export default function SettingsPage() {
   const [lvNewForm, setLvNewForm] = useState<Partial<LevelConfigItem>>({ name: "", expRequired: 0, daysRequired: 0, postsRequired: 0, commentsLikedRequired: 0 });
   const [lvSubmitting, setLvSubmitting] = useState(false);
 
+  /* ---------- Feature flags state ---------- */
+  // null = 还没读到；读取失败也保持 null（界面显示"状态未知"，不要假装关闭）。
+  const [feedAiReplies, setFeedAiReplies] = useState<boolean | null>(null);
+  const [feedAiRepliesSaving, setFeedAiRepliesSaving] = useState(false);
+  const [feedAiRepliesError, setFeedAiRepliesError] = useState("");
+
+  const toggleFeedAiReplies = async (next: boolean) => {
+    setFeedAiRepliesSaving(true);
+    setFeedAiRepliesError("");
+    const previous = feedAiReplies;
+    try {
+      const res = await fetch("/api/admin/settings/feed-ai-replies", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setFeedAiReplies(data.enabled === true);
+    } catch {
+      // 保存失败时回读服务器状态，避免界面显示一个没落库的值；回读也失败就
+      // 沿用点击前的值，否则按钮会因 feedAiReplies === null 被永久禁用，连重试都点不了。
+      const reread = await loadFeedAiReplies();
+      setFeedAiReplies(reread ?? previous);
+      setFeedAiRepliesError("保存失败，请重试。界面显示的是服务器当前状态。");
+    } finally {
+      setFeedAiRepliesSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchKeywords();
     fetchAnnouncements();
     fetchLevelConfigs();
+    // 落 state 放在 then 回调里，而不是在 effect 里同步调用一个 setState 函数。
+    void loadFeedAiReplies().then((value) => setFeedAiReplies(value));
   }, []);
 
   /* ==================== Keywords ==================== */
@@ -280,6 +330,8 @@ export default function SettingsPage() {
     await fetch(`/api/admin/level-config/${level}`, { method: "DELETE" });
     fetchLevelConfigs();
   };
+
+  /* ==================== 功能开关 ==================== */
 
   /* ==================== Render ==================== */
 
@@ -679,6 +731,50 @@ export default function SettingsPage() {
             )}
           </div>
         )}
+      </section>
+
+      {/* ========== Section 5: 功能开关 ========== */}
+      <section className="bg-white border border-stone-200 rounded-lg p-6 border-t-0 rounded-t-none">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">功能开关</h2>
+        <p className="text-xs text-stone-500 mb-4">
+          保存后立即生效，不需要重建镜像；只影响前台展示，不改动任何数据。
+        </p>
+
+        <div className="flex items-start justify-between gap-4 border-t border-stone-100 pt-4">
+          <div>
+            <p className="text-sm font-medium text-stone-800">首页内联回复 · 展示 AI 评论</p>
+            <p className="text-xs text-stone-500 mt-1 leading-relaxed">
+              关闭时（默认）：首页卡片只展示真人评论，「N 条回复」也只算真人，AI 评论一条都不出现。
+              打开时：真人评论不变，只有还没有真人回复的帖子会用一条带来源标注的 AI 评论兜底。
+              详情页的评论树不受影响。
+            </p>
+            <p className="text-xs text-stone-400 mt-1">
+              注意：首页内联回复本身由部署开关 FEED_INLINE_REPLIES 控制；它关着时，这个开关点了也不会有可见变化。
+            </p>
+            {feedAiRepliesError && (
+              <p role="alert" className="text-xs text-red-600 mt-2">{feedAiRepliesError}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={feedAiReplies === true}
+            aria-label="首页内联回复展示 AI 评论"
+            disabled={feedAiRepliesSaving || feedAiReplies === null}
+            onClick={() => toggleFeedAiReplies(feedAiReplies !== true)}
+            className={`shrink-0 min-w-20 px-4 py-2 text-sm rounded-lg border transition disabled:opacity-50 ${
+              feedAiReplies === true
+                ? "bg-amber-800 text-white border-amber-800 hover:bg-amber-900"
+                : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+            }`}
+          >
+            {feedAiRepliesSaving
+              ? "保存中..."
+              : feedAiReplies === null
+                ? "状态未知"
+                : feedAiReplies ? "已开启" : "已关闭"}
+          </button>
+        </div>
       </section>
     </div>
   );

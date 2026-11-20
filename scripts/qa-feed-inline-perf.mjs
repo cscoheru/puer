@@ -179,6 +179,9 @@ async function baseline(c, pageIds) {
   return rows;
 }
 
+// 只测生产默认口径：`feed.aiReplies` 关闭时 AI 分支不进 SQL。后台把开关打开后会多一段
+// LATERAL 的 AI 兜底（每帖至多 1 行），本脚本不覆盖那个形状——需要时给两个 builder 传
+// `{ aiPreview: true }` 另跑一轮。
 async function branch(c, pageIds) {
   const candidates = await query(c, feedCommentCandidatesSql(pageIds, null));
   const counts = await query(c, feedVisibleCountsSql(pageIds, null));

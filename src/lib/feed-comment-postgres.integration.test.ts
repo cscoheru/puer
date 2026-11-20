@@ -255,7 +255,8 @@ test("human-first previews and whole-tree counts match GET visibility", { skip: 
     [syntheticAdmin, [id("human-mid"), id("human-new")], 6],
   ];
   for (const [actor, expectedPreview, expectedCount] of cases) {
-    const batch = await loadFeedCommentBatch([id("main")], actor, id("load"));
+    // 这些数字是「AI 开关打开」口径（整棵树都计数）。默认关闭的口径见下一个用例。
+    const batch = await loadFeedCommentBatch([id("main")], actor, id("load"), undefined, { aiPreview: true });
     assert.deepEqual(previewIds(batch, id("main")), expectedPreview, actor?.id ?? "anonymous");
     assert.equal(batch.counts!.get(id("main")), expectedCount, actor?.id ?? "anonymous");
     assert.ok(previewIds(batch, id("main")).every((commentId) => commentId !== id("synthetic-unmarked")));
@@ -270,9 +271,19 @@ test("AI fallback appears only with zero visible human top-level comments", { sk
     [moderator, [id("ai-pending-own"), id("ai-rejected")], 4],
   ];
   for (const [actor, expectedPreview, expectedCount] of cases) {
-    const batch = await loadFeedCommentBatch([id("ai")], actor, id("load"));
+    const batch = await loadFeedCommentBatch([id("ai")], actor, id("load"), undefined, { aiPreview: true });
     assert.deepEqual(previewIds(batch, id("ai")), expectedPreview, actor?.id ?? "anonymous");
     assert.equal(batch.counts!.get(id("ai")), expectedCount, actor?.id ?? "anonymous");
+  }
+});
+
+test("with the site flag off, AI comments leave both previews and counts", { skip: !ENABLED }, async () => {
+  // 默认口径：AI 不进预览，也不进「N 条回复」。这两个断言必须同生同死——
+  // 只要计数还含 AI，卡片就会出现「N 条回复」+「没有可预览的顶层回复」。
+  for (const actor of [null, realB] as const) {
+    const batch = await loadFeedCommentBatch([id("ai")], actor, id("load"));
+    assert.deepEqual(previewIds(batch, id("ai")), [], actor?.id ?? "anonymous");
+    assert.equal(batch.counts!.get(id("ai")) ?? 0, 0, actor?.id ?? "anonymous");
   }
 });
 
@@ -288,25 +299,30 @@ test("PostgreSQL truncates at 1024 code points, not UTF-16 units", { skip: !ENAB
 });
 
 test("N=24/30/300 use two loader reads and bound candidate/final/count rows", { skip: !ENABLED }, async () => {
-  for (const n of [24, 30, 300]) {
-    const ids = bulkIds.slice(0, n);
-    let dataReads = 0;
-    const batch = await loadFeedCommentBatch(ids, null, id("load"), {
-      previews: () => {
-        dataReads += 1;
-        return readPreviewCandidates(ids, null);
-      },
-      counts: () => {
-        dataReads += 1;
-        return readVisibleCounts(ids, null);
-      },
-    });
-    const candidates = await readFeedCommentCandidates(ids, null);
-    assert.equal(dataReads, 2, `N=${n} loader data reads`);
-    assert.equal(candidates.length, 3 * n, `N=${n} candidate rows`);
-    assert.equal([...batch.previews!.values()].flat().length, 2 * n, `N=${n} final rows`);
-    assert.equal(batch.counts!.size, n, `N=${n} count groups`);
-    assert.ok([...batch.counts!.values()].every((count) => count === 3));
+  // 两种口径都跑：关闭态是生产默认（AI 分支不进 SQL），打开态是后台开关打开后的形状。
+  for (const aiPreview of [false, true]) {
+    const options = { aiPreview };
+    const perArticle = aiPreview ? 3 : 2;
+    for (const n of [24, 30, 300]) {
+      const ids = bulkIds.slice(0, n);
+      let dataReads = 0;
+      const batch = await loadFeedCommentBatch(ids, null, id("load"), {
+        previews: () => {
+          dataReads += 1;
+          return readPreviewCandidates(ids, null, options);
+        },
+        counts: () => {
+          dataReads += 1;
+          return readVisibleCounts(ids, null, options);
+        },
+      }, options);
+      const candidates = await readFeedCommentCandidates(ids, null, options);
+      assert.equal(dataReads, 2, `N=${n} aiPreview=${aiPreview} loader data reads`);
+      assert.equal(candidates.length, perArticle * n, `N=${n} aiPreview=${aiPreview} candidate rows`);
+      assert.equal([...batch.previews!.values()].flat().length, 2 * n, `N=${n} aiPreview=${aiPreview} final rows`);
+      assert.equal(batch.counts!.size, n, `N=${n} aiPreview=${aiPreview} count groups`);
+      assert.ok([...batch.counts!.values()].every((count) => count === perArticle), `N=${n} aiPreview=${aiPreview} counts`);
+    }
   }
 });
 

@@ -173,6 +173,15 @@ async function seed() {
     ],
   });
 
+  // 首页 AI 预览默认关闭（`feed.aiReplies`）。这份 QA 矩阵的断言里有「AI 兜底」
+  // 和「整树计数含 AI」，所以这里显式打开；关闭态的契约由 unit 与 integration
+  // 测试覆盖（feed-comment-preview.test.ts / feed-comment-postgres.integration.test.ts）。
+  await prisma.siteSetting.upsert({
+    where: { key: "feed.aiReplies" },
+    create: { key: "feed.aiReplies", value: "1" },
+    update: { value: "1" },
+  });
+
   console.log(JSON.stringify({
     ok: true,
     viewer: { email: QA.viewerEmail, username: QA.viewerUsername, password: QA.password },

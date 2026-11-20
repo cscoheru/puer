@@ -5,6 +5,7 @@ import { convertText } from "@/lib/s2t";
 import { scoreThread, jitterSeed, jitterAmount, tierFactor } from "@/lib/hot-rank";
 import { loadRealReaders } from "@/lib/real-content";
 import { loadFeedCommentBatch } from "@/lib/feed-comment-preview";
+import { isFeedAiRepliesEnabled } from "@/lib/site-settings";
 import {
   isFeedInlineRepliesEnabled,
   type FeedCommentFields,
@@ -213,7 +214,16 @@ async function toDTO(
   if (!commentOptions.enabled || !commentOptions.commentLoadId) return articles;
 
   const commentLoadId = commentOptions.commentLoadId;
-  const batch = await loadFeedCommentBatch(rows.map((row) => row.id), viewer, commentLoadId);
+  // 运营开关（后台 /admin/settings → feed.aiReplies）。默认关闭：AI 评论不出现在
+  // 首页预览，计数也只算真人。读取失败时返回 false（失败即关）。
+  const aiPreview = await isFeedAiRepliesEnabled();
+  const batch = await loadFeedCommentBatch(
+    rows.map((row) => row.id),
+    viewer,
+    commentLoadId,
+    undefined,
+    { aiPreview },
+  );
   return articles.map((article) => ({
     ...article,
     commentPreview: batch.previews === null ? null : batch.previews.get(article.id) ?? [],

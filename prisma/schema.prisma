@@ -1309,3 +1309,19 @@ model DescriptorVocab {
   @@index([category, dim])
   @@map("descriptor_vocab")
 }
+
+/// 站点级运行时开关（key-value）。
+///
+/// 存在的意义：运营上要开关的功能，不该每次都改 `.env` + 重建容器。
+/// 只存开关与短文本，**不存凭据**；读取方统一走 `src/lib/site-settings.ts`，
+/// 那里的策略是「读不到 = 关闭」（失败即关），不要自己直接查表。
+model SiteSetting {
+  /// 形如 `feed.aiReplies`。命名用点分层，方便按前缀归类。
+  key       String   @id @db.VarChar(64)
+  value     String   @db.VarChar(64)
+  updatedAt DateTime @updatedAt @default(now())
+  /// 最近一次修改的后台用户 id（审计用；账号删除后保留原值）。
+  updatedBy String?
+
+  @@map("site_settings")
+}
