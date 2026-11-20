@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { REAL_AUTHOR } from "./real-author.ts";
+
+export { REAL_AUTHOR } from "./real-author.ts";
 
 /**
  * 展示层的「只计真人」口径（PRD v0.3 §12 决策 4「历史冒用：先锁定池子，
@@ -24,8 +27,8 @@ import { prisma } from "@/lib/prisma";
  *    article_views 的去重真实读者数。
  */
 
-/** 真人作者过滤条件（Prisma 关系过滤，to-one 关系的简写形式）。 */
-export const REAL_AUTHOR = { isSynthetic: false } as const;
+// The shared predicate lives in a runtime-free module (./real-author.ts) and is
+// re-exported above so existing callers keep their import path.
 
 export interface RealArticleCounts {
   /** 真人评论数。 */

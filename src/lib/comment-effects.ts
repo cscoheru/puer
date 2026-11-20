@@ -49,7 +49,12 @@ export async function publishCommentEffects(opts: {
         });
         parentAuthorId = parent?.authorId;
       }
-      notifyCommentReply(postArticle.authorId, authorId, articleId, parentAuthorId).catch(() => {});
+      notifyCommentReply(postArticle.authorId, authorId, articleId, parentAuthorId).catch(() => {
+        console.error("[comment-effects]", JSON.stringify({
+          commentId,
+          category: "notification_failed",
+        }));
+      });
     }
   }
 

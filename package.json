@@ -12,7 +12,9 @@
     "test:unit": "node --test --test-reporter=spec src/lib/*.test.ts src/lib/tea-drafts/*.test.ts src/lib/news-draft/*.test.ts src/lib/tasting-extract/*.test.ts scripts/*.test.mjs",
     "test:policy": "node --test --test-reporter=spec src/lib/upload-policy.test.ts",
     "test:cleanup": "node --test --test-reporter=spec src/lib/upload-cleanup.test.ts",
-    "test:db": "node --import tsx --test --test-concurrency=1 tests/tea-drafts/runner.integration.test.ts"
+    "test:db": "node --import tsx --test --test-concurrency=1 tests/tea-drafts/runner.integration.test.ts",
+    "test:feed:integration": "FEED_INLINE_REQUIRE_DB=1 node --import tsx --experimental-test-module-mocks --test --test-concurrency=1 src/lib/feed-comment-postgres.integration.test.ts",
+    "qa:feed:inline": "node scripts/qa-feed-inline.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
+import { feedLogCategory } from "@/lib/comment-feed-errors";
+import { isFeedInlineRepliesEnabled } from "@/lib/feed-comment-contract";
 import { fetchForumFeed, toTraditionalFeed } from "@/lib/forum-feed-server";
 import { clampOffset, paginationCapped } from "@/lib/pagination-limits";
 import { can } from "@/lib/permissions";
@@ -26,12 +29,27 @@ export async function GET(req: NextRequest) {
   // F0 反滥用：信息流滚到底有上限（管理员不受限）。offset 是服务端游标，
   // 越界时收敛到上限并告知客户端「已到底」，避免客户端无限下滑。
   const offset = clampOffset(requestedOffset, { isAdmin });
+  const inlineReplies = isFeedInlineRepliesEnabled(process.env.FEED_INLINE_REPLIES);
+  const loadId = inlineReplies ? randomUUID() : undefined;
+  // Built before the read so the failure response carries the same correlation
+  // headers as the success path (a 500 without a load ID cannot be traced back
+  // to the feed request that produced it).
+  const feedHeaders = (id: string | undefined) => {
+    const headers = new Headers({
+      "Cache-Control": "private, no-store",
+      "Vary": "Cookie",
+    });
+    if (id) headers.set("X-Comment-Load-ID", id);
+    return headers;
+  };
   try {
-    const { articles, hasMore } = await fetchForumFeed({
+    const { articles, hasMore, commentLoadId } = await fetchForumFeed({
       tab,
-      userId: session?.user?.id,
+      viewer: session?.user,
       offset,
       limit,
+      inlineReplies,
+      commentLoadId: loadId,
     });
     return NextResponse.json({
       articles: locale === "zh-TW" ? toTraditionalFeed(articles) : articles,
@@ -39,9 +57,12 @@ export async function GET(req: NextRequest) {
       offset,
       limit,
       capped: paginationCapped(requestedOffset, offset),
-    });
+    }, { headers: feedHeaders(commentLoadId ?? loadId) });
   } catch (e) {
-    console.error("[api/forum/feed]", e);
-    return NextResponse.json({ error: "加载失败" }, { status: 500 });
+    console.error("[api/forum/feed]", JSON.stringify({
+      commentLoadId: loadId,
+      category: feedLogCategory(e),
+    }));
+    return NextResponse.json({ error: "加载失败" }, { status: 500, headers: feedHeaders(loadId) });
   }
 }

@@ -52,10 +52,13 @@ export default function OriginDisclosure({
     return (
       <span
         className={
-          "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.65rem] font-medium " +
+          // Matches the meta row it sits in (text-xs). The previous 0.65rem
+          // (~10.4px) was smaller than every neighbouring label, which defeats
+          // the point of a disclosure badge (F0: 读者分得清).
+          "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium " +
           "bg-stone-100 text-stone-600 shrink-0 " + className
         }
-        title="这条回复由 AI 生成，不是真人茶友"
+        title={translate ? translate("这条回复由 AI 生成，不是真人茶友") : "这条回复由 AI 生成，不是真人茶友"}
       >
         <span aria-hidden="true">◇</span>
         {label}

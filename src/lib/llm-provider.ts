@@ -34,8 +34,25 @@
  * 真问题埋掉。
  */
 
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
+const DEEPSEEK_DEFAULT_URL = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+
+/**
+ * Base URL override for hermetic QA. Production leaves it unset and always
+ * talks to the real endpoint; the isolated harness points it at its loopback
+ * OpenAI-compatible double. Read at call time so a single process can be
+ * pointed at a test double without rebuilding.
+ */
+function deepseekUrl(): string {
+  // Ignore the override in production: a stray env var must never be able to
+  // redirect user content to another host.
+  const base = process.env.NODE_ENV === "production"
+    ? undefined
+    : process.env.DEEPSEEK_BASE_URL?.trim();
+  return base
+    ? `${base.replace(/\/+$/, "")}/chat/completions`
+    : DEEPSEEK_DEFAULT_URL;
+}
 const DEEPSEEK_TIMEOUT_MS = 45_000;
 
 // ── 火山方舟 Agent Plan（2026-11-12 新增，DeepSeek 配额耗尽时的第二供应商）──
@@ -191,7 +208,7 @@ export interface LLMRawResult {
 export function deepseekTarget(apiKey = process.env.DEEPSEEK_API_KEY): LLMTarget {
   return {
     id: "deepseek",
-    url: DEEPSEEK_URL,
+    url: deepseekUrl(),
     model: DEEPSEEK_MODEL,
     maxKey: "max_tokens",
     // env 读取边界归一：纯空白 key 当未配置，绝不发出 `Bearer  ` 这种头。

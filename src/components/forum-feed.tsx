@@ -6,6 +6,8 @@ import VoteButton from "@/components/vote-button";
 import VideoPlayer from "@/components/video-player";
 import AuthorHover from "@/components/author-hover";
 import FollowThreadButton from "@/components/follow-thread-button";
+import FeedCommentPreview from "@/components/feed-comment-preview";
+import type { FeedCommentFields } from "@/lib/feed-comment-contract";
 import { getFlair } from "@/lib/forum-constants";
 import { useLocale } from "@/i18n/context";
 import { t, twHref } from "@/i18n/translations";
@@ -33,7 +35,7 @@ function markSeen(id: string) {
   } catch {}
 }
 
-interface FeedArticle {
+interface FeedArticle extends Partial<FeedCommentFields> {
   id: string;
   title: string;
   upvotes: number;
@@ -55,6 +57,11 @@ interface FeedArticle {
   board: { slug: string; name: string } | null;
   author: { id: string; username: string; avatar: string | null; level: number; followerCount: number; karma: number };
   initialVote: number;
+}
+
+function hasInlineComments(article: FeedArticle): article is FeedArticle & FeedCommentFields {
+  return article.commentPreview !== undefined &&
+    article.visibleReplyCount !== undefined && typeof article.commentLoadId === "string";
 }
 
 interface Board {
@@ -397,7 +404,7 @@ export default function ForumFeed({ articles, boards, currentUserId, tab }: Foru
       ) : (
         <div className="space-y-1">
           {items.map((article) => (
-            <div key={article.id} data-article-id={article.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
+            <div key={article.id} id={`post-${article.id}`} data-article-id={article.id} ref={(el) => { if (el && seenTrackerRef.current) seenTrackerRef.current.observe(el); }}>
               <ArticleCard
                 article={article}
                 currentUserId={currentUserId}
@@ -422,6 +429,11 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
   const [videoFailed, setVideoFailed] = useState(false);
   const effectiveVideoUrl = videoFailed ? null : article.videoUrl;
   const flairDef = getFlair(article.flair);
+  const inlineComments = hasInlineComments(article);
+  // The preview section reports its live count back so the chip below cannot
+  // keep showing the server-rendered number after a reply lands.
+  const [liveReplyCount, setLiveReplyCount] = useState(article.visibleReplyCount);
+  const detailHref = twHref(locale, `/forum/thread/${article.id}#comments`);
 
   return (
     <div className="bg-white border border-stone-200 rounded-lg hover:border-stone-300 transition overflow-hidden relative flex flex-col">
@@ -537,19 +549,34 @@ function ArticleCard({ article, currentUserId, isNew }: { article: FeedArticle; 
           size="sm"
         />
         <Link
-          href={twHref(locale, `/forum/thread/${article.id}`)}
-          className="flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-900 transition"
+          href={inlineComments ? detailHref : twHref(locale, `/forum/thread/${article.id}`)}
+          className="flex items-center gap-1.5 px-3 min-h-11 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-900 transition"
           title={_("评论")}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
-          {article.replyCount > 0 ? article.replyCount : _("评论")}
+          {inlineComments
+            ? liveReplyCount && liveReplyCount > 0
+              ? liveReplyCount
+              : _("评论")
+            : article.replyCount > 0 ? article.replyCount : _("评论")}
         </Link>
         <div className="ml-auto">
           <FollowThreadButton articleId={article.id} />
         </div>
       </div>
+      {inlineComments && (
+        <FeedCommentPreview
+          articleId={article.id}
+          currentUserId={currentUserId}
+          commentPreview={article.commentPreview}
+          visibleReplyCount={article.visibleReplyCount}
+          commentLoadId={article.commentLoadId}
+          detailHref={detailHref}
+          onVisibleCountChange={setLiveReplyCount}
+        />
+      )}
     </div>
   );
 }

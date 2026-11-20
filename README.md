@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PuerHub
 
-## Getting Started
+普洱茶社区，基于 Next.js 16、React 19、Prisma 与 PostgreSQL。论坛入口是 `/forum`，繁体镜像是 `/tw/forum`；源码位于 `src/`。
 
-First, run the development server:
+## 本地检查
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npx prisma generate
+npm run typecheck
+npm run test:unit
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+单测使用 `node:test`，不是 Vitest。真实 PostgreSQL 集成测试默认跳过，只有显式设置 loopback-only 的 `FEED_INLINE_TEST_DATABASE_URL` 才执行；不会回退到 `DATABASE_URL`。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 首页内联回复：一键真实浏览器 QA
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+依赖已安装、Prisma Client 已生成后，只需：
 
-## Learn More
+```bash
+npm run qa:feed:inline
+```
 
-To learn more about Next.js, take a look at the following resources:
+它会创建临时 PostgreSQL 16、无 `.env*` 的隔离源码树、loopback 审核服务替身与随机端口 dev server，先用 Chromium 验证 flag-off，再验证 `/forum` 与 `/tw/forum` 的桌面/移动完整矩阵。截图、日志和结果写入 `.gstack/qa-reports/feed-inline-*`，退出时清理它拥有的进程与临时目录。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+前置条件与缺失时的明确报错见 [docs/feed-inline-replies.md](docs/feed-inline-replies.md)。该命令不读取生产 `.env`，不连接非 loopback 数据库，也不会部署。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 生产
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+生产镜像在服务器本机构建，不在 Mac 上构建。部署前必须阅读 `AGENTS.md` 与 `docs/release-checklist.md`；本仓库的部署同步必须带每次重新生成的 rsync `--files-from` 清单，严禁同步仓库根目录或生产 `.env`。

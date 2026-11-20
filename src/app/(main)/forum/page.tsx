@@ -56,7 +56,7 @@ export default async function ForumPage(props: {
   // 归档续读自动补满，避免首屏只有 2-3 张卡、头部永远是同样几张老帖。
   const { articles: feedArticles } = await fetchForumFeed({
     tab,
-    userId: session?.user?.id,
+    viewer: session?.user,
     limit: 24,
   });
 

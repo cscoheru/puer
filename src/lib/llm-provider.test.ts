@@ -172,6 +172,46 @@ test("target 工厂：纯空白 key 归一为 undefined，绝不发出 Bearer �
   assert.equal(deepseekTarget("  real-key  ").apiKey, "real-key");
 });
 
+test("DEEPSEEK_BASE_URL only redirects the endpoint when explicitly set", () => {
+  const previous = process.env.DEEPSEEK_BASE_URL;
+  const previousNodeEnv = process.env.NODE_ENV;
+  // deepseekUrl() ignores the override under NODE_ENV=production, so leaving the
+  // ambient value in place makes `NODE_ENV=production npm run test:unit` a false
+  // red against correct behaviour.
+  Reflect.set(process.env, "NODE_ENV", "test");
+  try {
+    delete process.env.DEEPSEEK_BASE_URL;
+    assert.equal(deepseekTarget("k").url, "https://api.deepseek.com/v1/chat/completions");
+    process.env.DEEPSEEK_BASE_URL = "http://127.0.0.1:4321/v1/";
+    assert.equal(deepseekTarget("k").url, "http://127.0.0.1:4321/v1/chat/completions");
+  } finally {
+    if (previous === undefined) delete process.env.DEEPSEEK_BASE_URL;
+    else process.env.DEEPSEEK_BASE_URL = previous;
+    if (previousNodeEnv === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
+    else Reflect.set(process.env, "NODE_ENV", previousNodeEnv);
+  }
+});
+
+test("production ignores the QA base-URL override", () => {
+  const previousBase = process.env.DEEPSEEK_BASE_URL;
+  const previousNodeEnv = process.env.NODE_ENV;
+  // Next types NODE_ENV as read-only; Reflect keeps this test runtime-only.
+  try {
+    process.env.DEEPSEEK_BASE_URL = "https://evil.example/v1";
+    Reflect.set(process.env, "NODE_ENV", "production");
+    assert.equal(
+      deepseekTarget("k").url,
+      "https://api.deepseek.com/v1/chat/completions",
+      "a stray env var must not redirect production user content",
+    );
+  } finally {
+    if (previousBase === undefined) delete process.env.DEEPSEEK_BASE_URL;
+    else process.env.DEEPSEEK_BASE_URL = previousBase;
+    if (previousNodeEnv === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
+    else Reflect.set(process.env, "NODE_ENV", previousNodeEnv);
+  }
+});
+
 test("buildChatBody：Ark target 强制温度 0.6 且不带 response_format", () => {
   const ark = arkAgentPlanTarget("ark-key");
   const body = buildChatBody(

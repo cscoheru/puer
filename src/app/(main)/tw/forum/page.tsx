@@ -84,7 +84,7 @@ export default async function TwForumPage(props: {
   // boundary, not after (see the file header).
   const { articles } = await fetchForumFeed({
     tab,
-    userId: session?.user?.id,
+    viewer: session?.user,
     limit: 24,
   });
   const feedArticles = toTraditionalFeed(articles);

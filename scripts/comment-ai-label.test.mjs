@@ -52,10 +52,14 @@ test("cron 包装层必须 export AUTO_REPLY_ENABLED（漏了开关就是死的�
 });
 
 test("评论列表放行带 AI 标注的评论（但未标注的机器人评论仍隐藏）", () => {
-  const src = read("src/app/api/comments/route.ts");
-  assert.match(src, /AI_COMMENT_ORIGINS/, "必须用共享的标注词汇");
-  assert.match(src, /origin: \{ in:/, "必须按 origin 放行 AI 标注的评论");
-  assert.match(src, /REAL_AUTHOR/, "真人作者过滤必须保留");
+  const route = read("src/app/api/comments/route.ts");
+  const visibility = read("src/lib/comment-visibility.ts");
+  // 路由不再自己拼口径：可见性只有一个 owner，路由必须委托给它。
+  assert.match(route, /commentVisibility/, "路由必须走共享的可见性判定");
+  assert.doesNotMatch(route, /origin: \{ in:/, "路由不许自建第二套 origin 口径");
+  assert.match(visibility, /AI_COMMENT_ORIGINS/, "共享判定必须用同一份标注词汇");
+  assert.match(visibility, /origin: \{ in: origins \}/, "必须按 origin 放行 AI 标注的评论");
+  assert.match(visibility, /REAL_AUTHOR/, "真人作者过滤必须保留");
 });
 
 test("crontab 正本：自动回复有一行，auto-vote 仍标注为停用", () => {

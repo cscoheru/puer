@@ -1,8 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { visibleArticleWhere } from "@/lib/article-visibility";
 import { convertText } from "@/lib/s2t";
 import { scoreThread, jitterSeed, jitterAmount, tierFactor } from "@/lib/hot-rank";
 import { loadRealReaders } from "@/lib/real-content";
+import { loadFeedCommentBatch } from "@/lib/feed-comment-preview";
+import {
+  isFeedInlineRepliesEnabled,
+  type FeedCommentFields,
+} from "@/lib/feed-comment-contract";
+import type { Actor } from "@/lib/permissions";
 
 /**
  * 论坛 feed 共享数据层（P2-R3 移动端懒加载）。
@@ -14,7 +21,7 @@ import { loadRealReaders } from "@/lib/real-content";
  * 的帖子（排除置顶，客户端按 id 去重），让移动端无限下滑始终有内容。
  */
 
-export interface FeedArticleDTO {
+export interface FeedArticleDTO extends Partial<FeedCommentFields> {
   id: string;
   title: string;
   upvotes: number;
@@ -59,12 +66,23 @@ export interface FeedArticleDTO {
  *     zhCNtoTW map, so they are translated client-side via `_()`.
  */
 export function toTraditionalFeed(articles: FeedArticleDTO[]): FeedArticleDTO[] {
-  return articles.map((a) => ({
-    ...a,
-    title: convertText(a.title),
-    content: convertText(a.content),
-    board: a.board ? { ...a.board, name: convertText(a.board.name) } : a.board,
-  }));
+  return articles.map((a) => {
+    const converted: FeedArticleDTO = {
+      ...a,
+      title: convertText(a.title),
+      content: convertText(a.content),
+      board: a.board ? { ...a.board, name: convertText(a.board.name) } : a.board,
+    };
+    if (a.commentPreview !== undefined) {
+      converted.commentPreview = a.commentPreview === null
+        ? null
+        : a.commentPreview.map((comment) => ({
+            ...comment,
+            content: convertText(comment.content),
+          }));
+    }
+    return converted;
+  });
 }
 
 /** Board names for the feed's board filter — the same client-boundary rule as
@@ -158,7 +176,12 @@ function applyClassicsCap(rows: ArticleRow[], cap = 0.3): ArticleRow[] {
   return [...nonClassics, ...classics.slice(0, maxClassics), ...classics.slice(maxClassics)];
 }
 
-async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedArticleDTO[]> {
+async function toDTO(
+  rows: ArticleRow[],
+  viewer: Actor | null | undefined,
+  commentOptions: { enabled: boolean; commentLoadId?: string },
+): Promise<FeedArticleDTO[]> {
+  const userId = viewer?.id ?? null;
   const voteMap = new Map<string, number>();
   if (userId && rows.length > 0) {
     const votes = await prisma.vote.findMany({
@@ -167,7 +190,7 @@ async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedAr
     });
     votes.forEach((v) => voteMap.set(v.refId, v.value));
   }
-  return rows.map((a) => ({
+  const articles: FeedArticleDTO[] = rows.map((a) => ({
     id: a.id,
     title: a.title,
     upvotes: a.upvotes,
@@ -187,14 +210,30 @@ async function toDTO(rows: ArticleRow[], userId?: string | null): Promise<FeedAr
     author: a.author,
     initialVote: voteMap.get(a.id) || 0,
   }));
+  if (!commentOptions.enabled || !commentOptions.commentLoadId) return articles;
+
+  const commentLoadId = commentOptions.commentLoadId;
+  const batch = await loadFeedCommentBatch(rows.map((row) => row.id), viewer, commentLoadId);
+  return articles.map((article) => ({
+    ...article,
+    commentPreview: batch.previews === null ? null : batch.previews.get(article.id) ?? [],
+    visibleReplyCount: batch.counts === null ? null : batch.counts.get(article.id) ?? 0,
+    commentLoadId,
+  }));
 }
 
 export async function fetchForumFeed(opts: {
   tab: string;
-  userId?: string | null;
+  viewer?: Actor | null;
   offset?: number;
   limit?: number;
-}): Promise<{ articles: FeedArticleDTO[]; hasMore: boolean }> {
+  /** Test-only explicit gate/load values; production callers use the server env and a fresh UUID. */
+  inlineReplies?: boolean;
+  commentLoadId?: string;
+}): Promise<{ articles: FeedArticleDTO[]; hasMore: boolean; commentLoadId?: string }> {
+  const userId = opts.viewer?.id ?? null;
+  const inlineReplies = opts.inlineReplies ?? isFeedInlineRepliesEnabled(process.env.FEED_INLINE_REPLIES);
+  const commentLoadId = inlineReplies ? opts.commentLoadId ?? randomUUID() : undefined;
   // tab 归一化（与 forum/page.tsx 一致，legacy hot → week）
   const VALID_TABS = ["day", "week", "month", "latest", "essence"] as const;
   let tab = opts.tab || "week";
@@ -212,8 +251,8 @@ export async function fetchForumFeed(opts: {
     AND: [
       {
         OR: [
-          visibleArticleWhere(opts.userId ?? undefined),
-          ...(opts.userId ? [{ status: "pending_review" as const, authorId: opts.userId }] : []),
+          visibleArticleWhere(userId ?? undefined),
+          ...(userId ? [{ status: "pending_review" as const, authorId: userId }] : []),
         ],
       },
     ],
@@ -296,12 +335,20 @@ export async function fetchForumFeed(opts: {
       return hasMedia ? totalEngage >= 1 : totalEngage >= minEngage;
     });
 
-    const paged = await hotRankAndPage({ filtered, manualPinned, wherePublished, offset, limit, userId: opts.userId });
+    const paged = await hotRankAndPage({ filtered, manualPinned, wherePublished, offset, limit, userId: userId });
     rows = paged.rows;
     hasMore = paged.hasMore;
   }
 
-  return { articles: await toDTO(applyClassicsCap(rows), opts.userId), hasMore };
+  const articles = await toDTO(applyClassicsCap(rows), opts.viewer, {
+    enabled: inlineReplies,
+    commentLoadId,
+  });
+  return {
+    articles,
+    hasMore,
+    ...(commentLoadId ? { commentLoadId } : {}),
+  };
 }
 
 /** v4 热榜打分 + 分页 + 归档续读（day/week/month tab 专用） */
